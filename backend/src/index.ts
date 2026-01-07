@@ -6,6 +6,7 @@ import { env } from './config/env';
 import { connectDatabase } from './config/database';
 import { errorMiddleware } from './shared/middleware/error.middleware';
 import authRoutes from './modules/auth/auth.routes';
+import inventoryRoutes from './modules/inventory/item.routes';
 
 const app: Express = express();
 
@@ -49,6 +50,7 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/inventory', inventoryRoutes);
 
 // 404 handler
 app.use((req, res) => {
