@@ -5,6 +5,11 @@ import LoginPage from './modules/auth/LoginPage';
 import RegisterPage from './modules/auth/RegisterPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import Dashboard from './modules/dashboard/Dashboard';
+import InventoryPage from './modules/inventory/InventoryPage';
+import CreateItemPage from './modules/inventory/CreateItemPage';
+import ItemDetailPage from './modules/inventory/ItemDetailPage';
+import EditItemPage from './modules/inventory/EditItemPage';
+import CategoriesPage from './modules/inventory/CategoriesPage';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -28,6 +33,46 @@ function App() {
             element={
               <ProtectedRoute>
                 <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/items"
+            element={
+              <ProtectedRoute>
+                <InventoryPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/items/new"
+            element={
+              <ProtectedRoute>
+                <CreateItemPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/items/:id"
+            element={
+              <ProtectedRoute>
+                <ItemDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/items/:id/edit"
+            element={
+              <ProtectedRoute>
+                <EditItemPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/inventory/categories"
+            element={
+              <ProtectedRoute>
+                <CategoriesPage />
               </ProtectedRoute>
             }
           />
