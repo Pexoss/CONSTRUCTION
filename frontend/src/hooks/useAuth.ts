@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../store/auth.store';
 import { authService } from '../modules/auth/auth.service';
@@ -8,18 +9,26 @@ export const useAuth = () => {
   const queryClient = useQueryClient();
 
   // Get current user
-  const { data: currentUser, isLoading: isLoadingUser } = useQuery({
+  const { data: currentUser, isLoading: isLoadingUser, error: userError } = useQuery({
     queryKey: ['me'],
     queryFn: () => authService.getMe(),
     enabled: isAuthenticated && !!localStorage.getItem('accessToken'),
     retry: false,
-    onSuccess: (data) => {
-      setUser(data.data);
-    },
-    onError: () => {
-      logout();
-    },
   });
+
+  // Handle user data when query succeeds
+  useEffect(() => {
+    if (currentUser?.data) {
+      setUser(currentUser.data);
+    }
+  }, [currentUser, setUser]);
+
+  // Handle user query error
+  useEffect(() => {
+    if (userError) {
+      logout();
+    }
+  }, [userError, logout]);
 
   // Login mutation
   const loginMutation = useMutation({

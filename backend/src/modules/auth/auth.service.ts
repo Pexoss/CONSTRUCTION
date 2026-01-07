@@ -45,90 +45,143 @@ class AuthService {
    * Register a new company and create the first superadmin user
    */
   async registerCompany(data: RegisterCompanyData): Promise<{ company: any; user: any; tokens: AuthTokens }> {
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    // Check if company already exists (before transaction to avoid unnecessary session)
+    const existingCompany = await Company.findOne({
+      $or: [{ cnpj: data.cnpj.replace(/\D/g, '') }, { email: data.email }],
+    });
 
+    if (existingCompany) {
+      throw new Error('Company with this CNPJ or email already exists');
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({
+      email: data.userEmail,
+    });
+
+    if (existingUser) {
+      throw new Error('User with this email already exists');
+    }
+
+    // Try to use transaction if replica set is available, otherwise use regular operations
     try {
-      // Check if company already exists
-      const existingCompany = await Company.findOne({
-        $or: [{ cnpj: data.cnpj.replace(/\D/g, '') }, { email: data.email }],
-      }).session(session);
+      const session = await mongoose.startSession();
+      
+      try {
+        session.startTransaction();
 
-      if (existingCompany) {
-        throw new Error('Company with this CNPJ or email already exists');
-      }
-
-      // Create company
-      const company = await Company.create(
-        [
-          {
-            name: data.companyName,
-            cnpj: data.cnpj.replace(/\D/g, ''), // Remove non-numeric characters
-            email: data.email,
-            phone: data.phone,
-            address: data.address,
-            subscription: {
-              plan: 'basic',
-              status: 'active',
+        // Create company with session
+        const company = await Company.create(
+          [
+            {
+              name: data.companyName,
+              cnpj: data.cnpj.replace(/\D/g, ''),
+              email: data.email,
+              phone: data.phone,
+              address: data.address,
+              subscription: {
+                plan: 'basic',
+                status: 'active',
+              },
             },
+          ],
+          { session }
+        );
+
+        // Create first user (superadmin) with session
+        const user = await User.create(
+          [
+            {
+              companyId: company[0]._id,
+              name: data.userName,
+              email: data.userEmail,
+              password: data.password,
+              role: UserRole.SUPERADMIN,
+              isActive: true,
+            },
+          ],
+          { session }
+        );
+
+        await session.commitTransaction();
+        session.endSession();
+
+        // Generate tokens
+        const tokens = {
+          accessToken: generateAccessToken(user[0]._id.toString(), company[0]._id.toString(), user[0].role),
+          refreshToken: generateRefreshToken(user[0]._id.toString(), company[0]._id.toString()),
+        };
+
+        return {
+          company: {
+            _id: company[0]._id,
+            name: company[0].name,
+            email: company[0].email,
+            cnpj: company[0].cnpj,
           },
-        ],
-        { session }
-      );
-
-      // Check if user already exists
-      const existingUser = await User.findOne({
-        email: data.userEmail,
-      }).session(session);
-
-      if (existingUser) {
-        throw new Error('User with this email already exists');
+          user: {
+            _id: user[0]._id,
+            name: user[0].name,
+            email: user[0].email,
+            role: user[0].role,
+            companyId: user[0].companyId,
+          },
+          tokens,
+        };
+      } catch (transactionError: any) {
+        await session.abortTransaction().catch(() => {}); // Ignore abort errors
+        session.endSession();
+        throw transactionError;
       }
-
-      // Create first user (superadmin)
-      const user = await User.create(
-        [
-          {
-            companyId: company[0]._id,
-            name: data.userName,
-            email: data.userEmail,
-            password: data.password,
-            role: UserRole.SUPERADMIN,
-            isActive: true,
+    } catch (transactionError: any) {
+      // If transaction fails (e.g., no replica set), fall back to regular operations
+      if (transactionError.message?.includes('replica set') || transactionError.message?.includes('mongos')) {
+        // Fallback: create without transaction (for development)
+        const company = await Company.create({
+          name: data.companyName,
+          cnpj: data.cnpj.replace(/\D/g, ''),
+          email: data.email,
+          phone: data.phone,
+          address: data.address,
+          subscription: {
+            plan: 'basic',
+            status: 'active',
           },
-        ],
-        { session }
-      );
+        });
 
-      await session.commitTransaction();
-      session.endSession();
+        const user = await User.create({
+          companyId: company._id,
+          name: data.userName,
+          email: data.userEmail,
+          password: data.password,
+          role: UserRole.SUPERADMIN,
+          isActive: true,
+        });
 
-      // Generate tokens
-      const tokens = {
-        accessToken: generateAccessToken(user[0]._id.toString(), company[0]._id.toString(), user[0].role),
-        refreshToken: generateRefreshToken(user[0]._id.toString(), company[0]._id.toString()),
-      };
+        // Generate tokens
+        const tokens = {
+          accessToken: generateAccessToken(user._id.toString(), company._id.toString(), user.role),
+          refreshToken: generateRefreshToken(user._id.toString(), company._id.toString()),
+        };
 
-      return {
-        company: {
-          _id: company[0]._id,
-          name: company[0].name,
-          email: company[0].email,
-          cnpj: company[0].cnpj,
-        },
-        user: {
-          _id: user[0]._id,
-          name: user[0].name,
-          email: user[0].email,
-          role: user[0].role,
-          companyId: user[0].companyId,
-        },
-        tokens,
-      };
-    } catch (error: any) {
-      await session.abortTransaction();
-      session.endSession();
-      throw error;
+        return {
+          company: {
+            _id: company._id,
+            name: company.name,
+            email: company.email,
+            cnpj: company.cnpj,
+          },
+          user: {
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            companyId: user.companyId,
+          },
+          tokens,
+        };
+      }
+      throw transactionError;
     }
   }
 
