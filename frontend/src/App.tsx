@@ -10,6 +10,12 @@ import CreateItemPage from './modules/inventory/CreateItemPage';
 import ItemDetailPage from './modules/inventory/ItemDetailPage';
 import EditItemPage from './modules/inventory/EditItemPage';
 import CategoriesPage from './modules/inventory/CategoriesPage';
+import CustomersPage from './modules/customers/CustomersPage';
+import CreateCustomerPage from './modules/customers/CreateCustomerPage';
+import EditCustomerPage from './modules/customers/EditCustomerPage';
+import RentalsPage from './modules/rentals/RentalsPage';
+import CreateRentalPage from './modules/rentals/CreateRentalPage';
+import RentalDetailPage from './modules/rentals/RentalDetailPage';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -73,6 +79,54 @@ function App() {
             element={
               <ProtectedRoute>
                 <CategoriesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/customers"
+            element={
+              <ProtectedRoute>
+                <CustomersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/customers/new"
+            element={
+              <ProtectedRoute>
+                <CreateCustomerPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/customers/:id/edit"
+            element={
+              <ProtectedRoute>
+                <EditCustomerPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rentals"
+            element={
+              <ProtectedRoute>
+                <RentalsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rentals/new"
+            element={
+              <ProtectedRoute>
+                <CreateRentalPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rentals/:id"
+            element={
+              <ProtectedRoute>
+                <RentalDetailPage />
               </ProtectedRoute>
             }
           />
