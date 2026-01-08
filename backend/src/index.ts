@@ -1,9 +1,10 @@
 import express, { Express } from 'express';
+import { Server } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
-import { connectDatabase } from './config/database';
+import { connectDatabase, closeDatabase } from './config/database';
 import { errorMiddleware } from './shared/middleware/error.middleware';
 import authRoutes from './modules/auth/auth.routes';
 import inventoryRoutes from './modules/inventory/item.routes';
@@ -68,6 +69,8 @@ app.use((req, res) => {
 app.use(errorMiddleware);
 
 // Start server
+let server: Server | undefined;
+
 const startServer = async () => {
   try {
     // Connect to database
@@ -75,7 +78,7 @@ const startServer = async () => {
 
     // Start listening
     const PORT = parseInt(env.PORT);
-    app.listen(PORT, () => {
+    server = app.listen(PORT, () => {
       console.log(`🚀 Server is running on port ${PORT}`);
       console.log(`📝 Environment: ${env.NODE_ENV}`);
       console.log(`🔗 API: http://localhost:${PORT}/api`);
@@ -85,5 +88,68 @@ const startServer = async () => {
     process.exit(1);
   }
 };
+
+// Graceful shutdown handler
+const gracefulShutdown = async (signal: string) => {
+  console.log(`\n${signal} received. Starting graceful shutdown...`);
+
+  // Close HTTP server first (stop accepting new requests)
+  if (server) {
+    return new Promise<void>((resolve) => {
+      server.close(() => {
+        console.log('✅ HTTP server closed');
+        
+        // Close database connection after server is closed
+        closeDatabase()
+          .then(() => {
+            console.log('✅ Graceful shutdown completed');
+            resolve();
+            process.exit(0);
+          })
+          .catch((error) => {
+            console.error('❌ Error during shutdown:', error);
+            resolve();
+            process.exit(1);
+          });
+      });
+
+      // Force close after 10 seconds if graceful shutdown fails
+      setTimeout(() => {
+        console.error('⚠️  Forcing shutdown after timeout');
+        closeDatabase()
+          .catch(() => {})
+          .finally(() => {
+            process.exit(1);
+          });
+      }, 10000);
+    });
+  } else {
+    // If server is not running, just close database
+    try {
+      await closeDatabase();
+      console.log('✅ Graceful shutdown completed');
+      process.exit(0);
+    } catch (error) {
+      console.error('❌ Error during shutdown:', error);
+      process.exit(1);
+    }
+  }
+};
+
+// Handle shutdown signals
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException');
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
+});
 
 startServer();
