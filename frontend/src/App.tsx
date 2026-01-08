@@ -16,6 +16,9 @@ import EditCustomerPage from './modules/customers/EditCustomerPage';
 import RentalsPage from './modules/rentals/RentalsPage';
 import CreateRentalPage from './modules/rentals/CreateRentalPage';
 import RentalDetailPage from './modules/rentals/RentalDetailPage';
+import MaintenancesPage from './modules/maintenance/MaintenancesPage';
+import CreateMaintenancePage from './modules/maintenance/CreateMaintenancePage';
+import MaintenanceDetailPage from './modules/maintenance/MaintenanceDetailPage';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -127,6 +130,30 @@ function App() {
             element={
               <ProtectedRoute>
                 <RentalDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/maintenance"
+            element={
+              <ProtectedRoute>
+                <MaintenancesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/maintenance/new"
+            element={
+              <ProtectedRoute>
+                <CreateMaintenancePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/maintenance/:id"
+            element={
+              <ProtectedRoute>
+                <MaintenanceDetailPage />
               </ProtectedRoute>
             }
           />

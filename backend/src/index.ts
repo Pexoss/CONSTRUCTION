@@ -10,6 +10,7 @@ import authRoutes from './modules/auth/auth.routes';
 import inventoryRoutes from './modules/inventory/item.routes';
 import customerRoutes from './modules/customers/customer.routes';
 import rentalRoutes from './modules/rentals/rental.routes';
+import maintenanceRoutes from './modules/maintenance/maintenance.routes';
 
 const app: Express = express();
 
@@ -56,6 +57,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api', customerRoutes);
 app.use('/api', rentalRoutes);
+app.use('/api', maintenanceRoutes);
 
 // 404 handler
 app.use((req, res) => {
