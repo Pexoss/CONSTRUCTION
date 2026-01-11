@@ -19,6 +19,8 @@ import RentalDetailPage from './modules/rentals/RentalDetailPage';
 import MaintenancesPage from './modules/maintenance/MaintenancesPage';
 import CreateMaintenancePage from './modules/maintenance/CreateMaintenancePage';
 import MaintenanceDetailPage from './modules/maintenance/MaintenanceDetailPage';
+import FinancialDashboardPage from './modules/transactions/FinancialDashboardPage';
+import InvoicesPage from './modules/invoices/InvoicesPage';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -154,6 +156,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <MaintenanceDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/finance"
+            element={
+              <ProtectedRoute>
+                <FinancialDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/invoices"
+            element={
+              <ProtectedRoute>
+                <InvoicesPage />
               </ProtectedRoute>
             }
           />

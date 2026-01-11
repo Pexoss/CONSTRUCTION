@@ -11,6 +11,8 @@ import inventoryRoutes from './modules/inventory/item.routes';
 import customerRoutes from './modules/customers/customer.routes';
 import rentalRoutes from './modules/rentals/rental.routes';
 import maintenanceRoutes from './modules/maintenance/maintenance.routes';
+import transactionRoutes from './modules/transactions/transaction.routes';
+import invoiceRoutes from './modules/invoices/invoice.routes';
 
 const app: Express = express();
 
@@ -21,9 +23,25 @@ app.set('trust proxy', 1);
 app.use(helmet());
 
 // CORS configuration
+const allowedOrigins = env.CORS_ORIGIN.split(',').map((origin) => origin.trim());
 app.use(
   cors({
-    origin: env.CORS_ORIGIN,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      // In development, allow localhost on any port
+      if (env.NODE_ENV === 'development' && origin.startsWith('http://localhost:')) {
+        return callback(null, true);
+      }
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
   })
 );
@@ -58,6 +76,8 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api', customerRoutes);
 app.use('/api', rentalRoutes);
 app.use('/api', maintenanceRoutes);
+app.use('/api', transactionRoutes);
+app.use('/api', invoiceRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -96,9 +116,10 @@ const gracefulShutdown = async (signal: string) => {
   console.log(`\n${signal} received. Starting graceful shutdown...`);
 
   // Close HTTP server first (stop accepting new requests)
-  if (server) {
+  const currentServer = server;
+  if (currentServer) {
     return new Promise<void>((resolve) => {
-      server.close(() => {
+      currentServer.close(() => {
         console.log('✅ HTTP server closed');
         
         // Close database connection after server is closed

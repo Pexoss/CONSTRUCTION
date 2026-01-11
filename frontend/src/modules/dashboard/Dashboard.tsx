@@ -154,6 +154,60 @@ const Dashboard: React.FC = () => {
                 </div>
               </Link>
 
+              <Link
+                to="/finance"
+                className="block p-6 bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-center">
+                  <div className="flex-shrink-0 bg-indigo-100 rounded-md p-3">
+                    <svg
+                      className="h-6 w-6 text-indigo-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                      />
+                    </svg>
+                  </div>
+                  <div className="ml-4">
+                    <h3 className="text-lg font-medium text-gray-900">Financeiro</h3>
+                    <p className="text-sm text-gray-500">Dashboard financeiro e controle de transações</p>
+                  </div>
+                </div>
+              </Link>
+
+              <Link
+                to="/invoices"
+                className="block p-6 bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-center">
+                  <div className="flex-shrink-0 bg-indigo-100 rounded-md p-3">
+                    <svg
+                      className="h-6 w-6 text-indigo-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
+                    </svg>
+                  </div>
+                  <div className="ml-4">
+                    <h3 className="text-lg font-medium text-gray-900">Faturas</h3>
+                    <p className="text-sm text-gray-500">Gerenciar faturas e contratos</p>
+                  </div>
+                </div>
+              </Link>
+
               <div className="block p-6 bg-gray-50 border border-gray-200 rounded-lg opacity-50">
                 <div className="flex items-center">
                   <div className="flex-shrink-0 bg-gray-200 rounded-md p-3">
