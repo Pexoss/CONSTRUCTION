@@ -1,0 +1,171 @@
+import { Request, Response, NextFunction } from 'express';
+import { customerService } from './customer.service';
+import { createCustomerSchema, updateCustomerSchema } from './customer.validator';
+
+export class CustomerController {
+  /**
+   * Create a new customer
+   * POST /api/customers
+   */
+  async createCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const validatedData = createCustomerSchema.parse(req.body);
+      const customer = await customerService.createCustomer(companyId, validatedData);
+
+      res.status(201).json({
+        success: true,
+        message: 'Customer created successfully',
+        data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get all customers with filters
+   * GET /api/customers
+   */
+  async getCustomers(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const filters = {
+        search: req.query.search as string,
+        isBlocked: req.query.isBlocked === 'true' ? true : req.query.isBlocked === 'false' ? false : undefined,
+        page: req.query.page ? parseInt(req.query.page as string) : 1,
+        limit: req.query.limit ? parseInt(req.query.limit as string) : 20,
+      };
+
+      const result = await customerService.getCustomers(companyId, filters);
+
+      res.json({
+        success: true,
+        data: result.customers,
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          totalPages: Math.ceil(result.total / result.limit),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get customer by ID
+   * GET /api/customers/:id
+   */
+  async getCustomerById(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      const customer = await customerService.getCustomerById(companyId, customerId);
+
+      if (!customer) {
+        res.status(404).json({
+          success: false,
+          message: 'Customer not found',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Update customer
+   * PUT /api/customers/:id
+   */
+  async updateCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      const validatedData = updateCustomerSchema.parse(req.body);
+      const customer = await customerService.updateCustomer(companyId, customerId, validatedData);
+
+      if (!customer) {
+        res.status(404).json({
+          success: false,
+          message: 'Customer not found',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: 'Customer updated successfully',
+        data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Delete customer (soft delete by blocking)
+   * DELETE /api/customers/:id
+   */
+  async deleteCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      await customerService.deleteCustomer(companyId, customerId);
+
+      res.json({
+        success: true,
+        message: 'Customer deleted successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Block/Unblock customer
+   * PATCH /api/customers/:id/block
+   */
+  async toggleBlockCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      const { isBlocked } = req.body;
+
+      if (typeof isBlocked !== 'boolean') {
+        res.status(400).json({
+          success: false,
+          message: 'isBlocked must be a boolean',
+        });
+        return;
+      }
+
+      const customer = await customerService.toggleBlockCustomer(companyId, customerId, isBlocked);
+
+      if (!customer) {
+        res.status(404).json({
+          success: false,
+          message: 'Customer not found',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: `Customer ${isBlocked ? 'blocked' : 'unblocked'} successfully`,
+        data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+export const customerController = new CustomerController();

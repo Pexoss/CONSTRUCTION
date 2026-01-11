@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { registerCompanySchema } from '../../utils/validation';
@@ -76,7 +76,7 @@ const RegisterPage: React.FC = () => {
   };
 
   // Handle registration success/error via useEffect
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isRegistering && !registerError && localStorage.getItem('accessToken')) {
       navigate('/dashboard');
     }

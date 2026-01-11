@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { loginSchema } from '../../utils/validation';
@@ -46,7 +46,7 @@ const LoginPage: React.FC = () => {
   };
 
   // Handle login success/error via useEffect
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isLoggingIn && !loginError && localStorage.getItem('accessToken')) {
       navigate('/dashboard');
     }

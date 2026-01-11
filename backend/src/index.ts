@@ -1,11 +1,18 @@
 import express, { Express } from 'express';
+import { Server } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
-import { connectDatabase } from './config/database';
+import { connectDatabase, closeDatabase } from './config/database';
 import { errorMiddleware } from './shared/middleware/error.middleware';
 import authRoutes from './modules/auth/auth.routes';
+import inventoryRoutes from './modules/inventory/item.routes';
+import customerRoutes from './modules/customers/customer.routes';
+import rentalRoutes from './modules/rentals/rental.routes';
+import maintenanceRoutes from './modules/maintenance/maintenance.routes';
+import transactionRoutes from './modules/transactions/transaction.routes';
+import invoiceRoutes from './modules/invoices/invoice.routes';
 
 const app: Express = express();
 
@@ -16,9 +23,25 @@ app.set('trust proxy', 1);
 app.use(helmet());
 
 // CORS configuration
+const allowedOrigins = env.CORS_ORIGIN.split(',').map((origin) => origin.trim());
 app.use(
   cors({
-    origin: env.CORS_ORIGIN,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      // In development, allow localhost on any port
+      if (env.NODE_ENV === 'development' && origin.startsWith('http://localhost:')) {
+        return callback(null, true);
+      }
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
   })
 );
@@ -49,6 +72,12 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api', customerRoutes);
+app.use('/api', rentalRoutes);
+app.use('/api', maintenanceRoutes);
+app.use('/api', transactionRoutes);
+app.use('/api', invoiceRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -62,6 +91,8 @@ app.use((req, res) => {
 app.use(errorMiddleware);
 
 // Start server
+let server: Server | undefined;
+
 const startServer = async () => {
   try {
     // Connect to database
@@ -69,7 +100,7 @@ const startServer = async () => {
 
     // Start listening
     const PORT = parseInt(env.PORT);
-    app.listen(PORT, () => {
+    server = app.listen(PORT, () => {
       console.log(`🚀 Server is running on port ${PORT}`);
       console.log(`📝 Environment: ${env.NODE_ENV}`);
       console.log(`🔗 API: http://localhost:${PORT}/api`);
@@ -79,5 +110,69 @@ const startServer = async () => {
     process.exit(1);
   }
 };
+
+// Graceful shutdown handler
+const gracefulShutdown = async (signal: string) => {
+  console.log(`\n${signal} received. Starting graceful shutdown...`);
+
+  // Close HTTP server first (stop accepting new requests)
+  const currentServer = server;
+  if (currentServer) {
+    return new Promise<void>((resolve) => {
+      currentServer.close(() => {
+        console.log('✅ HTTP server closed');
+        
+        // Close database connection after server is closed
+        closeDatabase()
+          .then(() => {
+            console.log('✅ Graceful shutdown completed');
+            resolve();
+            process.exit(0);
+          })
+          .catch((error) => {
+            console.error('❌ Error during shutdown:', error);
+            resolve();
+            process.exit(1);
+          });
+      });
+
+      // Force close after 10 seconds if graceful shutdown fails
+      setTimeout(() => {
+        console.error('⚠️  Forcing shutdown after timeout');
+        closeDatabase()
+          .catch(() => {})
+          .finally(() => {
+            process.exit(1);
+          });
+      }, 10000);
+    });
+  } else {
+    // If server is not running, just close database
+    try {
+      await closeDatabase();
+      console.log('✅ Graceful shutdown completed');
+      process.exit(0);
+    } catch (error) {
+      console.error('❌ Error during shutdown:', error);
+      process.exit(1);
+    }
+  }
+};
+
+// Handle shutdown signals
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException');
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
+});
 
 startServer();
