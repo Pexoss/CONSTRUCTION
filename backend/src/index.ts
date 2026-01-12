@@ -3,6 +3,8 @@ import { Server } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import compression from 'compression';
+import mongoSanitize from 'express-mongo-sanitize';
 import { env } from './config/env';
 import { connectDatabase, closeDatabase } from './config/database';
 import { errorMiddleware } from './shared/middleware/error.middleware';
@@ -13,6 +15,8 @@ import rentalRoutes from './modules/rentals/rental.routes';
 import maintenanceRoutes from './modules/maintenance/maintenance.routes';
 import transactionRoutes from './modules/transactions/transaction.routes';
 import invoiceRoutes from './modules/invoices/invoice.routes';
+import subscriptionRoutes from './modules/subscriptions/subscription.routes';
+import reportRoutes from './modules/reports/report.routes';
 
 const app: Express = express();
 
@@ -21,6 +25,12 @@ app.set('trust proxy', 1);
 
 // Security middleware
 app.use(helmet());
+
+// Compression middleware (gzip)
+app.use(compression());
+
+// Sanitize data to prevent NoSQL injection
+app.use(mongoSanitize());
 
 // CORS configuration
 const allowedOrigins = env.CORS_ORIGIN.split(',').map((origin) => origin.trim());
@@ -78,6 +88,8 @@ app.use('/api', rentalRoutes);
 app.use('/api', maintenanceRoutes);
 app.use('/api', transactionRoutes);
 app.use('/api', invoiceRoutes);
+app.use('/api', subscriptionRoutes);
+app.use('/api', reportRoutes);
 
 // 404 handler
 app.use((req, res) => {

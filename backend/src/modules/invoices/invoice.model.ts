@@ -38,7 +38,6 @@ const InvoiceSchema = new Schema<IInvoice>(
       type: String,
       required: [true, 'Invoice number is required'],
       unique: true,
-      index: true,
     },
     rentalId: {
       type: Schema.Types.ObjectId,
