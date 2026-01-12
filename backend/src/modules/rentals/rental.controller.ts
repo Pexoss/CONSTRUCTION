@@ -259,6 +259,195 @@ export class RentalController {
       next(error);
     }
   }
+
+  /**
+   * NOVO: Solicitar aprovação
+   * POST /api/rentals/:id/request-approval
+   */
+  async requestApproval(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentalId = req.params.id;
+      const userId = req.user!._id.toString();
+      const { requestType, requestDetails, notes } = req.body;
+
+      if (!requestType || !requestDetails) {
+        res.status(400).json({
+          success: false,
+          message: 'requestType and requestDetails are required',
+        });
+        return;
+      }
+
+      const rental = await rentalService.requestApproval(companyId, rentalId, requestType, requestDetails, userId, notes);
+
+      res.status(201).json({
+        success: true,
+        message: 'Approval request created successfully',
+        data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Aprovar solicitação
+   * POST /api/rentals/:id/approve/:approvalIndex
+   */
+  async approveRequest(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentalId = req.params.id;
+      const approvalIndex = parseInt(req.params.approvalIndex);
+      const userId = req.user!._id.toString();
+      const { notes } = req.body;
+
+      const rental = await rentalService.approveRequest(companyId, rentalId, approvalIndex, userId, notes);
+
+      res.json({
+        success: true,
+        message: 'Approval request approved successfully',
+        data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Rejeitar solicitação
+   * POST /api/rentals/:id/reject/:approvalIndex
+   */
+  async rejectRequest(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentalId = req.params.id;
+      const approvalIndex = parseInt(req.params.approvalIndex);
+      const userId = req.user!._id.toString();
+      const { notes } = req.body;
+
+      if (!notes) {
+        res.status(400).json({
+          success: false,
+          message: 'Notes are required for rejection',
+        });
+        return;
+      }
+
+      const rental = await rentalService.rejectRequest(companyId, rentalId, approvalIndex, userId, notes);
+
+      res.json({
+        success: true,
+        message: 'Approval request rejected',
+        data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Listar aprovações pendentes
+   * GET /api/rentals/pending-approvals
+   */
+  async getPendingApprovals(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentals = await rentalService.getPendingApprovals(companyId);
+
+      res.json({
+        success: true,
+        data: rentals,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Aplicar desconto
+   * POST /api/rentals/:id/discount
+   */
+  async applyDiscount(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentalId = req.params.id;
+      const userId = req.user!._id.toString();
+      const { discount, discountReason } = req.body;
+      const isAdmin = req.user?.role === 'admin'; // Assumindo que role está disponível no req.user
+
+      if (!discount || discount < 0) {
+        res.status(400).json({
+          success: false,
+          message: 'Valid discount amount is required',
+        });
+        return;
+      }
+
+      const rental = await rentalService.applyDiscount(companyId, rentalId, discount, discountReason || '', userId, isAdmin);
+
+      if (!rental) {
+        res.status(404).json({
+          success: false,
+          message: 'Rental not found',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: rental.pendingApprovals?.some((a) => a.status === 'pending') 
+          ? 'Discount request created, pending approval' 
+          : 'Discount applied successfully',
+        data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Alterar tipo de aluguel
+   * POST /api/rentals/:id/change-rental-type
+   */
+  async changeRentalType(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentalId = req.params.id;
+      const userId = req.user!._id.toString();
+      const { itemIndex, newRentalType } = req.body;
+      const isAdmin = req.user?.role === 'admin';
+
+      if (itemIndex === undefined || !newRentalType) {
+        res.status(400).json({
+          success: false,
+          message: 'itemIndex and newRentalType are required',
+        });
+        return;
+      }
+
+      const rental = await rentalService.changeRentalType(companyId, rentalId, itemIndex, newRentalType, userId, isAdmin);
+
+      if (!rental) {
+        res.status(404).json({
+          success: false,
+          message: 'Rental not found',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: rental.pendingApprovals?.some((a) => a.status === 'pending') 
+          ? 'Rental type change request created, pending approval' 
+          : 'Rental type changed successfully',
+        data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const rentalController = new RentalController();

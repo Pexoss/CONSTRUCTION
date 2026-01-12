@@ -17,6 +17,7 @@ import transactionRoutes from './modules/transactions/transaction.routes';
 import invoiceRoutes from './modules/invoices/invoice.routes';
 import subscriptionRoutes from './modules/subscriptions/subscription.routes';
 import reportRoutes from './modules/reports/report.routes';
+import billingRoutes from './modules/billings/billing.routes';
 
 const app: Express = express();
 
@@ -90,6 +91,7 @@ app.use('/api', transactionRoutes);
 app.use('/api', invoiceRoutes);
 app.use('/api', subscriptionRoutes);
 app.use('/api', reportRoutes);
+app.use('/api/billings', billingRoutes);
 
 // 404 handler
 app.use((req, res) => {

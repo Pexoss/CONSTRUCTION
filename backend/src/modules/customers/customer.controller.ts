@@ -166,6 +166,150 @@ export class CustomerController {
       next(error);
     }
   }
+
+  /**
+   * NOVO: Adicionar endereço ao cliente
+   * POST /api/customers/:id/addresses
+   */
+  async addAddress(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      const customer = await customerService.addAddress(companyId, customerId, req.body);
+
+      res.status(201).json({
+        success: true,
+        message: 'Address added successfully',
+        data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Atualizar endereço do cliente
+   * PUT /api/customers/:id/addresses/:index
+   */
+  async updateAddress(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      const addressIndex = parseInt(req.params.index);
+      const customer = await customerService.updateAddress(companyId, customerId, addressIndex, req.body);
+
+      res.json({
+        success: true,
+        message: 'Address updated successfully',
+        data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Remover endereço do cliente
+   * DELETE /api/customers/:id/addresses/:index
+   */
+  async removeAddress(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      const addressIndex = parseInt(req.params.index);
+      const customer = await customerService.removeAddress(companyId, customerId, addressIndex);
+
+      res.json({
+        success: true,
+        message: 'Address removed successfully',
+        data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Adicionar obra ao cliente
+   * POST /api/customers/:id/works
+   */
+  async addWork(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      const customer = await customerService.addWork(companyId, customerId, req.body);
+
+      res.status(201).json({
+        success: true,
+        message: 'Work added successfully',
+        data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Atualizar obra do cliente
+   * PUT /api/customers/:id/works/:workId
+   */
+  async updateWork(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      const workId = req.params.workId;
+      const customer = await customerService.updateWork(companyId, customerId, workId, req.body);
+
+      res.json({
+        success: true,
+        message: 'Work updated successfully',
+        data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Remover obra do cliente
+   * DELETE /api/customers/:id/works/:workId
+   */
+  async removeWork(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      const workId = req.params.workId;
+      const customer = await customerService.removeWork(companyId, customerId, workId);
+
+      res.json({
+        success: true,
+        message: 'Work removed successfully',
+        data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Atualizar dados validados pela Receita
+   * POST /api/customers/:id/validate
+   */
+  async updateValidatedData(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      const customer = await customerService.updateValidatedData(companyId, customerId, req.body);
+
+      res.json({
+        success: true,
+        message: 'Validated data updated successfully',
+        data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const customerController = new CustomerController();

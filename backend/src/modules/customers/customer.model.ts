@@ -20,6 +20,18 @@ const CustomerSchema = new Schema<ICustomer>(
       trim: true,
       index: true,
     },
+    // NOVO: Dados validados pela Receita Federal
+    validated: {
+      isValidated: {
+        type: Boolean,
+        default: false,
+      },
+      validatedAt: Date,
+      cpfName: String, // Nome retornado pela Receita
+      birthDate: Date,
+      additionalInfo: Schema.Types.Mixed, // Outros dados da API
+    },
+    
     email: {
       type: String,
       lowercase: true,
@@ -30,13 +42,72 @@ const CustomerSchema = new Schema<ICustomer>(
       type: String,
       trim: true,
     },
-    address: {
-      street: String,
-      city: String,
-      state: String,
-      zipCode: String,
-      country: { type: String, default: 'Brasil' },
-    },
+    
+    // NOVO: Array de endereços (substitui o campo address único)
+    addresses: [{
+      type: {
+        type: String,
+        enum: ['main', 'billing', 'work', 'other'],
+        required: true,
+      },
+      street: {
+        type: String,
+        required: true,
+      },
+      number: String,
+      complement: String,
+      neighborhood: String,
+      city: {
+        type: String,
+        required: true,
+      },
+      state: {
+        type: String,
+        required: true,
+      },
+      zipCode: {
+        type: String,
+        required: true,
+      },
+      isDefault: {
+        type: Boolean,
+        default: false,
+      },
+      notes: String,
+    }],
+    
+    // NOVO: Obras do cliente
+    works: [{
+      workId: {
+        type: Schema.Types.ObjectId,
+        required: true,
+      },
+      workName: {
+        type: String,
+        required: true,
+      },
+      addressIndex: {
+        type: Number,
+        required: true,
+        min: 0,
+      },
+      startDate: {
+        type: Date,
+        required: true,
+      },
+      expectedEndDate: Date,
+      status: {
+        type: String,
+        enum: ['active', 'paused', 'completed'],
+        default: 'active',
+      },
+      activeRentals: [{
+        type: Schema.Types.ObjectId,
+        ref: 'Rental',
+      }],
+      notes: String,
+    }],
+    
     notes: {
       type: String,
       trim: true,
@@ -44,6 +115,10 @@ const CustomerSchema = new Schema<ICustomer>(
     isBlocked: {
       type: Boolean,
       default: false,
+    },
+    blockReason: {
+      type: String,
+      trim: true,
     },
   },
   {

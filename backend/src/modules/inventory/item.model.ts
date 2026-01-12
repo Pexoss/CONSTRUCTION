@@ -44,6 +44,45 @@ const ItemSchema = new Schema<IItem>(
       trim: true,
       sparse: true, // ID customizado manual
     },
+    
+    // NOVO: Tipo de controle de estoque
+    trackingType: {
+      type: String,
+      enum: ['unit', 'quantity'],
+      required: [true, 'Tracking type is required'],
+      default: 'quantity', // Default para compatibilidade com dados existentes
+    },
+    
+    // NOVO: Para itens unitários - array de unidades individuais
+    units: [{
+      unitId: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      status: {
+        type: String,
+        enum: ['available', 'rented', 'maintenance', 'damaged'],
+        required: true,
+        default: 'available',
+      },
+      currentRental: {
+        type: Schema.Types.ObjectId,
+        ref: 'Rental',
+      },
+      currentCustomer: {
+        type: Schema.Types.ObjectId,
+        ref: 'Customer',
+      },
+      maintenanceDetails: {
+        expectedReturnDate: Date,
+        cost: Number,
+        supplier: String,
+      },
+      location: String,
+      notes: String,
+    }],
+    
     photos: {
       type: [String],
       default: [],
@@ -94,6 +133,10 @@ const ItemSchema = new Schema<IItem>(
         type: Number,
         min: [0, 'Weekly rate cannot be negative'],
       },
+      biweeklyRate: {
+        type: Number,
+        min: [0, 'Biweekly rate cannot be negative'],
+      },
       monthlyRate: {
         type: Number,
         min: [0, 'Monthly rate cannot be negative'],
@@ -121,6 +164,16 @@ const ItemSchema = new Schema<IItem>(
         min: [0, 'Depreciation rate cannot be negative'],
         max: [100, 'Depreciation rate cannot exceed 100%'],
       },
+      annualRate: {
+        type: Number,
+        min: [0, 'Annual rate cannot be negative'],
+        max: [100, 'Annual rate cannot exceed 100%'],
+      },
+      accumulatedDepreciation: {
+        type: Number,
+        min: [0, 'Accumulated depreciation cannot be negative'],
+        default: 0,
+      },
       purchaseDate: Date,
       lastDepreciationDate: Date,
     },
@@ -145,7 +198,37 @@ ItemSchema.index({ companyId: 1, customId: 1 }, { sparse: true });
 ItemSchema.index({ companyId: 1, category: 1 });
 ItemSchema.index({ companyId: 1, subcategory: 1 });
 ItemSchema.index({ companyId: 1, isActive: 1 });
+ItemSchema.index({ companyId: 1, trackingType: 1 });
 ItemSchema.index({ companyId: 1, 'quantity.available': 1 }); // Para alertas de estoque baixo
+ItemSchema.index({ companyId: 1, 'units.unitId': 1 }); // Para busca de unidades
+ItemSchema.index({ companyId: 1, 'units.status': 1 }); // Para filtros por status
+
+// Pre-save hook para calcular quantidades automaticamente para itens unitários
+ItemSchema.pre('save', function (next) {
+  // Se for item unitário e tiver array de units, calcular quantidades automaticamente
+  if (this.trackingType === 'unit' && this.units && Array.isArray(this.units)) {
+    const total = this.units.length;
+    const available = this.units.filter((u) => u.status === 'available').length;
+    const rented = this.units.filter((u) => u.status === 'rented').length;
+    const maintenance = this.units.filter((u) => u.status === 'maintenance').length;
+    const damaged = this.units.filter((u) => u.status === 'damaged').length;
+
+    this.quantity = {
+      total,
+      available,
+      rented,
+      maintenance,
+      damaged,
+    };
+  }
+  // Se for item quantitativo, garantir que units não seja definido ou seja vazio
+  else if (this.trackingType === 'quantity') {
+    if (!this.units || this.units.length === 0) {
+      this.units = undefined;
+    }
+  }
+  next();
+});
 
 // Virtual para verificar se está em estoque baixo
 ItemSchema.virtual('isLowStock').get(function () {

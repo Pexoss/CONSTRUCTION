@@ -1,19 +1,22 @@
 import { Rental } from './rental.model';
 import { Item } from '../inventory/item.model';
 import { ItemMovement } from '../inventory/itemMovement.model';
-import { IRental, RentalStatus, IRentalItem, IRentalPricing } from './rental.types';
+import { IRental, RentalStatus, IRentalItem, IRentalPricing, IRentalService, IRentalWorkAddress, IRentalChangeHistory, IRentalPendingApproval, RentalType } from './rental.types';
 import mongoose from 'mongoose';
 
 class RentalService {
   /**
    * Calculate rental price based on period and rates
+   * NOVO: Suporta biweeklyRate e rentalType
    */
   private calculateRentalPrice(
     dailyRate: number,
     weeklyRate: number | undefined,
+    biweeklyRate: number | undefined,
     monthlyRate: number | undefined,
     startDate: Date,
-    endDate: Date
+    endDate: Date,
+    rentalType?: RentalType
   ): number {
     const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
     
@@ -21,11 +24,45 @@ class RentalService {
       return 0;
     }
 
+    // Se rentalType for especificado, usar a taxa correspondente
+    if (rentalType) {
+      switch (rentalType) {
+        case 'daily':
+          return days * dailyRate;
+        case 'weekly':
+          if (weeklyRate) {
+            const weeks = Math.ceil(days / 7);
+            return weeks * weeklyRate;
+          }
+          return days * dailyRate;
+        case 'biweekly':
+          if (biweeklyRate) {
+            const biweeks = Math.ceil(days / 15);
+            return biweeks * biweeklyRate;
+          }
+          return days * dailyRate;
+        case 'monthly':
+          if (monthlyRate) {
+            const months = Math.ceil(days / 30);
+            return months * monthlyRate;
+          }
+          return days * dailyRate;
+      }
+    }
+
+    // Lógica antiga para compatibilidade (se rentalType não especificado)
     // If monthly rate exists and rental is >= 30 days, use monthly rate
     if (monthlyRate && days >= 30) {
       const months = Math.floor(days / 30);
       const remainingDays = days % 30;
       return months * monthlyRate + remainingDays * dailyRate;
+    }
+
+    // If biweekly rate exists and rental is >= 15 days, use biweekly rate
+    if (biweeklyRate && days >= 15) {
+      const biweeks = Math.floor(days / 15);
+      const remainingDays = days % 15;
+      return biweeks * biweeklyRate + remainingDays * dailyRate;
     }
 
     // If weekly rate exists and rental is >= 7 days, use weekly rate
@@ -80,7 +117,7 @@ class RentalService {
 
     // Calculate pricing for each item
     const itemsWithPricing: IRentalItem[] = [];
-    let totalSubtotal = 0;
+    let equipmentSubtotal = 0;
     let totalDeposit = 0;
 
     for (const item of data.items) {
@@ -89,12 +126,22 @@ class RentalService {
         throw new Error(`Item ${item.itemId} not found`);
       }
 
+      // NOVO: Verificar se é item unitário e se unitId foi especificado
+      if (inventoryItem.trackingType === 'unit' && !item.unitId) {
+        throw new Error(`Item ${inventoryItem.name} is unit-based. Please specify unitId.`);
+      }
+
+      // NOVO: Usar rentalType do item ou default daily
+      const rentalType: RentalType = item.rentalType || 'daily';
+
       const price = this.calculateRentalPrice(
         inventoryItem.pricing.dailyRate,
         inventoryItem.pricing.weeklyRate,
+        inventoryItem.pricing.biweeklyRate,
         inventoryItem.pricing.monthlyRate,
         new Date(data.dates.pickupScheduled),
-        new Date(data.dates.returnScheduled)
+        new Date(data.dates.returnScheduled),
+        rentalType
       );
 
       const subtotal = price * item.quantity;
@@ -102,32 +149,81 @@ class RentalService {
 
       itemsWithPricing.push({
         itemId: item.itemId,
+        unitId: item.unitId, // NOVO
         quantity: item.quantity,
         unitPrice: price,
+        rentalType, // NOVO
         subtotal,
       });
 
-      totalSubtotal += subtotal;
+      equipmentSubtotal += subtotal;
       totalDeposit += deposit;
     }
 
+    // NOVO: Calcular subtotal de serviços
+    let servicesSubtotal = 0;
+    const services: IRentalService[] = (data.services || []).map((service: any) => {
+      const quantity = service.quantity || 1;
+      const subtotal = service.price * quantity;
+      servicesSubtotal += subtotal;
+      return {
+        description: service.description,
+        price: service.price,
+        quantity,
+        subtotal,
+        category: service.category || 'other',
+        notes: service.notes,
+      };
+    });
+
+    const totalSubtotal = equipmentSubtotal + servicesSubtotal;
+    const discount = data.pricing?.discount || 0;
+
     const pricing: IRentalPricing = {
+      equipmentSubtotal, // NOVO
+      servicesSubtotal, // NOVO
       subtotal: totalSubtotal,
       deposit: totalDeposit,
-      discount: data.pricing?.discount || 0,
+      discount,
+      discountReason: data.pricing?.discountReason, // NOVO
+      discountApprovedBy: data.pricing?.discountApprovedBy ? new mongoose.Types.ObjectId(data.pricing.discountApprovedBy) : undefined, // NOVO
       lateFee: 0,
-      total: totalSubtotal - (data.pricing?.discount || 0),
+      total: totalSubtotal - discount,
     };
+
+    // NOVO: Preparar endereço da obra se fornecido
+    let workAddress: IRentalWorkAddress | undefined;
+    if (data.workAddress) {
+      workAddress = {
+        street: data.workAddress.street,
+        number: data.workAddress.number,
+        complement: data.workAddress.complement,
+        neighborhood: data.workAddress.neighborhood,
+        city: data.workAddress.city,
+        state: data.workAddress.state,
+        zipCode: data.workAddress.zipCode,
+        workName: data.workAddress.workName,
+        workId: data.workAddress.workId ? new mongoose.Types.ObjectId(data.workAddress.workId) : undefined,
+      };
+    }
+
+    // NOVO: Preparar ciclo de faturamento
+    const billingCycle = data.dates?.billingCycle || itemsWithPricing[0]?.rentalType || 'daily';
 
     // Create rental
     const rental = await Rental.create({
       companyId,
       customerId: data.customerId,
       items: itemsWithPricing,
+      services: services.length > 0 ? services : undefined, // NOVO
+      workAddress, // NOVO
       dates: {
         reservedAt: new Date(),
         pickupScheduled: new Date(data.dates.pickupScheduled),
         returnScheduled: new Date(data.dates.returnScheduled),
+        billingCycle, // NOVO
+        lastBillingDate: data.dates?.lastBillingDate ? new Date(data.dates.lastBillingDate) : undefined, // NOVO
+        nextBillingDate: data.dates?.nextBillingDate ? new Date(data.dates.nextBillingDate) : undefined, // NOVO
       },
       pricing,
       status: 'reserved',
@@ -307,9 +403,11 @@ class RentalService {
         const price = this.calculateRentalPrice(
           inventoryItem.pricing.dailyRate,
           inventoryItem.pricing.weeklyRate,
+          inventoryItem.pricing.biweeklyRate,
           inventoryItem.pricing.monthlyRate,
           rental.dates.pickupScheduled,
-          rental.dates.returnScheduled
+          rental.dates.returnScheduled,
+          item.rentalType
         );
         const subtotal = price * item.quantity;
         totalSubtotal += subtotal;
@@ -485,6 +583,339 @@ class RentalService {
       notes: `Rental ${action}: ${quantity} units`,
       createdBy: new mongoose.Types.ObjectId(userId),
     });
+  }
+
+  /**
+   * NOVO: Solicitar aprovação para alteração no aluguel
+   */
+  async requestApproval(
+    companyId: string,
+    rentalId: string,
+    requestType: string,
+    requestDetails: any,
+    userId: string,
+    notes?: string
+  ): Promise<IRental | null> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+
+    if (!rental) {
+      throw new Error('Rental not found');
+    }
+
+    if (!rental.pendingApprovals) {
+      rental.pendingApprovals = [];
+    }
+
+    const approval: IRentalPendingApproval = {
+      requestedBy: new mongoose.Types.ObjectId(userId),
+      requestDate: new Date(),
+      requestType,
+      requestDetails,
+      status: 'pending',
+      notes,
+    };
+
+    rental.pendingApprovals.push(approval);
+    await rental.save();
+
+    return rental;
+  }
+
+  /**
+   * NOVO: Aprovar solicitação pendente
+   */
+  async approveRequest(
+    companyId: string,
+    rentalId: string,
+    approvalIndex: number,
+    userId: string,
+    notes?: string
+  ): Promise<IRental | null> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+
+    if (!rental) {
+      throw new Error('Rental not found');
+    }
+
+    if (!rental.pendingApprovals || approvalIndex < 0 || approvalIndex >= rental.pendingApprovals.length) {
+      throw new Error('Approval request not found');
+    }
+
+    const approval = rental.pendingApprovals[approvalIndex];
+    if (approval.status !== 'pending') {
+      throw new Error('Approval request is not pending');
+    }
+
+    // Aplicar a alteração baseada no tipo de solicitação
+    await this.applyApprovalChange(rental, approval, userId);
+
+    // Atualizar status da aprovação
+    approval.status = 'approved';
+    approval.approvedBy = new mongoose.Types.ObjectId(userId);
+    approval.approvalDate = new Date();
+    approval.notes = notes;
+
+    // Registrar no histórico
+    await this.addChangeHistory(
+      rental,
+      approval.requestType,
+      approval.requestDetails.previousValue || '',
+      approval.requestDetails.newValue || '',
+      userId,
+      notes
+    );
+
+    await rental.save();
+    return rental;
+  }
+
+  /**
+   * NOVO: Rejeitar solicitação pendente
+   */
+  async rejectRequest(
+    companyId: string,
+    rentalId: string,
+    approvalIndex: number,
+    userId: string,
+    notes: string
+  ): Promise<IRental | null> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+
+    if (!rental) {
+      throw new Error('Rental not found');
+    }
+
+    if (!rental.pendingApprovals || approvalIndex < 0 || approvalIndex >= rental.pendingApprovals.length) {
+      throw new Error('Approval request not found');
+    }
+
+    const approval = rental.pendingApprovals[approvalIndex];
+    if (approval.status !== 'pending') {
+      throw new Error('Approval request is not pending');
+    }
+
+    approval.status = 'rejected';
+    approval.approvedBy = new mongoose.Types.ObjectId(userId);
+    approval.approvalDate = new Date();
+    approval.notes = notes;
+
+    await rental.save();
+    return rental;
+  }
+
+  /**
+   * NOVO: Aplicar alteração aprovada
+   */
+  private async applyApprovalChange(rental: IRental, approval: IRentalPendingApproval, userId: string): Promise<void> {
+    const { requestType, requestDetails } = approval;
+
+    switch (requestType) {
+      case 'rental_type_change':
+        // Alterar tipo de aluguel dos itens
+        if (requestDetails.items && Array.isArray(requestDetails.items)) {
+          for (const itemChange of requestDetails.items) {
+            const item = rental.items.find((i) => i.itemId.toString() === itemChange.itemId);
+            if (item) {
+              item.rentalType = itemChange.newRentalType;
+              // Recalcular preço
+              // (seria necessário buscar o item do inventário para recalcular)
+            }
+          }
+        }
+        break;
+
+      case 'discount':
+        // Aplicar desconto
+        rental.pricing.discount = requestDetails.discount || 0;
+        rental.pricing.discountReason = requestDetails.reason;
+        rental.pricing.discountApprovedBy = new mongoose.Types.ObjectId(userId);
+        rental.pricing.total = rental.pricing.subtotal - rental.pricing.discount + rental.pricing.lateFee;
+        break;
+
+      case 'extension':
+        // Estender período
+        if (requestDetails.newReturnDate) {
+          rental.dates.returnScheduled = new Date(requestDetails.newReturnDate);
+          // Recalcular preços seria necessário aqui
+        }
+        break;
+
+      case 'service_addition':
+        // Adicionar serviço
+        if (!rental.services) {
+          rental.services = [];
+        }
+        rental.services.push(requestDetails.service);
+        rental.pricing.servicesSubtotal += requestDetails.service.subtotal;
+        rental.pricing.subtotal = rental.pricing.equipmentSubtotal + rental.pricing.servicesSubtotal;
+        rental.pricing.total = rental.pricing.subtotal - rental.pricing.discount + rental.pricing.lateFee;
+        break;
+
+      default:
+        // Outros tipos de alteração podem ser adicionados aqui
+        break;
+    }
+  }
+
+  /**
+   * NOVO: Adicionar entrada no histórico de alterações
+   */
+  private async addChangeHistory(
+    rental: IRental,
+    changeType: string,
+    previousValue: string,
+    newValue: string,
+    userId: string,
+    reason?: string
+  ): Promise<void> {
+    if (!rental.changeHistory) {
+      rental.changeHistory = [];
+    }
+
+    const historyEntry: IRentalChangeHistory = {
+      date: new Date(),
+      changedBy: new mongoose.Types.ObjectId(userId),
+      changeType,
+      previousValue,
+      newValue,
+      reason,
+      approvedBy: new mongoose.Types.ObjectId(userId),
+    };
+
+    rental.changeHistory.push(historyEntry);
+  }
+
+  /**
+   * NOVO: Listar aprovações pendentes
+   */
+  async getPendingApprovals(companyId: string): Promise<IRental[]> {
+    return Rental.find({
+      companyId,
+      'pendingApprovals.status': 'pending',
+    })
+      .populate('customerId', 'name cpfCnpj')
+      .populate('pendingApprovals.requestedBy', 'name email')
+      .sort({ createdAt: -1 });
+  }
+
+  /**
+   * NOVO: Aplicar desconto (com aprovação se necessário)
+   */
+  async applyDiscount(
+    companyId: string,
+    rentalId: string,
+    discount: number,
+    discountReason: string,
+    userId: string,
+    isAdmin: boolean = false
+  ): Promise<IRental | null> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+
+    if (!rental) {
+      throw new Error('Rental not found');
+    }
+
+    const subtotal = rental.pricing.subtotal;
+    const discountPercent = (discount / subtotal) * 100;
+
+    // Se desconto > 10% ou não for admin, requer aprovação
+    if (discountPercent > 10 && !isAdmin) {
+      return this.requestApproval(
+        companyId,
+        rentalId,
+        'discount',
+        {
+          discount,
+          reason: discountReason,
+          previousValue: rental.pricing.discount.toString(),
+          newValue: discount.toString(),
+        },
+        userId,
+        `Desconto de ${discountPercent.toFixed(2)}% solicitado`
+      );
+    }
+
+    // Aplicar desconto diretamente se admin ou <= 10%
+    rental.pricing.discount = discount;
+    rental.pricing.discountReason = discountReason;
+    rental.pricing.discountApprovedBy = isAdmin ? new mongoose.Types.ObjectId(userId) : undefined;
+    rental.pricing.total = subtotal - discount + rental.pricing.lateFee;
+
+    // Registrar no histórico
+    await this.addChangeHistory(
+      rental,
+      'discount',
+      rental.pricing.discount.toString(),
+      discount.toString(),
+      userId,
+      discountReason
+    );
+
+    await rental.save();
+    return rental;
+  }
+
+  /**
+   * NOVO: Alterar tipo de aluguel (com aprovação se necessário)
+   */
+  async changeRentalType(
+    companyId: string,
+    rentalId: string,
+    itemIndex: number,
+    newRentalType: RentalType,
+    userId: string,
+    isAdmin: boolean = false
+  ): Promise<IRental | null> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+
+    if (!rental) {
+      throw new Error('Rental not found');
+    }
+
+    if (itemIndex < 0 || itemIndex >= rental.items.length) {
+      throw new Error('Item index out of range');
+    }
+
+    const item = rental.items[itemIndex];
+    const previousRentalType = item.rentalType || 'daily';
+
+    // Se não for admin, requer aprovação
+    if (!isAdmin) {
+      return this.requestApproval(
+        companyId,
+        rentalId,
+        'rental_type_change',
+        {
+          itemIndex,
+          itemId: item.itemId.toString(),
+          previousRentalType,
+          newRentalType,
+          previousValue: previousRentalType,
+          newValue: newRentalType,
+        },
+        userId,
+        `Alteração de tipo de aluguel de ${previousRentalType} para ${newRentalType}`
+      );
+    }
+
+    // Aplicar alteração diretamente se admin
+    item.rentalType = newRentalType;
+
+    // Recalcular preço do item seria necessário aqui
+    // (precisa buscar o item do inventário)
+
+    // Registrar no histórico
+    await this.addChangeHistory(
+      rental,
+      'rental_type_change',
+      previousRentalType,
+      newRentalType,
+      userId,
+      `Alterado por admin`
+    );
+
+    await rental.save();
+    return rental;
   }
 }
 
