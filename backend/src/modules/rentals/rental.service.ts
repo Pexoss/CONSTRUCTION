@@ -515,6 +515,120 @@ class RentalService {
   }
 
   /**
+   * NOVO: Obter dashboard de vencimentos
+   */
+  async getExpirationDashboard(companyId: string): Promise<{
+    expired: IRental[];
+    expiringSoon: IRental[]; // Próximos 7 dias
+    expiringToday: IRental[];
+    active: number;
+    summary: {
+      totalExpired: number;
+      totalExpiringSoon: number;
+      totalExpiringToday: number;
+      totalActive: number;
+    };
+  }> {
+    const now = new Date();
+    const sevenDaysFromNow = new Date();
+    sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+
+    // Contratos vencidos (nextBillingDate < hoje ou returnScheduled < hoje)
+    const expiredQuery = {
+      companyId,
+      status: { $in: ['active', 'reserved'] },
+      $or: [
+        { 'dates.nextBillingDate': { $lt: now } },
+        { 'dates.returnScheduled': { $lt: now } },
+      ],
+    };
+
+    // Contratos a vencer em 7 dias
+    const expiringSoonQuery = {
+      companyId,
+      status: { $in: ['active', 'reserved'] },
+      $or: [
+        {
+          'dates.nextBillingDate': {
+            $gte: now,
+            $lte: sevenDaysFromNow,
+          },
+        },
+        {
+          'dates.returnScheduled': {
+            $gte: now,
+            $lte: sevenDaysFromNow,
+          },
+        },
+      ],
+    };
+
+    // Contratos que vencem hoje
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
+
+    const expiringTodayQuery = {
+      companyId,
+      status: { $in: ['active', 'reserved'] },
+      $or: [
+        {
+          'dates.nextBillingDate': {
+            $gte: todayStart,
+            $lt: todayEnd,
+          },
+        },
+        {
+          'dates.returnScheduled': {
+            $gte: todayStart,
+            $lt: todayEnd,
+          },
+        },
+      ],
+    };
+
+    // Contratos ativos
+    const activeQuery = {
+      companyId,
+      status: 'active',
+    };
+
+    const [expired, expiringSoon, expiringToday, activeCount] = await Promise.all([
+      Rental.find(expiredQuery)
+        .populate('customerId', 'name cpfCnpj email phone')
+        .populate('items.itemId', 'name sku')
+        .populate('workAddress')
+        .sort({ 'dates.nextBillingDate': 1, 'dates.returnScheduled': 1 })
+        .limit(50),
+      Rental.find(expiringSoonQuery)
+        .populate('customerId', 'name cpfCnpj email phone')
+        .populate('items.itemId', 'name sku')
+        .populate('workAddress')
+        .sort({ 'dates.nextBillingDate': 1, 'dates.returnScheduled': 1 })
+        .limit(50),
+      Rental.find(expiringTodayQuery)
+        .populate('customerId', 'name cpfCnpj email phone')
+        .populate('items.itemId', 'name sku')
+        .populate('workAddress')
+        .sort({ 'dates.nextBillingDate': 1, 'dates.returnScheduled': 1 }),
+      Rental.countDocuments(activeQuery),
+    ]);
+
+    return {
+      expired,
+      expiringSoon,
+      expiringToday,
+      active: activeCount,
+      summary: {
+        totalExpired: expired.length,
+        totalExpiringSoon: expiringSoon.length,
+        totalExpiringToday: expiringToday.length,
+        totalActive: activeCount,
+      },
+    };
+  }
+
+  /**
    * Helper method to update item quantities based on rental actions
    */
   private async updateItemQuantityForRental(

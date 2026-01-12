@@ -19,6 +19,8 @@ const CreateItemPage: React.FC = () => {
     sku: '',
     barcode: '',
     customId: '',
+    trackingType: 'quantity',
+    units: [],
     photos: [],
     quantity: {
       total: 0,
@@ -31,6 +33,8 @@ const CreateItemPage: React.FC = () => {
     lowStockThreshold: 0,
     isActive: true,
   });
+
+  const [units, setUnits] = useState<Array<{ unitId: string; status: 'available' | 'rented' | 'maintenance' | 'damaged'; location?: string; notes?: string }>>([]);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -85,6 +89,26 @@ const CreateItemPage: React.FC = () => {
     setErrors({});
 
     try {
+      // Se for tipo unitário, validar unidades
+      if (formData.trackingType === 'unit') {
+        if (units.length === 0) {
+          setErrors({ units: 'Adicione pelo menos uma unidade para itens unitários' });
+          return;
+        }
+        const invalidUnits = units.filter((u) => !u.unitId.trim());
+        if (invalidUnits.length > 0) {
+          setErrors({ units: 'Todas as unidades devem ter um ID válido' });
+          return;
+        }
+        // Adicionar unidades ao formData
+        formData.units = units.map((u) => ({
+          unitId: u.unitId.trim(),
+          status: u.status,
+          location: u.location,
+          notes: u.notes,
+        }));
+      }
+
       const validatedData = createItemSchema.parse(formData);
       createItem.mutate(validatedData as CreateItemData, {
         onSuccess: () => {
@@ -243,7 +267,132 @@ const CreateItemPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Quantidades */}
+            {/* Tipo de Controle */}
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Tipo de Controle de Estoque</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      name="trackingType"
+                      value="quantity"
+                      checked={formData.trackingType === 'quantity'}
+                      onChange={(e) => {
+                        setFormData((prev) => ({ ...prev, trackingType: e.target.value as 'quantity' | 'unit' }));
+                        setUnits([]);
+                      }}
+                      className="mr-2"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Quantitativo</span>
+                  </label>
+                  <p className="text-xs text-gray-500 ml-6">Ex: 30 escoramentos, 50 tábuas</p>
+                </div>
+                <div>
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      name="trackingType"
+                      value="unit"
+                      checked={formData.trackingType === 'unit'}
+                      onChange={(e) => {
+                        setFormData((prev) => ({ ...prev, trackingType: e.target.value as 'quantity' | 'unit' }));
+                      }}
+                      className="mr-2"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Unitário com ID</span>
+                  </label>
+                  <p className="text-xs text-gray-500 ml-6">Ex: Furadeira F421, Betoneira B013</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Unidades (para tipo unitário) */}
+            {formData.trackingType === 'unit' && (
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Unidades Individuais</h3>
+                <div className="space-y-4">
+                  {units.map((unit, index) => (
+                    <div key={index} className="flex gap-4 items-start p-4 border border-gray-200 rounded-md">
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          ID da Unidade *
+                        </label>
+                        <input
+                          type="text"
+                          value={unit.unitId}
+                          onChange={(e) => {
+                            const newUnits = [...units];
+                            newUnits[index].unitId = e.target.value;
+                            setUnits(newUnits);
+                          }}
+                          placeholder="Ex: F421, B013"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Status
+                        </label>
+                        <select
+                          value={unit.status}
+                          onChange={(e) => {
+                            const newUnits = [...units];
+                            newUnits[index].status = e.target.value as 'available' | 'rented' | 'maintenance' | 'damaged';
+                            setUnits(newUnits);
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        >
+                          <option value="available">Disponível</option>
+                          <option value="rented">Alugado</option>
+                          <option value="maintenance">Manutenção</option>
+                          <option value="damaged">Danificado</option>
+                        </select>
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Localização
+                        </label>
+                        <input
+                          type="text"
+                          value={unit.location || ''}
+                          onChange={(e) => {
+                            const newUnits = [...units];
+                            newUnits[index].location = e.target.value;
+                            setUnits(newUnits);
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newUnits = units.filter((_, i) => i !== index);
+                          setUnits(newUnits);
+                        }}
+                        className="mt-6 px-3 py-2 text-red-600 hover:text-red-800"
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUnits([...units, { unitId: '', status: 'available' }]);
+                    }}
+                    className="w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-md text-gray-600 hover:border-indigo-500 hover:text-indigo-600 transition-colors"
+                  >
+                    + Adicionar Unidade
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Quantidades (para tipo quantitativo) */}
+            {formData.trackingType === 'quantity' && (
             <div>
               <h3 className="text-lg font-medium text-gray-900 mb-4">Quantidades</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -294,6 +443,7 @@ const CreateItemPage: React.FC = () => {
                 </div>
               </div>
             </div>
+            )}
 
             {/* Preços */}
             <div>
@@ -327,6 +477,22 @@ const CreateItemPage: React.FC = () => {
                     step="0.01"
                     min="0"
                     value={formData.pricing.weeklyRate || ''}
+                    onChange={handleChange}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="pricing.biweeklyRate" className="block text-sm font-medium text-gray-700">
+                    Taxa Quinzenal (R$)
+                  </label>
+                  <input
+                    id="pricing.biweeklyRate"
+                    name="pricing.biweeklyRate"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.pricing.biweeklyRate || ''}
                     onChange={handleChange}
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   />

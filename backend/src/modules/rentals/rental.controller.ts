@@ -448,6 +448,24 @@ export class RentalController {
       next(error);
     }
   }
+
+  /**
+   * NOVO: Dashboard de vencimentos
+   * GET /api/rentals/expiration-dashboard
+   */
+  async getExpirationDashboard(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const dashboard = await rentalService.getExpirationDashboard(companyId);
+
+      res.json({
+        success: true,
+        data: dashboard,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const rentalController = new RentalController();

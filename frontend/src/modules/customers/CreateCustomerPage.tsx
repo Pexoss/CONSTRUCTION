@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { customerService } from './customer.service';
-import { CreateCustomerData } from '../../types/customer.types';
+import { CreateCustomerData, CustomerAddress } from '../../types/customer.types';
+import Layout from '../../components/Layout';
 
 const CreateCustomerPage: React.FC = () => {
   const navigate = useNavigate();
@@ -11,10 +12,12 @@ const CreateCustomerPage: React.FC = () => {
     cpfCnpj: '',
     email: '',
     phone: '',
-    address: {},
+    addresses: [],
     notes: '',
     isBlocked: false,
   });
+
+  const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
 
   const createMutation = useMutation({
     mutationFn: (data: CreateCustomerData) => customerService.createCustomer(data),
@@ -25,27 +28,60 @@ const CreateCustomerPage: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    createMutation.mutate(formData);
+    // Adicionar endereços ao formData
+    const submitData = {
+      ...formData,
+      addresses: addresses.length > 0 ? addresses : undefined,
+    };
+    createMutation.mutate(submitData);
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    if (name.startsWith('address.')) {
-      const addressField = name.split('.')[1];
-      setFormData((prev) => ({
-        ...prev,
-        address: { ...prev.address, [addressField]: value },
-      }));
-    } else {
-      setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const addAddress = () => {
+    setAddresses([
+      ...addresses,
+      {
+        type: 'main',
+        street: '',
+        city: '',
+        state: '',
+        zipCode: '',
+        isDefault: addresses.length === 0,
+      },
+    ]);
+  };
+
+  const updateAddress = (index: number, field: keyof CustomerAddress, value: any) => {
+    const newAddresses = [...addresses];
+    newAddresses[index] = { ...newAddresses[index], [field]: value };
+    
+    // Se marcar como default, remover default de outros
+    if (field === 'isDefault' && value) {
+      newAddresses.forEach((addr, i) => {
+        if (i !== index) addr.isDefault = false;
+      });
     }
+    
+    setAddresses(newAddresses);
+  };
+
+  const removeAddress = (index: number) => {
+    const newAddresses = addresses.filter((_, i) => i !== index);
+    // Se o removido era default, marcar o primeiro como default
+    if (newAddresses.length > 0 && !newAddresses.some((a) => a.isDefault)) {
+      newAddresses[0].isDefault = true;
+    }
+    setAddresses(newAddresses);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">Novo Cliente</h1>
+    <Layout title="Novo Cliente" backTo="/customers">
+      <div className="max-w-3xl mx-auto">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
 
           {createMutation.isError && (
             <div className="mb-4 bg-red-50 border border-red-200 rounded-md p-4">
@@ -118,43 +154,161 @@ const CreateCustomerPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Múltiplos Endereços */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Endereço</label>
+              <div className="flex justify-between items-center mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Endereços
+                </label>
+                <button
+                  type="button"
+                  onClick={addAddress}
+                  className="text-sm text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                >
+                  + Adicionar Endereço
+                </button>
+              </div>
+              
+              {addresses.length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                  Nenhum endereço adicionado. Clique em "Adicionar Endereço" para começar.
+                </p>
+              )}
+
               <div className="space-y-4">
-                <input
-                  type="text"
-                  name="address.street"
-                  placeholder="Rua"
-                  value={formData.address?.street || ''}
-                  onChange={handleChange}
-                  className="block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                />
-                <div className="grid grid-cols-2 gap-4">
-                  <input
-                    type="text"
-                    name="address.city"
-                    placeholder="Cidade"
-                    value={formData.address?.city || ''}
-                    onChange={handleChange}
-                    className="block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                  <input
-                    type="text"
-                    name="address.state"
-                    placeholder="Estado"
-                    value={formData.address?.state || ''}
-                    onChange={handleChange}
-                    className="block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-                <input
-                  type="text"
-                  name="address.zipCode"
-                  placeholder="CEP"
-                  value={formData.address?.zipCode || ''}
-                  onChange={handleChange}
-                  className="block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                />
+                {addresses.map((address, index) => (
+                  <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+                        Endereço {index + 1}
+                      </h4>
+                      <div className="flex items-center gap-4">
+                        <label className="flex items-center text-sm">
+                          <input
+                            type="checkbox"
+                            checked={address.isDefault}
+                            onChange={(e) => updateAddress(index, 'isDefault', e.target.checked)}
+                            className="mr-2"
+                          />
+                          <span className="text-gray-700 dark:text-gray-300">Padrão</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => removeAddress(index)}
+                          className="text-red-600 hover:text-red-800 dark:text-red-400"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Tipo *
+                        </label>
+                        <select
+                          value={address.type}
+                          onChange={(e) => updateAddress(index, 'type', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        >
+                          <option value="main">Principal</option>
+                          <option value="billing">Cobrança</option>
+                          <option value="work">Obra</option>
+                          <option value="other">Outro</option>
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          CEP *
+                        </label>
+                        <input
+                          type="text"
+                          value={address.zipCode}
+                          onChange={(e) => updateAddress(index, 'zipCode', e.target.value)}
+                          placeholder="00000-000"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                      
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Rua *
+                        </label>
+                        <input
+                          type="text"
+                          value={address.street}
+                          onChange={(e) => updateAddress(index, 'street', e.target.value)}
+                          placeholder="Nome da rua"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Número
+                        </label>
+                        <input
+                          type="text"
+                          value={address.number || ''}
+                          onChange={(e) => updateAddress(index, 'number', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Complemento
+                        </label>
+                        <input
+                          type="text"
+                          value={address.complement || ''}
+                          onChange={(e) => updateAddress(index, 'complement', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Bairro
+                        </label>
+                        <input
+                          type="text"
+                          value={address.neighborhood || ''}
+                          onChange={(e) => updateAddress(index, 'neighborhood', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Cidade *
+                        </label>
+                        <input
+                          type="text"
+                          value={address.city}
+                          onChange={(e) => updateAddress(index, 'city', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Estado *
+                        </label>
+                        <input
+                          type="text"
+                          value={address.state}
+                          onChange={(e) => updateAddress(index, 'state', e.target.value)}
+                          maxLength={2}
+                          placeholder="UF"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -176,14 +330,14 @@ const CreateCustomerPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => navigate('/customers')}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
                 disabled={createMutation.isPending}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm font-medium disabled:opacity-50"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white rounded-md text-sm font-medium disabled:opacity-50"
               >
                 {createMutation.isPending ? 'Salvando...' : 'Salvar'}
               </button>
@@ -191,7 +345,7 @@ const CreateCustomerPage: React.FC = () => {
           </form>
         </div>
       </div>
-    </div>
+    </Layout>
   );
 };
 
