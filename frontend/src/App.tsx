@@ -20,6 +20,7 @@ import EditCustomerPage from './modules/customers/EditCustomerPage';
 import RentalsPage from './modules/rentals/RentalsPage';
 import CreateRentalPage from './modules/rentals/CreateRentalPage';
 import RentalDetailPage from './modules/rentals/RentalDetailPage';
+import ExpirationDashboardPage from './modules/rentals/ExpirationDashboardPage';
 import MaintenancesPage from './modules/maintenance/MaintenancesPage';
 import CreateMaintenancePage from './modules/maintenance/CreateMaintenancePage';
 import MaintenanceDetailPage from './modules/maintenance/MaintenanceDetailPage';
@@ -140,6 +141,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <RentalDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rentals/expiration-dashboard"
+            element={
+              <ProtectedRoute>
+                <ExpirationDashboardPage />
               </ProtectedRoute>
             }
           />

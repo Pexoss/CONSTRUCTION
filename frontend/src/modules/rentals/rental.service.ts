@@ -86,4 +86,23 @@ export const rentalService = {
     );
     return response.data;
   },
+
+  getExpirationDashboard: async () => {
+    const response = await api.get<{
+      success: boolean;
+      data: {
+        expired: Rental[];
+        expiringSoon: Rental[];
+        expiringToday: Rental[];
+        active: number;
+        summary: {
+          totalExpired: number;
+          totalExpiringSoon: number;
+          totalExpiringToday: number;
+          totalActive: number;
+        };
+      };
+    }>('/rentals/expiration-dashboard');
+    return response.data;
+  },
 };

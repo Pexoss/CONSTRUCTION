@@ -1,6 +1,21 @@
 import { Document } from 'mongoose';
 import mongoose from 'mongoose';
 
+// Interface para unidades individuais (itens unitários)
+export interface IItemUnit {
+  unitId: string; // Ex: "F421", "B013"
+  status: 'available' | 'rented' | 'maintenance' | 'damaged';
+  currentRental?: mongoose.Types.ObjectId; // Referência ao aluguel atual (se rented)
+  currentCustomer?: mongoose.Types.ObjectId; // Cliente atual (se rented)
+  maintenanceDetails?: {
+    expectedReturnDate?: Date;
+    cost?: number;
+    supplier?: string;
+  };
+  location?: string;
+  notes?: string;
+}
+
 export interface IItem extends Document {
   companyId: mongoose.Types.ObjectId;
   name: string;
@@ -10,8 +25,14 @@ export interface IItem extends Document {
   sku: string;
   barcode?: string;
   customId?: string; // ID customizado manual (ex: "betoneira 13")
-  photos: string[];
-  specifications?: Record<string, any>;
+  
+  // NOVO: Tipo de controle de estoque
+  trackingType: 'unit' | 'quantity'; // 'unit' = unitário com ID único, 'quantity' = quantitativo
+  
+  // NOVO: Para itens unitários - array de unidades individuais
+  units?: IItemUnit[];
+  
+  // Para itens quantitativos - controle numérico (mantido para compatibilidade)
   quantity: {
     total: number;
     available: number;
@@ -19,20 +40,29 @@ export interface IItem extends Document {
     maintenance: number;
     damaged: number;
   };
-  pricing: {
-    dailyRate: number;
-    weeklyRate?: number;
-    monthlyRate?: number;
-    depositAmount?: number;
-  };
-  location?: string;
+  
+  // Depreciação individual
   depreciation?: {
     initialValue?: number;
     currentValue?: number;
     depreciationRate?: number; // porcentagem anual
     purchaseDate?: Date;
     lastDepreciationDate?: Date;
+    accumulatedDepreciation?: number; // NOVO
+    annualRate?: number; // NOVO: percentual anual (ex: 13 = 13%)
   };
+  
+  pricing: {
+    dailyRate: number;
+    weeklyRate?: number;
+    biweeklyRate?: number; // NOVO: quinzenal
+    monthlyRate?: number;
+    depositAmount?: number;
+  };
+  
+  photos: string[];
+  specifications?: Record<string, any>;
+  location?: string;
   lowStockThreshold?: number; // alerta de estoque baixo
   isActive: boolean;
   createdAt?: Date;

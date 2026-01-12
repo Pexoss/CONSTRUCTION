@@ -17,4 +17,17 @@ router.put('/customers/:id', customerController.updateCustomer.bind(customerCont
 router.delete('/customers/:id', customerController.deleteCustomer.bind(customerController));
 router.patch('/customers/:id/block', customerController.toggleBlockCustomer.bind(customerController));
 
+// NOVO: Endereços
+router.post('/customers/:id/addresses', customerController.addAddress.bind(customerController));
+router.put('/customers/:id/addresses/:index', customerController.updateAddress.bind(customerController));
+router.delete('/customers/:id/addresses/:index', customerController.removeAddress.bind(customerController));
+
+// NOVO: Obras
+router.post('/customers/:id/works', customerController.addWork.bind(customerController));
+router.put('/customers/:id/works/:workId', customerController.updateWork.bind(customerController));
+router.delete('/customers/:id/works/:workId', customerController.removeWork.bind(customerController));
+
+// NOVO: Validação
+router.post('/customers/:id/validate', customerController.updateValidatedData.bind(customerController));
+
 export default router;

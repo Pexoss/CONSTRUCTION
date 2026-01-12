@@ -1,3 +1,17 @@
+export interface ItemUnit {
+  unitId: string;
+  status: 'available' | 'rented' | 'maintenance' | 'damaged';
+  currentRental?: string;
+  currentCustomer?: string;
+  maintenanceDetails?: {
+    expectedReturnDate?: string;
+    cost?: number;
+    supplier?: string;
+  };
+  location?: string;
+  notes?: string;
+}
+
 export interface Item {
   _id: string;
   companyId: string;
@@ -8,6 +22,8 @@ export interface Item {
   sku: string;
   barcode?: string;
   customId?: string;
+  trackingType: 'unit' | 'quantity';
+  units?: ItemUnit[];
   photos: string[];
   specifications?: Record<string, any>;
   quantity: {
@@ -20,6 +36,7 @@ export interface Item {
   pricing: {
     dailyRate: number;
     weeklyRate?: number;
+    biweeklyRate?: number;
     monthlyRate?: number;
     depositAmount?: number;
   };
@@ -28,6 +45,8 @@ export interface Item {
     initialValue?: number;
     currentValue?: number;
     depreciationRate?: number;
+    annualRate?: number;
+    accumulatedDepreciation?: number;
     purchaseDate?: string;
     lastDepreciationDate?: string;
   };
@@ -92,6 +111,8 @@ export interface CreateItemData {
   sku: string;
   barcode?: string;
   customId?: string;
+  trackingType?: 'unit' | 'quantity';
+  units?: ItemUnit[];
   photos?: string[];
   specifications?: Record<string, any>;
   quantity: {
@@ -104,6 +125,7 @@ export interface CreateItemData {
   pricing: {
     dailyRate: number;
     weeklyRate?: number;
+    biweeklyRate?: number;
     monthlyRate?: number;
     depositAmount?: number;
   };
@@ -112,7 +134,10 @@ export interface CreateItemData {
     initialValue?: number;
     currentValue?: number;
     depreciationRate?: number;
+    annualRate?: number;
+    accumulatedDepreciation?: number;
     purchaseDate?: string;
+    lastDepreciationDate?: string;
   };
   lowStockThreshold?: number;
   isActive?: boolean;

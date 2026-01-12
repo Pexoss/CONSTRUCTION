@@ -4,12 +4,15 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { rentalService } from './rental.service';
 import { customerService } from '../customers/customer.service';
 import { useItems } from '../../hooks/useInventory';
-import { CreateRentalData } from '../../types/rental.types';
+import { CreateRentalData, RentalService, RentalWorkAddress } from '../../types/rental.types';
 import { Item } from '../../types/inventory.types';
+import Layout from '../../components/Layout';
 
 interface SelectedItem {
   itemId: string;
   quantity: number;
+  unitId?: string;
+  rentalType?: 'daily' | 'weekly' | 'biweekly' | 'monthly';
   item: Item;
 }
 
@@ -17,6 +20,8 @@ const CreateRentalPage: React.FC = () => {
   const navigate = useNavigate();
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
+  const [services, setServices] = useState<RentalService[]>([]);
+  const [workAddress, setWorkAddress] = useState<RentalWorkAddress | null>(null);
   const [pickupDate, setPickupDate] = useState('');
   const [returnDate, setReturnDate] = useState('');
   const [discount, setDiscount] = useState(0);
@@ -57,23 +62,29 @@ const CreateRentalPage: React.FC = () => {
   };
 
   const calculateTotals = () => {
-    if (!pickupDate || !returnDate) return { subtotal: 0, deposit: 0, total: 0 };
+    if (!pickupDate || !returnDate) return { equipmentSubtotal: 0, servicesSubtotal: 0, subtotal: 0, deposit: 0, total: 0 };
 
     const startDate = new Date(pickupDate);
     const endDate = new Date(returnDate);
 
-    let subtotal = 0;
+    let equipmentSubtotal = 0;
+    let servicesSubtotal = 0;
     let deposit = 0;
 
     selectedItems.forEach((selectedItem) => {
       const itemPrice = calculatePrice(selectedItem.item, selectedItem.quantity, startDate, endDate);
-      subtotal += itemPrice;
+      equipmentSubtotal += itemPrice;
       deposit += (selectedItem.item.pricing.depositAmount || 0) * selectedItem.quantity;
     });
 
+    services.forEach((service) => {
+      servicesSubtotal += service.subtotal;
+    });
+
+    const subtotal = equipmentSubtotal + servicesSubtotal;
     const total = subtotal - discount;
 
-    return { subtotal, deposit, total };
+    return { equipmentSubtotal, servicesSubtotal, subtotal, deposit, total };
   };
 
   const handleAddItem = (item: Item) => {
@@ -101,6 +112,35 @@ const CreateRentalPage: React.FC = () => {
     );
   };
 
+  const addService = () => {
+    setServices([
+      ...services,
+      {
+        description: '',
+        price: 0,
+        quantity: 1,
+        subtotal: 0,
+        category: '',
+      },
+    ]);
+  };
+
+  const updateService = (index: number, field: keyof RentalService, value: any) => {
+    const newServices = [...services];
+    newServices[index] = { ...newServices[index], [field]: value };
+    
+    // Recalcular subtotal
+    if (field === 'price' || field === 'quantity') {
+      newServices[index].subtotal = newServices[index].price * newServices[index].quantity;
+    }
+    
+    setServices(newServices);
+  };
+
+  const removeService = (index: number) => {
+    setServices(services.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomer || selectedItems.length === 0 || !pickupDate || !returnDate) {
@@ -112,8 +152,12 @@ const CreateRentalPage: React.FC = () => {
       customerId: selectedCustomer,
       items: selectedItems.map((si) => ({
         itemId: si.itemId,
+        unitId: si.unitId,
         quantity: si.quantity,
+        rentalType: si.rentalType || 'daily',
       })),
+      services: services.length > 0 ? services : undefined,
+      workAddress: workAddress || undefined,
       dates: {
         pickupScheduled: pickupDate,
         returnScheduled: returnDate,
@@ -130,11 +174,11 @@ const CreateRentalPage: React.FC = () => {
   const totals = calculateTotals();
   const items = itemsData?.data || [];
   const customers = customersData?.data || [];
+  const selectedCustomerData = customers.find((c) => c._id === selectedCustomer);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Novo Aluguel</h1>
+    <Layout title="Novo Aluguel" backTo="/rentals">
+      <div className="max-w-7xl mx-auto">
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Items Selection */}
@@ -187,17 +231,17 @@ const CreateRentalPage: React.FC = () => {
 
             {/* Selected Items */}
             {selectedItems.length > 0 && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Itens Selecionados</h2>
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Itens Selecionados</h2>
                 <div className="space-y-3">
                   {selectedItems.map((selectedItem) => (
                     <div
                       key={selectedItem.itemId}
-                      className="flex items-center justify-between p-3 border border-gray-200 rounded-md"
+                      className="flex items-center justify-between p-3 border border-gray-200 dark:border-gray-700 rounded-md"
                     >
                       <div className="flex-1">
-                        <div className="font-medium text-gray-900">{selectedItem.item.name}</div>
-                        <div className="text-sm text-gray-500">
+                        <div className="font-medium text-gray-900 dark:text-white">{selectedItem.item.name}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
                           {pickupDate && returnDate
                             ? `R$ ${calculatePrice(
                                 selectedItem.item,
@@ -207,6 +251,27 @@ const CreateRentalPage: React.FC = () => {
                               ).toFixed(2)} por unidade`
                             : 'Selecione as datas'}
                         </div>
+                        {selectedItem.item.trackingType === 'unit' && (
+                          <select
+                            value={selectedItem.unitId || ''}
+                            onChange={(e) => {
+                              const updated = selectedItems.map((si) =>
+                                si.itemId === selectedItem.itemId ? { ...si, unitId: e.target.value } : si
+                              );
+                              setSelectedItems(updated);
+                            }}
+                            className="mt-2 text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1 dark:bg-gray-800 dark:text-white"
+                          >
+                            <option value="">Selecione a unidade</option>
+                            {selectedItem.item.units
+                              ?.filter((u) => u.status === 'available')
+                              .map((unit) => (
+                                <option key={unit.unitId} value={unit.unitId}>
+                                  {unit.unitId}
+                                </option>
+                              ))}
+                          </select>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <input
@@ -217,11 +282,11 @@ const CreateRentalPage: React.FC = () => {
                           onChange={(e) =>
                             handleQuantityChange(selectedItem.itemId, parseInt(e.target.value) || 1)
                           }
-                          className="w-20 border border-gray-300 rounded-md px-2 py-1 text-sm"
+                          className="w-20 border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1 text-sm dark:bg-gray-800 dark:text-white"
                         />
                         <button
                           onClick={() => handleRemoveItem(selectedItem.itemId)}
-                          className="text-red-600 hover:text-red-800 text-sm font-medium"
+                          className="text-red-600 hover:text-red-800 dark:text-red-400 text-sm font-medium"
                         >
                           Remover
                         </button>
@@ -231,12 +296,190 @@ const CreateRentalPage: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* Serviços Adicionais */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Serviços Adicionais</h2>
+                <button
+                  type="button"
+                  onClick={addService}
+                  className="text-sm text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                >
+                  + Adicionar Serviço
+                </button>
+              </div>
+              
+              {services.length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Nenhum serviço adicionado. Ex: Frete, Limpeza, Instalação
+                </p>
+              )}
+
+              <div className="space-y-3">
+                {services.map((service, index) => (
+                  <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-md p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Descrição *
+                        </label>
+                        <input
+                          type="text"
+                          value={service.description}
+                          onChange={(e) => updateService(index, 'description', e.target.value)}
+                          placeholder="Ex: Frete Alfenas-Fama"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Preço (R$) *
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={service.price}
+                          onChange={(e) => updateService(index, 'price', parseFloat(e.target.value) || 0)}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Quantidade
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={service.quantity}
+                          onChange={(e) => updateService(index, 'quantity', parseInt(e.target.value) || 1)}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Categoria
+                        </label>
+                        <input
+                          type="text"
+                          value={service.category}
+                          onChange={(e) => updateService(index, 'category', e.target.value)}
+                          placeholder="Ex: frete, limpeza"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Subtotal
+                        </label>
+                        <input
+                          type="text"
+                          value={`R$ ${service.subtotal.toFixed(2)}`}
+                          disabled
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-gray-50 dark:bg-gray-900 text-gray-700 dark:text-gray-300 sm:text-sm"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="button"
+                          onClick={() => removeService(index)}
+                          className="w-full px-3 py-2 text-red-600 hover:text-red-800 dark:text-red-400 border border-red-300 dark:border-red-700 rounded-md text-sm font-medium"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Endereço da Obra */}
+            {selectedCustomerData && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Endereço da Obra (Opcional)</h2>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Nome da Obra
+                    </label>
+                    <input
+                      type="text"
+                      value={workAddress?.workName || ''}
+                      onChange={(e) => setWorkAddress({ ...(workAddress || {} as RentalWorkAddress), workName: e.target.value } as RentalWorkAddress)}
+                      placeholder="Ex: Construção Residencial - Rua X"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Rua
+                      </label>
+                      <input
+                        type="text"
+                        value={workAddress?.street || ''}
+                        onChange={(e) => setWorkAddress({ ...(workAddress || {} as RentalWorkAddress), street: e.target.value } as RentalWorkAddress)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Número
+                      </label>
+                      <input
+                        type="text"
+                        value={workAddress?.number || ''}
+                        onChange={(e) => setWorkAddress({ ...(workAddress || {} as RentalWorkAddress), number: e.target.value } as RentalWorkAddress)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        CEP
+                      </label>
+                      <input
+                        type="text"
+                        value={workAddress?.zipCode || ''}
+                        onChange={(e) => setWorkAddress({ ...(workAddress || {} as RentalWorkAddress), zipCode: e.target.value } as RentalWorkAddress)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Cidade
+                      </label>
+                      <input
+                        type="text"
+                        value={workAddress?.city || ''}
+                        onChange={(e) => setWorkAddress({ ...(workAddress || {} as RentalWorkAddress), city: e.target.value } as RentalWorkAddress)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Estado
+                      </label>
+                      <input
+                        type="text"
+                        value={workAddress?.state || ''}
+                        onChange={(e) => setWorkAddress({ ...(workAddress || {} as RentalWorkAddress), state: e.target.value } as RentalWorkAddress)}
+                        maxLength={2}
+                        placeholder="UF"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right Column - Summary */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow p-6 sticky top-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Resumo</h2>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 sticky top-6">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Resumo</h2>
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
@@ -292,24 +535,34 @@ const CreateRentalPage: React.FC = () => {
                   />
                 </div>
 
-                <div className="border-t pt-4 space-y-2">
+                <div className="border-t dark:border-gray-700 pt-4 space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Subtotal:</span>
-                    <span className="font-medium">R$ {totals.subtotal.toFixed(2)}</span>
+                    <span className="text-gray-600 dark:text-gray-400">Equipamentos:</span>
+                    <span className="font-medium dark:text-white">R$ {totals.equipmentSubtotal.toFixed(2)}</span>
+                  </div>
+                  {totals.servicesSubtotal > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 dark:text-gray-400">Serviços:</span>
+                      <span className="font-medium dark:text-white">R$ {totals.servicesSubtotal.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600 dark:text-gray-400">Subtotal:</span>
+                    <span className="font-medium dark:text-white">R$ {totals.subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Caução:</span>
-                    <span className="font-medium">R$ {totals.deposit.toFixed(2)}</span>
+                    <span className="text-gray-600 dark:text-gray-400">Caução:</span>
+                    <span className="font-medium dark:text-white">R$ {totals.deposit.toFixed(2)}</span>
                   </div>
                   {discount > 0 && (
-                    <div className="flex justify-between text-sm text-red-600">
+                    <div className="flex justify-between text-sm text-red-600 dark:text-red-400">
                       <span>Desconto:</span>
                       <span>- R$ {discount.toFixed(2)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-lg font-bold border-t pt-2">
-                    <span>Total:</span>
-                    <span>R$ {totals.total.toFixed(2)}</span>
+                  <div className="flex justify-between text-lg font-bold border-t dark:border-gray-700 pt-2">
+                    <span className="dark:text-white">Total:</span>
+                    <span className="dark:text-white">R$ {totals.total.toFixed(2)}</span>
                   </div>
                 </div>
 
@@ -333,7 +586,7 @@ const CreateRentalPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
+    </Layout>
   );
 };
 

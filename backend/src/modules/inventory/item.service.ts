@@ -10,32 +10,65 @@ class ItemService {
    * Create a new item
    */
   async createItem(companyId: string, data: any, userId: string): Promise<IItem> {
-    // Set initial available quantity based on total if not provided
-    if (!data.quantity.available && data.quantity.total) {
-      data.quantity.available = data.quantity.total;
+    // Set default tracking type if not provided
+    const trackingType = data.trackingType || 'quantity';
+
+    // For quantity-based items, calculate quantities
+    if (trackingType === 'quantity') {
+      // Set initial available quantity based on total if not provided
+      if (!data.quantity.available && data.quantity.total) {
+        data.quantity.available = data.quantity.total;
+      }
+
+      // Calculate initial available = total - (rented + maintenance + damaged)
+      data.quantity.available =
+        data.quantity.total -
+        (data.quantity.rented || 0) -
+        (data.quantity.maintenance || 0) -
+        (data.quantity.damaged || 0);
+
+      // Validate that available quantity is not negative
+      if (data.quantity.available < 0) {
+        throw new Error('Available quantity cannot be negative');
+      }
     }
-
-    // Calculate initial available = total - (rented + maintenance + damaged)
-    data.quantity.available =
-      data.quantity.total -
-      (data.quantity.rented || 0) -
-      (data.quantity.maintenance || 0) -
-      (data.quantity.damaged || 0);
-
-    // Validate that available quantity is not negative
-    if (data.quantity.available < 0) {
-      throw new Error('Available quantity cannot be negative');
+    // For unit-based items, validate units array
+    else if (trackingType === 'unit') {
+      if (!data.units || !Array.isArray(data.units) || data.units.length === 0) {
+        throw new Error('Unit-based items must have at least one unit');
+      }
+      // Validate unique unitIds
+      const unitIds = data.units.map((u: any) => u.unitId);
+      const uniqueUnitIds = new Set(unitIds);
+      if (unitIds.length !== uniqueUnitIds.size) {
+        throw new Error('Unit IDs must be unique');
+      }
+      // Set initial quantity to 0 (will be calculated by pre-save hook)
+      data.quantity = {
+        total: 0,
+        available: 0,
+        rented: 0,
+        maintenance: 0,
+        damaged: 0,
+      };
     }
 
     const item = await Item.create({
       ...data,
       companyId,
-      quantity: {
+      trackingType,
+      quantity: trackingType === 'quantity' ? {
         total: data.quantity.total,
         available: data.quantity.available,
         rented: data.quantity.rented || 0,
         maintenance: data.quantity.maintenance || 0,
         damaged: data.quantity.damaged || 0,
+      } : {
+        total: 0,
+        available: 0,
+        rented: 0,
+        maintenance: 0,
+        damaged: 0,
       },
     });
 
@@ -44,7 +77,7 @@ class ItemService {
       companyId: new mongoose.Types.ObjectId(companyId),
       itemId: item._id as mongoose.Types.ObjectId,
       type: 'in',
-      quantity: data.quantity.total,
+      quantity: item.quantity.total,
       previousQuantity: {
         total: 0,
         available: 0,
@@ -53,7 +86,7 @@ class ItemService {
         damaged: 0,
       },
       newQuantity: item.quantity,
-      notes: 'Item criado',
+      notes: trackingType === 'unit' ? `Item criado com ${item.units?.length || 0} unidades` : 'Item criado',
       createdBy: new mongoose.Types.ObjectId(userId),
     });
 
