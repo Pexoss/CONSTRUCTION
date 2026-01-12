@@ -1,16 +1,14 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { invoiceService } from './invoice.service';
 import { InvoiceFilters, InvoiceStatus } from '../../types/invoice.types';
 
 const InvoicesPage: React.FC = () => {
-  const [filters, setFilters] = useState<InvoiceFilters>({
+  const [filters] = useState<InvoiceFilters>({
     page: 1,
     limit: 20,
   });
-
-  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ['invoices', filters],

@@ -117,7 +117,6 @@ const RentalSchema = new Schema<IRental>(
       type: String,
       required: [true, 'Rental number is required'],
       unique: true,
-      index: true,
     },
     customerId: {
       type: Schema.Types.ObjectId,

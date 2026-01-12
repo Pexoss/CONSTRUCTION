@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useItems, useLowStockItems } from '../../hooks/useInventory';
 import { ItemFilters } from '../../types/inventory.types';
+import Layout from '../../components/Layout';
 
 const InventoryPage: React.FC = () => {
   const [filters, setFilters] = useState<ItemFilters>({
@@ -43,25 +44,25 @@ const InventoryPage: React.FC = () => {
   const pagination = itemsData?.pagination;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Inventário" backTo="/dashboard">
       {/* Header */}
-      <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-6">
+        <div className="px-6 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Inventário</h1>
-              <p className="mt-1 text-sm text-gray-600">Gerenciar materiais e equipamentos</p>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Inventário</h1>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Gerenciar materiais e equipamentos</p>
             </div>
             <div className="flex space-x-3">
               <Link
                 to="/inventory/categories"
-                className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="bg-gray-600 hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
               >
                 Categorias
               </Link>
               <Link
                 to="/inventory/items/new"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
               >
                 + Novo Item
               </Link>
@@ -280,7 +281,7 @@ const InventoryPage: React.FC = () => {
           </div>
         )}
       </div>
-    </div>
+    </Layout>
   );
 };
 
