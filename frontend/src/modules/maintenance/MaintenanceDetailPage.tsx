@@ -99,7 +99,9 @@ const MaintenanceDetailPage: React.FC = () => {
                 setShowStatusModal(true);
                 setNewStatus(maintenance.status);
                 setStatusData({
-                  completedDate: maintenance.completedDate || '',
+                  completedDate: maintenance.completedDate
+                    ? new Date(maintenance.completedDate).toISOString()
+                    : new Date().toISOString(),
                   performedBy: maintenance.performedBy || '',
                   notes: maintenance.notes || '',
                 });
@@ -222,7 +224,7 @@ const MaintenanceDetailPage: React.FC = () => {
                     </label>
                     <input
                       type="datetime-local"
-                      value={statusData.completedDate ? new Date(statusData.completedDate).toISOString().slice(0, 16) : ''}
+                      value={statusData.completedDate.slice(0, 16)}
                       onChange={(e) =>
                         setStatusData({ ...statusData, completedDate: e.target.value })
                       }
@@ -264,7 +266,9 @@ const MaintenanceDetailPage: React.FC = () => {
                   onClick={() =>
                     updateStatusMutation.mutate({
                       status: newStatus,
-                      completedDate: statusData.completedDate || undefined,
+                      completedDate: statusData.completedDate
+                        ? new Date(statusData.completedDate).toISOString()
+                        : undefined,
                       performedBy: statusData.performedBy || undefined,
                       notes: statusData.notes || undefined,
                     })

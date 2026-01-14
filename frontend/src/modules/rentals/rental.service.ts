@@ -105,4 +105,21 @@ export const rentalService = {
     }>('/rentals/expiration-dashboard');
     return response.data;
   },
+
+  getRentalItemDetails: async (itemId: string, companyId: string) => {
+    const response = await api.get<{
+      success: boolean;
+      data: {
+        itemId: string;
+        status: 'available' | 'rented' | 'maintenance';
+        rentedBy?: { customerId: string; name: string };
+        maintenance?: { provider: string; expectedReturnDate: string; cost: number };
+        rentalInfo?: { rentalId: string; rentalNumber: string; quantity: number; unitPrice: number; subtotal: number };
+      };
+    }>(`/rentals/${itemId}/details-status-item`, {
+      params: { companyId },
+    });
+
+    return response.data;
+  },
 };

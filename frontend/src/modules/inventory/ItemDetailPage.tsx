@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useItem, useDeleteItem, useItemMovements, useAdjustQuantity, useCalculateDepreciation } from '../../hooks/useInventory';
 import { adjustQuantitySchema } from '../../utils/inventory.validation';
+import { inventoryService } from './inventory.service';
 
 const ItemDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -11,6 +12,12 @@ const ItemDetailPage: React.FC = () => {
   const adjustQuantity = useAdjustQuantity();
   const calculateDepreciation = useCalculateDepreciation();
   const { data: movementsData } = useItemMovements(id || '');
+  const [operationalStatus, setOperationalStatus] = useState<{
+    status: string;
+    label: string;
+    className: string;
+    client?: { id: string; name: string } | null;
+  } | null>(null);
 
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [adjustForm, setAdjustForm] = useState({
@@ -20,6 +27,21 @@ const ItemDetailPage: React.FC = () => {
   });
 
   const item = itemData?.data;
+
+  useEffect(() => {
+    if (!item?._id) return;
+
+    const fetchOperationalStatus = async () => {
+      try {
+        const response = await inventoryService.getItemOperationalStatus(item._id);
+        setOperationalStatus(response);
+      } catch (error: any) {
+      }
+    };
+
+    fetchOperationalStatus();
+  }, [item?._id]);
+
 
   const handleAdjustQuantity = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,6 +77,7 @@ const ItemDetailPage: React.FC = () => {
   const handleCalculateDepreciation = () => {
     if (!id) return;
     calculateDepreciation.mutate(id);
+    console.log("ID do item", id)
   };
 
   if (isLoading) {
@@ -75,7 +98,6 @@ const ItemDetailPage: React.FC = () => {
       </div>
     );
   }
-
   const movements = movementsData?.data || [];
 
   return (
@@ -301,15 +323,14 @@ const ItemDetailPage: React.FC = () => {
                           <div className="relative flex space-x-3">
                             <div>
                               <span
-                                className={`h-8 w-8 rounded-full flex items-center justify-center ring-8 ring-white ${
-                                  movement.type === 'in'
-                                    ? 'bg-green-500'
-                                    : movement.type === 'out'
+                                className={`h-8 w-8 rounded-full flex items-center justify-center ring-8 ring-white ${movement.type === 'in'
+                                  ? 'bg-green-500'
+                                  : movement.type === 'out'
                                     ? 'bg-red-500'
                                     : movement.type === 'damage'
-                                    ? 'bg-yellow-500'
-                                    : 'bg-blue-500'
-                                }`}
+                                      ? 'bg-yellow-500'
+                                      : 'bg-blue-500'
+                                  }`}
                               >
                                 <span className="text-white text-xs font-semibold">
                                   {movement.type === 'in' ? '+' : movement.type === 'out' ? '-' : '!'}
@@ -365,25 +386,52 @@ const ItemDetailPage: React.FC = () => {
             {/* Status */}
             <div className="bg-white shadow rounded-lg p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Status</h2>
-              <div className="space-y-2">
+
+              <div className="space-y-3">
+                {/* Status administrativo */}
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-500">Status</span>
+                  <span className="text-sm text-gray-500">Cadastro</span>
                   <span
-                    className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      item.isActive
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}
+                    className={`px-2 py-1 rounded-full text-xs font-medium ${item.isActive
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-red-100 text-red-800'
+                      }`}
                   >
                     {item.isActive ? 'Ativo' : 'Inativo'}
                   </span>
                 </div>
-                {item.lowStockThreshold && (
+
+                {/* Quantidades relevantes */}
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-500">Disponível</span>
+                  <span className="text-sm text-gray-900">{item.quantity.available}</span>
+                </div>
+
+                {operationalStatus?.status === 'rented' && operationalStatus.client && (
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Locado para</span>
+                    <span className="text-sm text-gray-900">
+                      {operationalStatus.client.name}
+                    </span>
+                  </div>
+                )}
+
+                {item.quantity.maintenance > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-500">Em manutenção</span>
+                    <span className="text-sm text-gray-900">{item.quantity.maintenance}</span>
+                  </div>
+                )}
+
+                {/* Estoque baixo */}
+                {item.lowStockThreshold != null && (
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-500">Alerta de Estoque Baixo</span>
                     <span className="text-sm text-gray-900">{item.lowStockThreshold}</span>
                   </div>
                 )}
+
+                {/* Criado em */}
                 {item.createdAt && (
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-500">Criado em</span>

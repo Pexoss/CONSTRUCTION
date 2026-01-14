@@ -172,4 +172,17 @@ export const inventoryService = {
     );
     return response.data;
   },
+  getItemOperationalStatus: async (itemId: string) => {
+    const response = await api.get<{
+      status: string;
+      label: string;
+      className: string;
+      client?: { id: string; name: string } | null;
+      quantity?: number;
+      expectedReturnDate?: string | null;
+    }>(`/inventory/items/${itemId}/operational-status`);
+
+    return response.data;
+  }
+
 };

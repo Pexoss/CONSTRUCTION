@@ -97,7 +97,7 @@ export interface IRentalChecklist {
 
 export interface IRental extends Document {
   companyId: mongoose.Types.ObjectId;
-  rentalNumber: string;
+  rentalNumber?: string;
   customerId: mongoose.Types.ObjectId;
   items: IRentalItem[];
   
@@ -123,4 +123,26 @@ export interface IRental extends Document {
   createdBy: mongoose.Types.ObjectId;
   createdAt?: Date;
   updatedAt?: Date;
+}
+
+//Detalhes do item
+export interface RentalDetails {
+  itemId: string;
+  status: 'available' | 'rented' | 'maintenance';
+  rentedBy?: {
+    customerId: string;
+    name: string;
+  };
+  maintenance?: {
+    provider: string;
+    expectedReturnDate: Date;
+    cost: number;
+  };
+  rentalInfo?: {
+    rentalId: string;
+    rentalNumber: string;
+    quantity: number;
+    unitPrice: number;
+    subtotal: number;
+  };
 }

@@ -10,6 +10,7 @@ export const createItemSchema = z.object({
   customId: z.string().optional(),
   photos: z.array(z.string().url({ message: 'URL inválida' })).optional().default([]),
   specifications: z.record(z.string(), z.any()).optional(),
+
   quantity: z.object({
     total: z.number().int().min(0, { message: 'Quantidade total não pode ser negativa' }),
     available: z.number().int().min(0).optional(),

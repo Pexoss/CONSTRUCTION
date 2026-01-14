@@ -1,8 +1,10 @@
 import { Rental } from './rental.model';
 import { Item } from '../inventory/item.model';
 import { ItemMovement } from '../inventory/itemMovement.model';
-import { IRental, RentalStatus, IRentalItem, IRentalPricing, IRentalService, IRentalWorkAddress, IRentalChangeHistory, IRentalPendingApproval, RentalType } from './rental.types';
+import { IRental, RentalStatus, IRentalItem, IRentalPricing, IRentalService, IRentalWorkAddress, IRentalChangeHistory, IRentalPendingApproval, RentalType, RentalDetails } from './rental.types';
 import mongoose from 'mongoose';
+import { ICustomer } from '../customers/customer.types';
+import { Customer } from '../customers/customer.model';
 
 class RentalService {
   /**
@@ -19,7 +21,7 @@ class RentalService {
     rentalType?: RentalType
   ): number {
     const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-    
+
     if (days <= 0) {
       return 0;
     }
@@ -90,9 +92,24 @@ class RentalService {
   }
 
   /**
+   * 
+   * Create retalNumber
+   */
+  async generateRentalNumber(companyId: string): Promise<string> {
+    const RentalModel = mongoose.model<IRental>('Rental');
+    const count = await RentalModel.countDocuments({ companyId });
+    const rentalNumber = `ALGUEL-${companyId.toString().slice(-6)}-${String(count + 1).padStart(6, '0')}`; //pega os 6 ulimos dígitos do id da empresa - contador
+    return rentalNumber;
+  }
+
+  /**
    * Create a new rental/reservation
    */
   async createRental(companyId: string, data: any, userId: string): Promise<IRental> {
+    //rentailNumber gera automaticamente ao registrar aluguel
+    const rentalNumber = await this.generateRentalNumber(companyId);
+    console.log('Rental number que será usado no createRental:', rentalNumber);
+
     // Validate items availability
     for (const item of data.items) {
       const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
@@ -214,6 +231,7 @@ class RentalService {
     const rental = await Rental.create({
       companyId,
       customerId: data.customerId,
+      rentalNumber,
       items: itemsWithPricing,
       services: services.length > 0 ? services : undefined, // NOVO
       workAddress, // NOVO
@@ -330,7 +348,7 @@ class RentalService {
     if (status === 'active' && oldStatus === 'reserved') {
       // Mark pickup as actual
       rental.dates.pickupActual = new Date();
-      
+
       // Update item quantities (move from reserved to rented)
       for (const item of rental.items) {
         await this.updateItemQuantityForRental(companyId, item.itemId, item.quantity, 'activate', userId, rental._id);
@@ -338,7 +356,7 @@ class RentalService {
     } else if (status === 'completed' && (oldStatus === 'active' || oldStatus === 'overdue')) {
       // Mark return as actual
       rental.dates.returnActual = new Date();
-      
+
       // Calculate late fee if applicable
       if (rental.dates.returnActual > rental.dates.returnScheduled) {
         let totalLateFee = 0;
@@ -357,7 +375,7 @@ class RentalService {
         rental.pricing.lateFee = totalLateFee;
         rental.pricing.total = rental.pricing.subtotal - rental.pricing.discount + totalLateFee;
       }
-      
+
       // Update item quantities (return items)
       for (const item of rental.items) {
         await this.updateItemQuantityForRental(companyId, item.itemId, item.quantity, 'return', userId, rental._id);

@@ -24,13 +24,13 @@ const itemSchemaBase = z.object({
   sku: z.string().min(1, 'SKU is required'),
   barcode: z.string().optional(),
   customId: z.string().optional(),
-  
+
   // NOVO: Tipo de controle
   trackingType: z.enum(['unit', 'quantity']).default('quantity'),
-  
+
   // NOVO: Array de unidades (para tipo unitário)
   units: z.array(itemUnitSchema).optional(),
-  
+
   // Quantidade (para tipo quantitativo ou calculada para unitário)
   quantity: z.object({
     total: z.number().int().min(0, 'Total quantity cannot be negative'),
@@ -39,7 +39,7 @@ const itemSchemaBase = z.object({
     maintenance: z.number().int().min(0).optional(),
     damaged: z.number().int().min(0).optional(),
   }),
-  
+
   photos: z.array(z.string().url()).optional().default([]),
   specifications: z.record(z.any()).optional(),
   pricing: z.object({
@@ -67,15 +67,16 @@ const itemSchemaBase = z.object({
 
 // Schema de criação com refine
 export const createItemSchema = itemSchemaBase.refine((data) => {
-  // Se for tipo unitário, deve ter array de units
   if (data.trackingType === 'unit') {
-    return data.units && data.units.length > 0;
+    // Se units estiver vazio, podemos criar uma unidade a partir do customId
+    return data.units && data.units.length > 0 || !!data.customId;
   }
   return true;
 }, {
-  message: 'Items with unit tracking type must have at least one unit',
+  message: 'Items with unit tracking type must have at least one unit or customId',
   path: ['units'],
 });
+
 
 // Schema de atualização (partial, sem refine)
 export const updateItemSchema = itemSchemaBase.partial();

@@ -131,14 +131,10 @@ export interface CreateItemData {
   };
   location?: string;
   depreciation?: {
-    initialValue?: number;
-    currentValue?: number;
-    depreciationRate?: number;
-    annualRate?: number;
-    accumulatedDepreciation?: number;
-    purchaseDate?: string;
-    lastDepreciationDate?: string;
-  };
+    initialValue: number;  
+    depreciationRate: number; 
+    purchaseDate: string;      
+  }
   lowStockThreshold?: number;
   isActive?: boolean;
 }

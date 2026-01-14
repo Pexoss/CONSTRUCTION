@@ -15,14 +15,14 @@ const MaintenanceSchema = new Schema<IMaintenance>(
       required: [true, 'Item ID is required'],
       index: true,
     },
-    
+
     // NOVO: ID da unidade específica (se item for unitário)
     unitId: {
       type: String,
       trim: true,
       index: true,
     },
-    
+
     type: {
       type: String,
       enum: ['preventive', 'corrective'],
@@ -40,21 +40,21 @@ const MaintenanceSchema = new Schema<IMaintenance>(
       required: [true, 'Scheduled date is required'],
       index: true,
     },
-    
+
     // NOVO: Data de início
     startedDate: {
       type: Date,
     },
-    
+
     completedDate: {
       type: Date,
     },
-    
+
     // NOVO: Previsão de entrega
     expectedReturnDate: {
       type: Date,
     },
-    
+
     description: {
       type: String,
       required: [true, 'Description is required'],
@@ -66,19 +66,21 @@ const MaintenanceSchema = new Schema<IMaintenance>(
       min: 0,
       default: 0,
     },
-    
+
     // NOVO: Dados do fornecedor
     supplier: {
-      name: {
-        type: String,
-        required: true,
-        trim: true,
+      type: {
+        name: {
+          type: String,
+          trim: true,
+        },
+        cnpj: String,
+        contact: String,
+        phone: String,
       },
-      cnpj: String,
-      contact: String,
-      phone: String,
+      required: false,
     },
-    
+
     performedBy: {
       type: String,
       trim: true,
@@ -91,7 +93,7 @@ const MaintenanceSchema = new Schema<IMaintenance>(
       type: [String],
       default: [],
     },
-    
+
     // NOVO: Flag de indisponibilidade do item
     itemUnavailable: {
       type: Boolean,

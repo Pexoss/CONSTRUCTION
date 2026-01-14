@@ -114,6 +114,8 @@ export interface IItemMovement extends Document {
   createdAt?: Date;
 }
 
+
+
 // Type aliases for backwards compatibility
 export type Category = ICategory;
 export type Subcategory = ISubcategory;

@@ -4,52 +4,76 @@ import { Category } from './category.model';
 import { Subcategory } from './subcategory.model';
 import { IItem, IItemMovement } from './item.types';
 import mongoose from 'mongoose';
+import { Rental } from '../rentals/rental.model';
 
 class ItemService {
   /**
    * Create a new item
    */
   async createItem(companyId: string, data: any, userId: string): Promise<IItem> {
-    // Set default tracking type if not provided
-    const trackingType = data.trackingType || 'quantity';
-
-    // For quantity-based items, calculate quantities
-    if (trackingType === 'quantity') {
-      // Set initial available quantity based on total if not provided
-      if (!data.quantity.available && data.quantity.total) {
-        data.quantity.available = data.quantity.total;
+    // Garantir que trackingType seja unit se tiver customId mas sem units
+    let trackingType: 'unit' | 'quantity' = data.trackingType === 'unit' ? 'unit' : 'quantity';
+    if (trackingType === 'unit') {
+      // criar unidade implícita se não houver
+      if (!data.units || data.units.length === 0) {
+        if (!data.customId) throw new Error('Unitário precisa de customId se não houver units');
+        data.units = [{
+          unitId: data.customId,
+          status: 'available',
+          location: data.location || '',
+          notes: '',
+        }];
       }
 
-      // Calculate initial available = total - (rented + maintenance + damaged)
-      data.quantity.available =
-        data.quantity.total -
-        (data.quantity.rented || 0) -
-        (data.quantity.maintenance || 0) -
-        (data.quantity.damaged || 0);
-
-      // Validate that available quantity is not negative
-      if (data.quantity.available < 0) {
-        throw new Error('Available quantity cannot be negative');
+      // quantity sempre zero
+      data.quantity = { total: 0, available: 0, rented: 0, maintenance: 0, damaged: 0 };
+    } else {
+      // quantity-based
+      if (data.quantity.available == null) {
+        data.quantity.available =
+          data.quantity.total -
+          (data.quantity.rented || 0) -
+          (data.quantity.maintenance || 0) -
+          (data.quantity.damaged || 0);
       }
     }
-    // For unit-based items, validate units array
-    else if (trackingType === 'unit') {
-      if (!data.units || !Array.isArray(data.units) || data.units.length === 0) {
-        throw new Error('Unit-based items must have at least one unit');
+
+    // Calcular quantity se for quantity-based
+    if (trackingType === 'quantity') {
+      // Se disponível não foi definido, calcula como total - outros
+      if (data.quantity.available == null) {
+        data.quantity.available =
+          data.quantity.total -
+          (data.quantity.rented || 0) -
+          (data.quantity.maintenance || 0) -
+          (data.quantity.damaged || 0);
       }
-      // Validate unique unitIds
+    }
+
+    // Se for unit-based, validar IDs únicos
+    else if (trackingType === 'unit') {
       const unitIds = data.units.map((u: any) => u.unitId);
       const uniqueUnitIds = new Set(unitIds);
       if (unitIds.length !== uniqueUnitIds.size) {
         throw new Error('Unit IDs must be unique');
       }
-      // Set initial quantity to 0 (will be calculated by pre-save hook)
-      data.quantity = {
-        total: 0,
-        available: 0,
-        rented: 0,
-        maintenance: 0,
-        damaged: 0,
+      // Inicializar quantity como 0
+      data.quantity = { total: 0, available: 0, rented: 0, maintenance: 0, damaged: 0 };
+    }
+
+    // Depreciação
+    if (data.depreciation) {
+      const { initialValue, depreciationRate, purchaseDate } = data.depreciation;
+      if (initialValue == null || !purchaseDate) {
+        throw new Error('Depreciation requires initialValue and purchaseDate');
+      }
+      data.depreciation = {
+        initialValue,
+        currentValue: initialValue,
+        depreciationRate: depreciationRate ?? 10,
+        accumulatedDepreciation: 0,
+        purchaseDate,
+        lastDepreciationDate: purchaseDate,
       };
     }
 
@@ -57,20 +81,8 @@ class ItemService {
       ...data,
       companyId,
       trackingType,
-      quantity: trackingType === 'quantity' ? {
-        total: data.quantity.total,
-        available: data.quantity.available,
-        rented: data.quantity.rented || 0,
-        maintenance: data.quantity.maintenance || 0,
-        damaged: data.quantity.damaged || 0,
-      } : {
-        total: 0,
-        available: 0,
-        rented: 0,
-        maintenance: 0,
-        damaged: 0,
-      },
     });
+    console.log(item)
 
     // Register initial movement
     await this.registerMovement({
@@ -78,13 +90,7 @@ class ItemService {
       itemId: item._id as mongoose.Types.ObjectId,
       type: 'in',
       quantity: item.quantity.total,
-      previousQuantity: {
-        total: 0,
-        available: 0,
-        rented: 0,
-        maintenance: 0,
-        damaged: 0,
-      },
+      previousQuantity: { total: 0, available: 0, rented: 0, maintenance: 0, damaged: 0 },
       newQuantity: item.quantity,
       notes: trackingType === 'unit' ? `Item criado com ${item.units?.length || 0} unidades` : 'Item criado',
       createdBy: new mongoose.Types.ObjectId(userId),
@@ -202,12 +208,12 @@ class ItemService {
         quantity: item.quantity.total - previousQuantity.total,
         previousQuantity,
         newQuantity: {
-        total: item.quantity.total,
-        available: item.quantity.available,
-        rented: item.quantity.rented,
-        maintenance: item.quantity.maintenance,
-        damaged: item.quantity.damaged,
-      },
+          total: item.quantity.total,
+          available: item.quantity.available,
+          rented: item.quantity.rented,
+          maintenance: item.quantity.maintenance,
+          damaged: item.quantity.damaged,
+        },
         notes: 'Quantidade ajustada manualmente',
         createdBy: new mongoose.Types.ObjectId(userId),
       });
@@ -381,33 +387,47 @@ class ItemService {
   /**
    * Calculate depreciation for an item
    */
-  async calculateDepreciation(itemId: string, companyId: string): Promise<IItem | null> {
+  async calculateDepreciation(
+    itemId: string,
+    companyId: string
+  ): Promise<IItem | null> {
     const item = await Item.findOne({ _id: itemId, companyId });
 
-    if (!item || !item.depreciation || !item.depreciation.initialValue || !item.depreciation.purchaseDate) {
+    if (
+      !item ||
+      !item.depreciation ||
+      item.depreciation.initialValue == null ||
+      !item.depreciation.purchaseDate
+    ) {
       return null;
     }
 
     const depreciation = item.depreciation;
-    if (!depreciation?.purchaseDate || !depreciation?.initialValue) {
+
+    if (!depreciation) return null;
+
+    const { initialValue, purchaseDate } = depreciation;
+
+    if (initialValue == null || !purchaseDate) {
       return null;
     }
-    const purchaseDate = new Date(depreciation.purchaseDate);
-    const now = new Date();
-    const yearsSincePurchase = (now.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 365);
 
-    if (yearsSincePurchase <= 0) {
-      return item;
-    }
+    const yearsSincePurchase =
+      (Date.now() - new Date(purchaseDate).getTime()) / (1000 * 60 * 60 * 24 * 365);
 
-    const depreciationRate = depreciation.depreciationRate || 10; // 10% per year default
-    const totalDepreciation = (depreciation.initialValue! * depreciationRate * yearsSincePurchase) / 100;
-    depreciation.currentValue = Math.max(0, depreciation.initialValue! - totalDepreciation);
-    depreciation.lastDepreciationDate = now;
+    const depreciationRate = depreciation.depreciationRate ?? 10;
+
+    const totalDepreciation =
+      (initialValue * depreciationRate * yearsSincePurchase) / 100;
+
+    depreciation.accumulatedDepreciation = totalDepreciation;
+    depreciation.currentValue = Math.max(0, initialValue - totalDepreciation);
+    depreciation.lastDepreciationDate = new Date();
 
     await item.save();
     return item;
   }
+
 
   /**
    * Register movement in history
@@ -495,6 +515,50 @@ class ItemService {
     subcategory.isActive = false;
     await subcategory.save();
     return true;
+  }
+
+  async getItemOperationalStatus(companyId: string, itemId: string) {
+    const item = await Item.findOne({ _id: itemId, companyId });
+
+    if (!item) {
+      throw new Error('Item não encontrado');
+    }
+
+    if (item.quantity.maintenance > 0) {
+      return {
+        status: 'maintenance',
+        label: 'Em manutenção',
+        className: 'bg-yellow-100 text-yellow-800',
+      };
+    }
+
+    if (item.quantity.rented > 0) {
+      console.log('🔴 STATUS: rented');
+
+      const rental = await Rental.findOne({
+        companyId,
+        status: 'active',
+        'items.itemId': itemId,
+      }).populate('customerId', 'name');
+
+      const customer = rental?.customerId as any;
+
+      return {
+        status: 'rented',
+        label: 'Locado',
+        className: 'bg-red-100 text-red-800',
+        client: rental
+          ? { id: customer._id, name: customer.name }
+          : null,
+      };
+    }
+
+    return {
+      status: 'available',
+      label: 'Disponível',
+      className: 'bg-green-100 text-green-800',
+      quantity: item.quantity.available,
+    };
   }
 }
 

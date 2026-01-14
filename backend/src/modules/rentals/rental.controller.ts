@@ -7,6 +7,8 @@ import {
   extendRentalSchema,
   updateChecklistSchema,
 } from './rental.validator';
+import { Rental } from './rental.model';
+import { Customer } from '../customers/customer.model';
 
 export class RentalController {
   /**
@@ -397,8 +399,8 @@ export class RentalController {
 
       res.json({
         success: true,
-        message: rental.pendingApprovals?.some((a) => a.status === 'pending') 
-          ? 'Discount request created, pending approval' 
+        message: rental.pendingApprovals?.some((a) => a.status === 'pending')
+          ? 'Discount request created, pending approval'
           : 'Discount applied successfully',
         data: rental,
       });
@@ -439,8 +441,8 @@ export class RentalController {
 
       res.json({
         success: true,
-        message: rental.pendingApprovals?.some((a) => a.status === 'pending') 
-          ? 'Rental type change request created, pending approval' 
+        message: rental.pendingApprovals?.some((a) => a.status === 'pending')
+          ? 'Rental type change request created, pending approval'
           : 'Rental type changed successfully',
         data: rental,
       });

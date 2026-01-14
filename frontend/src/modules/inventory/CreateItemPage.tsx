@@ -26,6 +26,11 @@ const CreateItemPage: React.FC = () => {
       total: 0,
       available: 0,
     },
+    depreciation: {
+      initialValue: 0,
+      depreciationRate: 10,
+      purchaseDate: '',
+    },
     pricing: {
       dailyRate: 0,
     },
@@ -59,6 +64,11 @@ const CreateItemPage: React.FC = () => {
           [field]: parseFloat(value) || 0,
         },
       }));
+    } else if (name === 'lowStockThreshold') {
+      setFormData((prev) => ({
+        ...prev,
+        lowStockThreshold: parseInt(value) || 0,
+      }));
     } else if (name === 'category') {
       setFormData((prev) => ({ ...prev, category: value, subcategory: '' }));
       setSelectedCategoryId(value);
@@ -73,48 +83,97 @@ const CreateItemPage: React.FC = () => {
 
   // Calculate available when total changes
   useEffect(() => {
-    if (formData.quantity.total > 0 && !formData.quantity.available) {
-      setFormData((prev) => ({
-        ...prev,
-        quantity: {
-          ...prev.quantity,
-          available: prev.quantity.total,
-        },
-      }));
-    }
-  }, [formData.quantity.total, formData.quantity.available]);
+    setFormData((prev) => ({
+      ...prev,
+      quantity: {
+        ...prev.quantity,
+        available: prev.quantity.available ?? prev.quantity.total,
+      },
+    }));
+  }, [formData.quantity.total]);
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    console.log('🚀 HANDLE SUBMIT DISPARADO');
+    console.log('📦 formData bruto:', JSON.stringify(formData, null, 2));
     setErrors({});
 
     try {
-      // Se for tipo unitário, validar unidades
+      // Criar uma cópia de formData para envio
+      const dataToSend: CreateItemData = { ...formData };
+
       if (formData.trackingType === 'unit') {
-        if (units.length === 0) {
-          setErrors({ units: 'Adicione pelo menos uma unidade para itens unitários' });
+        let unitsToSend = units;
+
+        // Se não tiver unidades, cria uma com customId
+        if (!unitsToSend.length && formData.customId?.trim()) {
+          unitsToSend = [{
+            unitId: formData.customId.trim(),
+            status: 'available',
+            location: formData.location || '',
+            notes: '',
+          }];
+        }
+
+        if (!unitsToSend.length) {
+          setErrors({ units: 'Item unitário precisa de ao menos uma unidade' });
           return;
         }
-        const invalidUnits = units.filter((u) => !u.unitId.trim());
-        if (invalidUnits.length > 0) {
-          setErrors({ units: 'Todas as unidades devem ter um ID válido' });
-          return;
-        }
-        // Adicionar unidades ao formData
-        formData.units = units.map((u) => ({
+
+        dataToSend.units = unitsToSend.map((u) => ({
           unitId: u.unitId.trim(),
           status: u.status,
           location: u.location,
           notes: u.notes,
         }));
+
+        // 🔥 AQUI ESTÁ A CORREÇÃO REAL
+        const total = dataToSend.units.length;
+        const available = dataToSend.units.filter(u => u.status === 'available').length;
+
+        dataToSend.quantity = {
+          total,
+          available,
+          rented: total - available,
+          maintenance: 0,
+          damaged: 0,
+        };
       }
 
-      const validatedData = createItemSchema.parse(formData);
+      else if (formData.trackingType === 'quantity') {
+        dataToSend.units = [];
+
+        if (!formData.quantity.total || formData.quantity.total <= 0) {
+          setErrors({ quantity: 'A quantidade total deve ser maior que zero para itens quantitativos' });
+          return;
+        }
+
+        // Inicializar valores padrão
+        dataToSend.quantity.available = dataToSend.quantity.available ?? 0;
+        dataToSend.quantity.rented = dataToSend.quantity.rented ?? 0;
+        dataToSend.quantity.maintenance = dataToSend.quantity.maintenance ?? 0;
+        dataToSend.quantity.damaged = dataToSend.quantity.damaged ?? 0;
+      }
+      console.log('🧪 dataToSend ANTES do Zod:', JSON.stringify(dataToSend, null, 2));
+
+      //converte a data antes de enviar
+      if (dataToSend.depreciation?.purchaseDate) {
+        dataToSend.depreciation.purchaseDate =
+          new Date(dataToSend.depreciation.purchaseDate).toISOString();
+      }
+
+      const validatedData = createItemSchema.parse(dataToSend);
+
+      console.log('✅ validatedData APÓS Zod:', JSON.stringify(validatedData, null, 2));
       createItem.mutate(validatedData as CreateItemData, {
         onSuccess: () => {
+          console.log('✅ ITEM CRIADO COM SUCESSO');
           navigate('/inventory/items');
         },
         onError: (error: any) => {
+          console.error('❌ ERRO NA API:', error);
           setErrors({
             submit: error?.response?.data?.message || 'Erro ao criar item. Tente novamente.',
           });
@@ -130,6 +189,7 @@ const CreateItemPage: React.FC = () => {
       }
     }
   };
+
 
   const categories = categoriesData?.data || [];
   const subcategories = subcategoriesData?.data || [];
@@ -393,57 +453,162 @@ const CreateItemPage: React.FC = () => {
 
             {/* Quantidades (para tipo quantitativo) */}
             {formData.trackingType === 'quantity' && (
-            <div>
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Quantidades</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label htmlFor="quantity.total" className="block text-sm font-medium text-gray-700">
-                    Total *
-                  </label>
-                  <input
-                    id="quantity.total"
-                    name="quantity.total"
-                    type="number"
-                    min="0"
-                    required
-                    value={formData.quantity.total}
-                    onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
-                </div>
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Quantidades</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label htmlFor="quantity.total" className="block text-sm font-medium text-gray-700">
+                      Total *
+                    </label>
+                    <input
+                      id="quantity.total"
+                      name="quantity.total"
+                      type="number"
+                      min="0"
+                      required
+                      value={formData.quantity.total}
+                      onChange={handleChange}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                  </div>
 
-                <div>
-                  <label htmlFor="quantity.available" className="block text-sm font-medium text-gray-700">
-                    Disponível
-                  </label>
-                  <input
-                    id="quantity.available"
-                    name="quantity.available"
-                    type="number"
-                    min="0"
-                    value={formData.quantity.available}
-                    onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
-                </div>
+                  <div>
+                    <label htmlFor="quantity.available" className="block text-sm font-medium text-gray-700">
+                      Disponível
+                    </label>
+                    <input
+                      id="quantity.available"
+                      name="quantity.available"
+                      type="number"
+                      min="0"
+                      value={formData.quantity.available}
+                      onChange={handleChange}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                  </div>
 
-                <div>
-                  <label htmlFor="lowStockThreshold" className="block text-sm font-medium text-gray-700">
-                    Alerta de Estoque Baixo
-                  </label>
-                  <input
-                    id="lowStockThreshold"
-                    name="lowStockThreshold"
-                    type="number"
-                    min="0"
-                    value={formData.lowStockThreshold}
-                    onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
+                  <div>
+                    <label htmlFor="lowStockThreshold" className="block text-sm font-medium text-gray-700">
+                      Alerta de Estoque Baixo
+                    </label>
+                    <input
+                      id="lowStockThreshold"
+                      name="lowStockThreshold"
+                      type="number"
+                      min="0"
+                      value={formData.lowStockThreshold}
+                      onChange={handleChange}
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
             )}
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={!!formData.depreciation}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setFormData(prev => ({
+                      ...prev,
+                      depreciation: {
+                        initialValue: 0,
+                        depreciationRate: 10,
+                        purchaseDate: '',
+                      },
+                    }));
+                  } else {
+                    setFormData(prev => ({
+                      ...prev,
+                      depreciation: undefined,
+                    }));
+                  }
+                }}
+              />
+              <span className="text-sm text-gray-700">Este item possui depreciação</span>
+            </div>
+
+            {formData.depreciation && (
+              <div className="mt-6">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Depreciação</h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Valor Inicial */}
+                  <div>
+                    <label htmlFor="initialValue" className="block text-sm font-medium text-gray-700">
+                      Valor Inicial *
+                    </label>
+                    <input
+                      id="initialValue"
+                      type="number"
+                      min="0"
+                      required
+                      value={formData.depreciation.initialValue ?? ''}
+                      onChange={(e) =>
+                        setFormData(prev => ({
+                          ...prev,
+                          depreciation: {
+                            ...prev.depreciation!,
+                            initialValue: Number(e.target.value),
+                          },
+                        }))
+                      }
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
+                    />
+                  </div>
+
+                  {/* Data da Compra */}
+                  <div>
+                    <label htmlFor="purchaseDate" className="block text-sm font-medium text-gray-700">
+                      Data da Compra *
+                    </label>
+                    <input
+                      id="purchaseDate"
+                      type="date"
+                      required
+                      value={formData.depreciation.purchaseDate ?? ''}
+                      onChange={(e) =>
+                        setFormData(prev => ({
+                          ...prev,
+                          depreciation: {
+                            ...prev.depreciation!,
+                            purchaseDate: e.target.value,
+                          },
+                        }))
+                      }
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
+                    />
+                  </div>
+
+                  {/* Taxa */}
+                  <div>
+                    <label htmlFor="depreciationRate" className="block text-sm font-medium text-gray-700">
+                      Taxa de Depreciação (%) *
+                    </label>
+                    <input
+                      id="depreciationRate"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={formData.depreciation.depreciationRate ?? 10}
+                      onChange={(e) =>
+                        setFormData(prev => ({
+                          ...prev,
+                          depreciation: {
+                            ...prev.depreciation!,
+                            depreciationRate: Number(e.target.value),
+                          },
+                        }))
+                      }
+                      className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+
 
             {/* Preços */}
             <div>

@@ -18,7 +18,10 @@ router.put('/items/:id', itemController.updateItem.bind(itemController));
 router.delete('/items/:id', itemController.deleteItem.bind(itemController));
 router.post('/items/:id/adjust-quantity', itemController.adjustQuantity.bind(itemController));
 router.get('/items/:id/movements', itemController.getItemMovements.bind(itemController));
-router.post('/items/:id/calculate-depreciation', itemController.calculateDepreciation.bind(itemController));
+router.post('/items/:id/calculate-depreciation', itemController.calculateDepreciation.bind(itemController));// Items routes
+router.get('/items/:id/operational-status',itemController.getItemOperationalStatus.bind(itemController));
+
+
 
 // Categories routes
 router.post('/categories', itemController.createCategory.bind(itemController));
