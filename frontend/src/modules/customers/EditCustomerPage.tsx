@@ -57,12 +57,18 @@ const EditCustomerPage: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Filtra endereços que têm pelo menos os campos obrigatórios preenchidos
+    const validAddresses = addresses.filter(a => a.street && a.city && a.state && a.zipCode);
+
     const submitData = {
       ...formData,
-      addresses: addresses.length > 0 ? addresses : undefined,
+      addresses: validAddresses.length > 0 ? validAddresses : undefined,
     };
+
     updateMutation.mutate(submitData);
   };
+
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -83,17 +89,27 @@ const EditCustomerPage: React.FC = () => {
     ]);
   };
 
+  const handleSaveAddress = async (index: number) => {
+    try {
+      const address = addresses[index];
+      const updatedCustomer = await customerService.addAddress(id!, address);
+      setAddresses(updatedCustomer.addresses ?? []);
+    } catch (error) {
+      console.error('Erro ao salvar endereço:', error);
+    }
+  };
+
   const updateAddress = (index: number, field: keyof CustomerAddress, value: any) => {
     const newAddresses = [...addresses];
     newAddresses[index] = { ...newAddresses[index], [field]: value };
-    
+
     // Se marcar como default, remover default de outros
     if (field === 'isDefault' && value) {
       newAddresses.forEach((addr, i) => {
         if (i !== index) addr.isDefault = false;
       });
     }
-    
+
     setAddresses(newAddresses);
   };
 
@@ -206,7 +222,7 @@ const EditCustomerPage: React.FC = () => {
                   + Adicionar Endereço
                 </button>
               </div>
-              
+
               {addresses.length === 0 && (
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                   Nenhum endereço adicionado. Clique em "Adicionar Endereço" para começar.
@@ -230,6 +246,7 @@ const EditCustomerPage: React.FC = () => {
                           />
                           <span className="text-gray-700 dark:text-gray-300">Padrão</span>
                         </label>
+
                         <button
                           type="button"
                           onClick={() => removeAddress(index)}
@@ -237,9 +254,17 @@ const EditCustomerPage: React.FC = () => {
                         >
                           Remover
                         </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSaveAddress(index)}
+                          className="text-green-600 hover:text-green-800 dark:text-green-400"
+                        >
+                          Salvar
+                        </button>
                       </div>
                     </div>
-                    
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -256,7 +281,7 @@ const EditCustomerPage: React.FC = () => {
                           <option value="other">Outro</option>
                         </select>
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           CEP *
@@ -269,7 +294,7 @@ const EditCustomerPage: React.FC = () => {
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
                         />
                       </div>
-                      
+
                       <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           Rua *
@@ -282,7 +307,7 @@ const EditCustomerPage: React.FC = () => {
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
                         />
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           Número
@@ -294,7 +319,7 @@ const EditCustomerPage: React.FC = () => {
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
                         />
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           Complemento
@@ -306,7 +331,7 @@ const EditCustomerPage: React.FC = () => {
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
                         />
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           Bairro
@@ -318,7 +343,7 @@ const EditCustomerPage: React.FC = () => {
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
                         />
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           Cidade *
@@ -330,7 +355,7 @@ const EditCustomerPage: React.FC = () => {
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
                         />
                       </div>
-                      
+
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                           Estado *
