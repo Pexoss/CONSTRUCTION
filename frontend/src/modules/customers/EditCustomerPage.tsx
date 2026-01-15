@@ -208,68 +208,67 @@ const EditCustomerPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Múltiplos Endereços */}
-            <div>
+            {/*Endereços */}
+            <div className="mt-6">
               <div className="flex justify-between items-center mb-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Endereços
-                </label>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Endereços</h3>
                 <button
                   type="button"
                   onClick={addAddress}
-                  className="text-sm text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 border border-indigo-600 text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900 rounded-md text-sm font-medium transition-colors"
                 >
-                  + Adicionar Endereço
+                  + Adicionar
                 </button>
               </div>
 
               {addresses.length === 0 && (
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                  Nenhum endereço adicionado. Clique em "Adicionar Endereço" para começar.
+                  Nenhum endereço adicionado. Clique em "Adicionar" para incluir.
                 </p>
               )}
 
-              <div className="space-y-4">
+              <div className="space-y-5">
                 {addresses.map((address, index) => (
-                  <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <div
+                    key={index}
+                    className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow"
+                  >
                     <div className="flex justify-between items-center mb-4">
-                      <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+                      <h4 className="text-md font-semibold text-gray-900 dark:text-gray-100">
                         Endereço {index + 1}
                       </h4>
-                      <div className="flex items-center gap-4">
-                        <label className="flex items-center text-sm">
+
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer select-none">
                           <input
                             type="checkbox"
                             checked={address.isDefault}
                             onChange={(e) => updateAddress(index, 'isDefault', e.target.checked)}
-                            className="mr-2"
+                            className="appearance-none h-5 w-5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 checked:bg-indigo-600 checked:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors cursor pointer"
                           />
-                          <span className="text-gray-700 dark:text-gray-300">Padrão</span>
+                          Padrão
                         </label>
-
                         <button
                           type="button"
                           onClick={() => removeAddress(index)}
-                          className="text-red-600 hover:text-red-800 dark:text-red-400"
+                          className="px-3 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-900 dark:hover:bg-red-800 text-red-600 dark:text-red-400 rounded-md text-sm font-medium transition-colors"
                         >
                           Remover
                         </button>
-
                         <button
                           type="button"
                           onClick={() => handleSaveAddress(index)}
-                          className="text-green-600 hover:text-green-800 dark:text-green-400"
+                          className="px-3 py-1.5 bg-green-50 hover:bg-green-100 dark:bg-green-900 dark:hover:bg-green-800 text-green-600 dark:text-green-400 rounded-md text-sm font-medium transition-colors"
                         >
                           Salvar
                         </button>
                       </div>
                     </div>
 
+                    {/* Campos do endereço */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Tipo *
-                        </label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tipo</label>
                         <select
                           value={address.type}
                           onChange={(e) => updateAddress(index, 'type', e.target.value)}
@@ -283,9 +282,7 @@ const EditCustomerPage: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          CEP *
-                        </label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">CEP</label>
                         <input
                           type="text"
                           value={address.zipCode}
@@ -296,9 +293,7 @@ const EditCustomerPage: React.FC = () => {
                       </div>
 
                       <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Rua *
-                        </label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Rua</label>
                         <input
                           type="text"
                           value={address.street}
@@ -309,9 +304,7 @@ const EditCustomerPage: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Número
-                        </label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Número</label>
                         <input
                           type="text"
                           value={address.number || ''}
@@ -321,9 +314,7 @@ const EditCustomerPage: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Complemento
-                        </label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Complemento</label>
                         <input
                           type="text"
                           value={address.complement || ''}
@@ -333,9 +324,7 @@ const EditCustomerPage: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Bairro
-                        </label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bairro</label>
                         <input
                           type="text"
                           value={address.neighborhood || ''}
@@ -345,9 +334,7 @@ const EditCustomerPage: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Cidade *
-                        </label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cidade</label>
                         <input
                           type="text"
                           value={address.city}
@@ -357,9 +344,7 @@ const EditCustomerPage: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                          Estado *
-                        </label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Estado</label>
                         <input
                           type="text"
                           value={address.state}
@@ -374,6 +359,7 @@ const EditCustomerPage: React.FC = () => {
                 ))}
               </div>
             </div>
+
 
             <div>
               <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
