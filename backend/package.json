@@ -5,6 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "nodemon src/index.ts",
+    "start": "serve -s build",
+    "build": "react-scripts build",
     "build": "tsc",
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit"
@@ -25,7 +27,7 @@
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.0.3",
+    "mongoose": "^8.21.0",
     "pdfkit": "^0.17.2",
     "react-hook-form": "^7.71.0",
     "react-toastify": "^11.0.5",

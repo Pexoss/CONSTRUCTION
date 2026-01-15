@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000/api';
+const API_URL = process.env.REACT_APP_API_URL || 
+  'https://back-production-9d06.up.railway.app/api';
 
 // Create axios instance
 export const api: AxiosInstance = axios.create({
