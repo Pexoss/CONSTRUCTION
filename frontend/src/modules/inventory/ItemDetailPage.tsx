@@ -17,7 +17,11 @@ const ItemDetailPage: React.FC = () => {
     label: string;
     className: string;
     client?: { id: string; name: string } | null;
+    supplierName?: string | null;
+    scheduledDate?: string | null;
+    cost?: number | null;
   } | null>(null);
+
 
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [adjustForm, setAdjustForm] = useState({
@@ -416,12 +420,43 @@ const ItemDetailPage: React.FC = () => {
                   </div>
                 )}
 
-                {item.quantity.maintenance > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-500">Em manutenção</span>
-                    <span className="text-sm text-gray-900">{item.quantity.maintenance}</span>
+                {operationalStatus?.status === 'maintenance' && (
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Em manutenção</span>
+                      <span className="text-sm text-gray-900">{operationalStatus.label}</span>
+                    </div>
+
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Data prevista</span>
+                      <span className="text-sm text-gray-900">
+                        {operationalStatus?.scheduledDate ? (
+                          <span className="text-sm text-gray-900">
+                            {new Date(operationalStatus.scheduledDate).toLocaleDateString('pt-BR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                            })}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-900">—</span>
+                        )}
+                      </span>
+
+                    </div>
+
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Valor cobrado</span>
+                      <span className="text-sm text-gray-900">R$ {operationalStatus.cost}</span>
+                    </div>
+
+                    <div className="flex justify-between">
+                      <span className="text-sm text-gray-500">Fornecedor</span>
+                      <span className="text-sm text-gray-900">{operationalStatus.supplierName}</span>
+                    </div>
                   </div>
                 )}
+
 
                 {/* Estoque baixo */}
                 {item.lowStockThreshold != null && (

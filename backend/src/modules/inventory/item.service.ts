@@ -5,6 +5,7 @@ import { Subcategory } from './subcategory.model';
 import { IItem, IItemMovement } from './item.types';
 import mongoose from 'mongoose';
 import { Rental } from '../rentals/rental.model';
+import { Maintenance } from '../maintenance/maintenance.model';
 
 class ItemService {
   /**
@@ -523,17 +524,28 @@ class ItemService {
     if (!item) {
       throw new Error('Item não encontrado');
     }
-
+    // Buscar a manutenção específica para este item
     if (item.quantity.maintenance > 0) {
+      const maintenanceItem = await Maintenance.findOne({
+        companyId,
+        itemId: itemId,
+        status: 'in_progress'
+      });
+
+      if (!maintenanceItem) return null;
+
       return {
         status: 'maintenance',
         label: 'Em manutenção',
         className: 'bg-yellow-100 text-yellow-800',
+        supplierName: maintenanceItem?.performedBy,
+        scheduledDate: maintenanceItem.expectedReturnDate || maintenanceItem.scheduledDate,
+        cost: maintenanceItem.cost
       };
     }
 
+    //Buscar o aluguel
     if (item.quantity.rented > 0) {
-      console.log('🔴 STATUS: rented');
 
       const rental = await Rental.findOne({
         companyId,
