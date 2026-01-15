@@ -19,6 +19,7 @@ interface SelectedItem {
 
 
 const CreateRentalPage: React.FC = () => {
+  console.log('CreateRental renderizou')
   const navigate = useNavigate();
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
@@ -204,18 +205,23 @@ const CreateRentalPage: React.FC = () => {
   const totals = calculateTotals();
   const items = itemsData?.data || [];
   const customers = customersData?.data || [];
-  const selectedCustomerData = customers.find((c) => c._id === selectedCustomer);
+  const selectedCustomerData = customers.find(
+    (c) => c._id === selectedCustomer
+  ) ?? null;
 
-  if (!selectedCustomerData) {
-    return null; // ou algum fallback
-  }
+  const customerAddresses = selectedCustomerData?.addresses ?? [];
 
-  const addressOptions = selectedCustomerData.addresses?.map((address, index) => ({
-    label: address.type === 'work' ? address.workName || `Obra ${index + 1}` :
-      address.type === 'main' ? 'Principal' :
-        `Outro ${index + 1}`,
-    value: index,
-  })) || [];
+  const addressOptions =
+    selectedCustomerData?.addresses?.map((address, index) => ({
+      label:
+        address.type === 'work'
+          ? address.workName || `Obra ${index + 1}`
+          : address.type === 'main'
+            ? 'Principal'
+            : `Outro ${index + 1}`,
+      value: index,
+    })) ?? [];
+
 
   return (
     <Layout title="Novo Aluguel" backTo="/rentals">
@@ -435,21 +441,18 @@ const CreateRentalPage: React.FC = () => {
               </div>
 
               {/* Endereço da Obra */}
-              {addressOptions.length > 0 && (
+              {customerAddresses.length > 0 && (
                 <div className="mb-4 mt-8">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Selecionar endereço existente
                   </label>
+
                   <select
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-800 dark:text-white"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm"
                     onChange={(e) => {
-                      const selectedIndex = Number(e.target.value);
-
-                      // proteção: se não tiver cliente ou endereços, não faz nada
-                      if (!selectedCustomerData?.addresses) return;
-
-                      const addr = selectedCustomerData.addresses[selectedIndex];
-                      if (!addr) return; // proteção extra
+                      const index = Number(e.target.value);
+                      const addr = customerAddresses[index];
+                      if (!addr) return;
 
                       setWorkAddress({
                         workName: addr.workName || '',
@@ -462,18 +465,20 @@ const CreateRentalPage: React.FC = () => {
                       });
                     }}
                   >
-                    <option value="" disabled>Selecione um endereço</option>
-                    {selectedCustomerData?.addresses?.map((address, index) => (
+                    <option value="">Selecione um endereço</option>
+                    {customerAddresses.map((address, index) => (
                       <option key={index} value={index}>
-                        {address.type === 'work' ? address.workName || `Obra ${index + 1}`
-                          : address.type === 'main' ? 'Principal'
+                        {address.type === 'work'
+                          ? address.workName || `Obra ${index + 1}`
+                          : address.type === 'main'
+                            ? 'Principal'
                             : `Outro ${index + 1}`}
                       </option>
                     ))}
                   </select>
                 </div>
               )}
-              
+
               {selectedCustomerData && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Endereço da Obra (Opcional)</h2>
