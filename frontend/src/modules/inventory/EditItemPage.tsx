@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useItem, useUpdateItem, useCategories, useSubcategories } from '../../hooks/useInventory';
 import { updateItemSchema } from '../../utils/inventory.validation';
-import { CreateItemData } from '../../types/inventory.types';
+import { EditItemData } from '../../types/inventory.types';
 
 const EditItemPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -13,70 +13,96 @@ const EditItemPage: React.FC = () => {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const { data: subcategoriesData } = useSubcategories(selectedCategoryId, true);
 
-  const [formData, setFormData] = useState<Partial<CreateItemData>>({});
+  const [formData, setFormData] = useState<EditItemData>({
+    depreciation: null,
+  } as EditItemData);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (itemData?.data) {
-      const item = itemData.data;
-      setFormData({
-        name: item.name,
-        description: item.description,
-        category: item.category,
-        subcategory: item.subcategory,
-        sku: item.sku,
-        barcode: item.barcode,
-        customId: item.customId,
-        photos: item.photos,
-        specifications: item.specifications,
-        quantity: item.quantity,
-        pricing: item.pricing,
-        location: item.location,
-        lowStockThreshold: item.lowStockThreshold,
-        isActive: item.isActive,
-      });
-      // Find category ID from name for subcategory loading
-      const category = categoriesData?.data.find((cat) => cat.name === item.category);
-      if (category) {
-        setSelectedCategoryId(category._id);
-      }
-    }
+    if (!itemData?.data) return;
+
+    const item = itemData.data;
+
+    setFormData({
+      name: item.name,
+      description: item.description,
+      category: item.category,
+      subcategory: item.subcategory,
+      sku: item.sku,
+      barcode: item.barcode,
+      customId: item.customId,
+      photos: item.photos,
+      specifications: item.specifications,
+      quantity: {
+        total: item.quantity.total,
+        rented: item.quantity.rented,
+        maintenance: item.quantity.maintenance,
+        damaged: item.quantity.damaged,
+      },
+      pricing: item.pricing,
+      // depreciation: {
+      //   initialValue: 0,
+      //   depreciationRate: 10,
+      //   purchaseDate: '',
+      // },
+      location: item.location,
+      lowStockThreshold: item.lowStockThreshold,
+      isActive: item.isActive,
+    });
+
+    const category = categoriesData?.data.find(
+      (c) => c.name === item.category
+    );
+    if (category) setSelectedCategoryId(category._id);
   }, [itemData, categoriesData]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
+  const handleChange = (
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >
+  ) => {
+    const { name, value, type } = e.target;
 
     if (name.startsWith('quantity.')) {
       const field = name.split('.')[1];
       setFormData((prev) => ({
         ...prev,
         quantity: {
-          ...(prev.quantity || { total: 0, available: 0 }),
-          [field]: parseInt(value) || 0,
+          ...prev.quantity!,
+          [field]: Number(value) || 0,
         },
       }));
-    } else if (name.startsWith('pricing.')) {
+      return;
+    }
+
+    if (name.startsWith('pricing.')) {
       const field = name.split('.')[1];
       setFormData((prev) => ({
         ...prev,
         pricing: {
-          ...(prev.pricing || { dailyRate: 0 }),
-          [field]: parseFloat(value) || 0,
+          ...prev.pricing!,
+          [field]: Number(value) || 0,
         },
       }));
-    } else if (name === 'category') {
-      setFormData((prev) => ({ ...prev, category: value, subcategory: '' }));
-      const category = categoriesData?.data.find((cat) => cat.name === value);
-      setSelectedCategoryId(category?._id || '');
-    } else if (name === 'isActive') {
-      setFormData((prev) => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
-    } else {
-      setFormData((prev) => ({ ...prev, [name]: value }));
+      return;
     }
 
-    if (errors[name]) {
-      setErrors((prev) => ({ ...prev, [name]: '' }));
+    if (name === 'category') {
+      setFormData((prev) => ({ ...prev, category: value, subcategory: '' }));
+      const cat = categoriesData?.data.find((c) => c.name === value);
+      setSelectedCategoryId(cat?._id || '');
+      return;
     }
+
+    if (type === 'checkbox') {
+      setFormData((prev) => ({
+        ...prev,
+        [name]: (e.target as HTMLInputElement).checked,
+      }));
+      return;
+    }
+
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -86,22 +112,23 @@ const EditItemPage: React.FC = () => {
     setErrors({});
 
     try {
-      const validatedData = updateItemSchema.parse(formData);
-      updateItem.mutate(
-        { id, data: validatedData as Partial<CreateItemData> },
-        {
-          onSuccess: () => {
-            navigate(`/inventory/items/${id}`);
-          },
-          onError: (error: any) => {
-            setErrors({
-              submit: error?.response?.data?.message || 'Erro ao atualizar item. Tente novamente.',
-            });
-          },
-        }
-      );
+      const dataToSend: EditItemData = { ...formData };
+
+      if (dataToSend.depreciation === null) {
+        delete dataToSend.depreciation;
+      }
+
+      const validatedData = updateItemSchema.parse(dataToSend);
+
+      await updateItem.mutateAsync({
+        id,
+        data: validatedData,
+      });
+
+      navigate(`/inventory/items/${id}`);
+
     } catch (error: any) {
-      if (error.errors) {
+      if (error?.errors) {
         const zodErrors: Record<string, string> = {};
         error.errors.forEach((err: any) => {
           zodErrors[err.path[0]] = err.message;
@@ -133,9 +160,27 @@ const EditItemPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white shadow rounded-lg">
+        {/* Cabeçalho Clean */}
+        <div className="mb-8">
+          <div className="flex items-center">
+            <button
+              onClick={() => navigate(`/inventory/items/${id}`)}
+              className="mr-4 text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+              </svg>
+            </button>
+            <h1 className="text-2xl font-semibold text-gray-900">Editar Item</h1>
+          </div>
+          <p className="text-sm text-gray-600 mt-1 ml-9">
+            Atualize as informações do item
+          </p>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">Editar Item</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Informações do Item</h2>
           </div>
 
           <form onSubmit={handleSubmit} className="px-6 py-4 space-y-6">
@@ -154,7 +199,7 @@ const EditItemPage: React.FC = () => {
                     required
                     value={formData.name || ''}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                   {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
                 </div>
@@ -170,7 +215,7 @@ const EditItemPage: React.FC = () => {
                     required
                     value={formData.sku || ''}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                   {errors.sku && <p className="mt-1 text-sm text-red-600">{errors.sku}</p>}
                 </div>
@@ -185,7 +230,7 @@ const EditItemPage: React.FC = () => {
                     required
                     value={formData.category || ''}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   >
                     <option value="">Selecione uma categoria</option>
                     {categories.map((cat) => (
@@ -207,7 +252,7 @@ const EditItemPage: React.FC = () => {
                     value={formData.subcategory || ''}
                     onChange={handleChange}
                     disabled={!selectedCategoryId}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm disabled:bg-gray-100"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm disabled:bg-gray-50 disabled:text-gray-500"
                   >
                     <option value="">Selecione uma subcategoria</option>
                     {subcategories.map((sub) => (
@@ -228,7 +273,7 @@ const EditItemPage: React.FC = () => {
                     type="text"
                     value={formData.customId || ''}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                 </div>
 
@@ -242,7 +287,7 @@ const EditItemPage: React.FC = () => {
                     type="text"
                     value={formData.barcode || ''}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                 </div>
 
@@ -256,7 +301,7 @@ const EditItemPage: React.FC = () => {
                     rows={3}
                     value={formData.description || ''}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                 </div>
               </div>
@@ -277,7 +322,7 @@ const EditItemPage: React.FC = () => {
                     min="0"
                     value={formData.quantity?.total || 0}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                 </div>
 
@@ -290,9 +335,9 @@ const EditItemPage: React.FC = () => {
                     name="quantity.available"
                     type="number"
                     min="0"
-                    value={formData.quantity?.available || 0}
+                    value={itemData?.data?.quantity?.available ?? 0}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                 </div>
 
@@ -307,11 +352,99 @@ const EditItemPage: React.FC = () => {
                     min="0"
                     value={formData.lowStockThreshold || 0}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                 </div>
               </div>
             </div>
+
+            {/* Depreciação com problemas ao tentar editar ou remove-la */}
+
+            {/* <div className="border-t pt-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-medium">Depreciação</h2>
+
+                {formData.depreciation ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormData(prev => ({
+                        ...prev,
+                        depreciation: null,
+                      }))
+                    }
+                  >
+                    Remover depreciação
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormData(prev => ({
+                        ...prev,
+                        depreciation: {
+                          initialValue: 0,
+                          depreciationRate: 10,
+                          purchaseDate: '',
+                        },
+                      }))
+                    }
+                  >
+                    Adicionar depreciação
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <input
+                  type="number"
+                  placeholder="Valor inicial"
+                  disabled={!formData.depreciation}
+                  value={formData.depreciation?.initialValue ?? ''}
+                  onChange={(e) =>
+                    setFormData(prev => ({
+                      ...prev,
+                      depreciation: {
+                        ...prev.depreciation!,
+                        initialValue: Number(e.target.value),
+                      },
+                    }))
+                  }
+                />
+
+                <input
+                  type="date"
+                  disabled={!formData.depreciation}
+                  value={formData.depreciation?.purchaseDate ?? ''}
+                  onChange={(e) =>
+                    setFormData(prev => ({
+                      ...prev,
+                      depreciation: {
+                        ...prev.depreciation!,
+                        purchaseDate: e.target.value,
+                      },
+                    }))
+                  }
+                />
+
+                <input
+                  type="number"
+                  placeholder="Taxa (%)"
+                  disabled={!formData.depreciation}
+                  value={formData.depreciation?.depreciationRate ?? ''}
+                  onChange={(e) =>
+                    setFormData(prev => ({
+                      ...prev,
+                      depreciation: {
+                        ...prev.depreciation!,
+                        depreciationRate: Number(e.target.value),
+                      },
+                    }))
+                  }
+                />
+              </div>
+            </div> */}
+
 
             {/* Preços */}
             <div>
@@ -329,7 +462,7 @@ const EditItemPage: React.FC = () => {
                     min="0"
                     value={formData.pricing?.dailyRate || 0}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                 </div>
 
@@ -345,7 +478,7 @@ const EditItemPage: React.FC = () => {
                     min="0"
                     value={formData.pricing?.weeklyRate || ''}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                 </div>
 
@@ -361,7 +494,7 @@ const EditItemPage: React.FC = () => {
                     min="0"
                     value={formData.pricing?.monthlyRate || ''}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                 </div>
 
@@ -377,7 +510,7 @@ const EditItemPage: React.FC = () => {
                     min="0"
                     value={formData.pricing?.depositAmount || ''}
                     onChange={handleChange}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                   />
                 </div>
               </div>
@@ -394,44 +527,61 @@ const EditItemPage: React.FC = () => {
                 type="text"
                 value={formData.location || ''}
                 onChange={handleChange}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
               />
             </div>
 
             {/* Status */}
-            <div>
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  name="isActive"
-                  checked={formData.isActive ?? true}
-                  onChange={handleChange}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                <span className="ml-2 text-sm text-gray-700">Item ativo</span>
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="isActive"
+                name="isActive"
+                checked={formData.isActive ?? true}
+                onChange={handleChange}
+                className="h-4 w-4 rounded border-gray-300 text-gray-700 focus:ring-1 focus:ring-gray-400"
+              />
+              <label htmlFor="isActive" className="ml-2 text-sm text-gray-700">
+                Item ativo
               </label>
             </div>
 
             {errors.submit && (
-              <div className="rounded-md bg-red-50 p-4">
-                <p className="text-sm text-red-800">{errors.submit}</p>
+              <div className="rounded-md bg-red-50 p-4 border border-red-100">
+                <div className="flex items-center">
+                  <svg className="h-5 w-5 text-red-600 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                  </svg>
+                  <p className="text-sm text-red-800">{errors.submit}</p>
+                </div>
               </div>
             )}
 
-            <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+            {/* Botões */}
+            <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
               <button
                 type="button"
                 onClick={() => navigate(`/inventory/items/${id}`)}
-                className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-colors"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
                 disabled={updateItem.isPending}
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2.5 border border-transparent rounded-lg text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {updateItem.isPending ? 'Salvando...' : 'Salvar Alterações'}
+                {updateItem.isPending ? (
+                  <span className="flex items-center">
+                    <svg className="animate-spin h-4 w-4 mr-2 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 0 1 4 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Salvando...
+                  </span>
+                ) : (
+                  'Salvar Alterações'
+                )}
               </button>
             </div>
           </form>

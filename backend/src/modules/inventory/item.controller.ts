@@ -373,30 +373,21 @@ export class ItemController {
     }
   }
 
-
   /**
-  
+   *item status
    */
   async getItemOperationalStatus(req: Request, res: Response, next: NextFunction) {
     try {
-      console.log('=== OPERATIONAL STATUS ===');
-      console.log('companyId:', req.companyId);
-      console.log('params:', req.params);
-
       const companyId = req.companyId!;
       const itemId = req.params.id;
-
       const status = await itemService.getItemOperationalStatus(companyId, itemId);
 
       res.json(status);
     } catch (error) {
-      console.error('ERRO getItemOperationalStatus:', error);
+      // console.error('ERRO getItemOperationalStatus:', error);
       next(error);
     }
   }
-
-
-
 }
 
 export const itemController = new ItemController();

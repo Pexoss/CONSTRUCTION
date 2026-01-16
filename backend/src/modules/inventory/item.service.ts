@@ -83,7 +83,7 @@ class ItemService {
       companyId,
       trackingType,
     });
-    console.log(item)
+
 
     // Register initial movement
     await this.registerMovement({
@@ -220,6 +220,31 @@ class ItemService {
       });
 
       data.quantity = item.quantity;
+    }
+    // Handle depreciation update safely
+    if ('depreciation' in data) {
+      if (data.depreciation === null) {
+        item.depreciation = undefined;
+      } else if (data.depreciation) {
+        item.depreciation = {
+          initialValue:
+            data.depreciation.initialValue ?? item.depreciation?.initialValue,
+          depreciationRate:
+            data.depreciation.depreciationRate ?? item.depreciation?.depreciationRate ?? 10,
+          purchaseDate:
+            data.depreciation.purchaseDate ?? item.depreciation?.purchaseDate,
+          currentValue: item.depreciation?.currentValue,
+          accumulatedDepreciation: item.depreciation?.accumulatedDepreciation,
+          lastDepreciationDate: item.depreciation?.lastDepreciationDate,
+        };
+      }
+      delete data.depreciation;
+    }
+
+    if (data.depreciation === null) {
+      item.depreciation = undefined;
+      delete (item as any).depreciation;
+      delete data.depreciation;
     }
 
     // Update other fields

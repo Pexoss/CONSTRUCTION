@@ -7,6 +7,7 @@ import {
   CreateItemData,
   ItemFilters,
   AdjustQuantityData,
+  EditItemData,
 } from '../../types/inventory.types';
 
 export const inventoryService = {
@@ -42,7 +43,7 @@ export const inventoryService = {
     return response.data;
   },
 
-  updateItem: async (id: string, data: Partial<CreateItemData>) => {
+  updateItem: async (id: string, data: Partial<EditItemData>) => {
     const response = await api.put<{ success: boolean; message: string; data: Item }>(
       `/inventory/items/${id}`,
       data

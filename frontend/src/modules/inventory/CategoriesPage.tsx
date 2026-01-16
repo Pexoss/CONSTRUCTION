@@ -101,14 +101,19 @@ const CategoriesPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="bg-white shadow rounded-lg mb-6">
-          <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+        {/* Header - Apenas estilos alterados */}
+        <div className="bg-white rounded-lg border border-gray-200 mb-6">
+          <div className="px-6 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <Link to="/inventory/items" className="text-indigo-600 hover:text-indigo-500 mb-2 inline-block">
-                ← Voltar para Inventário
+              <Link to="/inventory/items" className="text-gray-600 hover:text-gray-900 mb-2 inline-block transition-colors">
+                <div className="flex items-center">
+                  <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                  </svg>
+                  Voltar para Inventário
+                </div>
               </Link>
-              <h1 className="text-2xl font-bold text-gray-900">Categorias</h1>
+              <h1 className="text-2xl font-semibold text-gray-900">Categorias</h1>
               <p className="mt-1 text-sm text-gray-600">Gerenciar categorias de itens</p>
             </div>
             <button
@@ -116,15 +121,15 @@ const CategoriesPage: React.FC = () => {
                 setShowCreateModal(true);
                 setFormData({ name: '', description: '', isActive: true });
               }}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+              className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
             >
               + Nova Categoria
             </button>
           </div>
         </div>
 
-        {/* Categories List */}
-        <div className="bg-white shadow rounded-lg overflow-hidden">
+        {/* Categories List - Apenas estilos alterados */}
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           {categories.length === 0 ? (
             <div className="p-8 text-center">
               <p className="text-gray-500">Nenhuma categoria encontrada</p>
@@ -142,7 +147,7 @@ const CategoriesPage: React.FC = () => {
                             placeholder="Nome da categoria"
                             value={formData.name}
                             onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                            className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                             required
                           />
                         </div>
@@ -152,17 +157,17 @@ const CategoriesPage: React.FC = () => {
                             placeholder="Descrição"
                             value={formData.description}
                             onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                            className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                           />
                         </div>
                       </div>
-                      <div className="flex items-center space-x-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <label className="flex items-center">
                           <input
                             type="checkbox"
                             checked={formData.isActive}
                             onChange={(e) => setFormData((prev) => ({ ...prev, isActive: e.target.checked }))}
-                            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                            className="h-4 w-4 rounded border-gray-300 text-gray-700 focus:ring-1 focus:ring-gray-400"
                           />
                           <span className="ml-2 text-sm text-gray-700">Ativo</span>
                         </label>
@@ -170,9 +175,9 @@ const CategoriesPage: React.FC = () => {
                           <button
                             type="submit"
                             disabled={updateCategory.isPending}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+                            className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
                           >
-                            Salvar
+                            {updateCategory.isPending ? 'Salvando...' : 'Salvar'}
                           </button>
                           <button
                             type="button"
@@ -180,7 +185,7 @@ const CategoriesPage: React.FC = () => {
                               setEditingId(null);
                               setFormData({ name: '', description: '', isActive: true });
                             }}
-                            className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium"
+                            className="border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400"
                           >
                             Cancelar
                           </button>
@@ -188,18 +193,17 @@ const CategoriesPage: React.FC = () => {
                       </div>
                     </form>
                   ) : (
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div>
                         <h3 className="text-lg font-medium text-gray-900">{category.name}</h3>
                         {category.description && (
-                          <p className="text-sm text-gray-500 mt-1">{category.description}</p>
+                          <p className="text-sm text-gray-600 mt-1">{category.description}</p>
                         )}
                         <span
-                          className={`mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            category.isActive
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}
+                          className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${category.isActive
+                              ? 'bg-green-100 text-green-800 border-green-200'
+                              : 'bg-red-100 text-red-800 border-red-200'
+                            }`}
                         >
                           {category.isActive ? 'Ativo' : 'Inativo'}
                         </span>
@@ -207,13 +211,13 @@ const CategoriesPage: React.FC = () => {
                       <div className="flex space-x-2">
                         <button
                           onClick={() => startEdit(category)}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                          className="border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400"
                         >
                           Editar
                         </button>
                         <button
                           onClick={() => handleDelete(category._id)}
-                          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                         >
                           Deletar
                         </button>
@@ -227,7 +231,7 @@ const CategoriesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Create Modal */}
+      {/* Create Modal - Apenas estilos alterados */}
       {showCreateModal && (
         <div className="fixed z-10 inset-0 overflow-y-auto">
           <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
@@ -235,10 +239,10 @@ const CategoriesPage: React.FC = () => {
               className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
               onClick={() => setShowCreateModal(false)}
             />
-            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border border-gray-200">
               <form onSubmit={handleCreate}>
                 <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                  <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Nova Categoria</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Nova Categoria</h3>
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700">Nome *</label>
@@ -247,7 +251,7 @@ const CategoriesPage: React.FC = () => {
                         required
                         value={formData.name}
                         onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                       />
                       {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
                     </div>
@@ -257,7 +261,7 @@ const CategoriesPage: React.FC = () => {
                         rows={3}
                         value={formData.description}
                         onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
                       />
                     </div>
                     <div>
@@ -266,13 +270,13 @@ const CategoriesPage: React.FC = () => {
                           type="checkbox"
                           checked={formData.isActive}
                           onChange={(e) => setFormData((prev) => ({ ...prev, isActive: e.target.checked }))}
-                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                          className="h-4 w-4 rounded border-gray-300 text-gray-700 focus:ring-1 focus:ring-gray-400"
                         />
                         <span className="ml-2 text-sm text-gray-700">Categoria ativa</span>
                       </label>
                     </div>
                     {errors.submit && (
-                      <div className="rounded-md bg-red-50 p-4">
+                      <div className="rounded-lg bg-red-50 p-4 border border-red-100">
                         <p className="text-sm text-red-800">{errors.submit}</p>
                       </div>
                     )}
@@ -282,14 +286,14 @@ const CategoriesPage: React.FC = () => {
                   <button
                     type="submit"
                     disabled={createCategory.isPending}
-                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
+                    className="w-full inline-flex justify-center rounded-lg border border-transparent px-4 py-2 bg-gray-800 hover:bg-gray-900 text-base font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 transition-colors"
                   >
                     {createCategory.isPending ? 'Criando...' : 'Criar'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowCreateModal(false)}
-                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                    className="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition-colors"
                   >
                     Cancelar
                   </button>
