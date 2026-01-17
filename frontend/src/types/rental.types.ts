@@ -2,6 +2,7 @@ import { Item } from './inventory.types';
 import { Customer } from './customer.types';
 
 export type RentalStatus = 'reserved' | 'active' | 'overdue' | 'completed' | 'cancelled';
+export type BillingCycle = 'daily' | 'weekly' | 'biweekly' | 'monthly';
 
 export interface RentalItem {
   itemId: string | Item;
@@ -125,4 +126,19 @@ export interface ChecklistData {
   photos?: string[];
   conditions?: Record<string, any>;
   notes?: string;
+}
+
+export interface RentalDashboardItem {
+  _id: string;
+  rentalNumber?: string;
+  status: string;
+  customerId:| string | {name: string; cpfCnpj?: string;};
+  dates: {
+    returnScheduled?: string;
+    nextBillingDate?: string;
+    billingCycle?: BillingCycle;
+  };
+  pricing: {
+    total: number;
+  };
 }

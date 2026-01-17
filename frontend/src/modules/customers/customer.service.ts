@@ -1,5 +1,5 @@
 import api from '../../config/api';
-import { Customer, CreateCustomerData, CustomerFilters } from '../../types/customer.types';
+import { Customer, CreateCustomerData, CustomerFilters, CustomerAddress } from '../../types/customer.types';
 
 export const customerService = {
   getCustomers: async (filters: CustomerFilters = {}) => {
@@ -50,4 +50,14 @@ export const customerService = {
     );
     return response.data;
   },
+
+  addAddress: async (customerId: string, addressData: CustomerAddress) => {
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      data: Customer;
+    }>(`/customers/${customerId}/addresses`, addressData);
+
+    return response.data.data; // retorna o cliente atualizado
+  }
 };

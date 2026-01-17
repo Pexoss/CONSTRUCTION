@@ -21,6 +21,11 @@ const CreateMaintenancePage: React.FC = () => {
 
   const { data: itemsData } = useItems({ isActive: true, limit: 100 });
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    createMutation.mutate(formData);
+  };
+
   const createMutation = useMutation({
     mutationFn: (data: CreateMaintenanceData) => maintenanceService.createMaintenance(data),
     onSuccess: () => {
@@ -28,14 +33,27 @@ const CreateMaintenancePage: React.FC = () => {
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    createMutation.mutate(formData);
-  };
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => {
+    const { name, value, type } = e.target;
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    const parsedValue =
+      type === 'number'
+        ? Number(value)
+        : value;
+
+    console.log('[handleChange]', {
+      name,
+      rawValue: value,
+      parsedValue,
+      type,
+    });
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: parsedValue,
+    }));
   };
 
   const items = itemsData?.data || [];
@@ -106,13 +124,14 @@ const CreateMaintenancePage: React.FC = () => {
                   required
                   value={formData.status}
                   onChange={handleChange}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
                 >
                   <option value="scheduled">Agendada</option>
                   <option value="in_progress">Em Andamento</option>
                   <option value="completed">Concluída</option>
                 </select>
               </div>
+
             </div>
 
             <div>
@@ -129,6 +148,22 @@ const CreateMaintenancePage: React.FC = () => {
                 className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
+
+            {formData.status === 'completed' && (
+              <div>
+                <label htmlFor="completedDate" className="block text-sm font-medium text-gray-700">
+                  Data de Conclusão *
+                </label>
+                <input
+                  type="datetime-local"
+                  id="scheduledDate"
+                  name="scheduledDate"
+                  required
+                  value={formData.scheduledDate}
+                  onChange={handleChange}
+                />
+              </div>
+            )}
 
             <div>
               <label htmlFor="description" className="block text-sm font-medium text-gray-700">
@@ -159,7 +194,6 @@ const CreateMaintenancePage: React.FC = () => {
                   step="0.01"
                   value={formData.cost}
                   onChange={handleChange}
-                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                 />
               </div>
 
@@ -202,11 +236,15 @@ const CreateMaintenancePage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                disabled={createMutation.isPending}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm font-medium disabled:opacity-50"
+                disabled={
+                  createMutation.isPending ||
+                  (formData.status === 'completed' && !formData.completedDate)
+                }
+                className="px-4 py-2 bg-indigo-600 text-white rounded-md disabled:opacity-50"
               >
                 {createMutation.isPending ? 'Salvando...' : 'Salvar'}
               </button>
+
             </div>
           </form>
         </div>

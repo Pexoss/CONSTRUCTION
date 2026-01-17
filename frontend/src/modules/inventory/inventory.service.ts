@@ -7,6 +7,7 @@ import {
   CreateItemData,
   ItemFilters,
   AdjustQuantityData,
+  EditItemData,
 } from '../../types/inventory.types';
 
 export const inventoryService = {
@@ -42,7 +43,7 @@ export const inventoryService = {
     return response.data;
   },
 
-  updateItem: async (id: string, data: Partial<CreateItemData>) => {
+  updateItem: async (id: string, data: Partial<EditItemData>) => {
     const response = await api.put<{ success: boolean; message: string; data: Item }>(
       `/inventory/items/${id}`,
       data
@@ -172,4 +173,17 @@ export const inventoryService = {
     );
     return response.data;
   },
+  getItemOperationalStatus: async (itemId: string) => {
+    const response = await api.get<{
+      status: string;
+      label: string;
+      className: string;
+      client?: { id: string; name: string } | null;
+      quantity?: number;
+      expectedReturnDate?: string | null;
+    }>(`/inventory/items/${itemId}/operational-status`);
+
+    return response.data;
+  }
+
 };

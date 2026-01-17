@@ -134,7 +134,12 @@ class MaintenanceService {
     status: MaintenanceStatus,
     userId: string,
     data?: { completedDate?: Date; performedBy?: string; notes?: string }
+
   ): Promise<IMaintenance | null> {
+
+    console.log('[updateMaintenanceStatus] data recebida:', data);
+    console.log('[completedDate type]', typeof data?.completedDate);
+    console.log('[completedDate instanceof Date]', data?.completedDate instanceof Date);
     const maintenance = await Maintenance.findOne({ _id: maintenanceId, companyId });
 
     if (!maintenance) {
@@ -142,11 +147,9 @@ class MaintenanceService {
     }
 
     const oldStatus = maintenance.status;
-    maintenance.status = status;
+    maintenance.status = status; // sempre atualiza
 
-    // Handle status transitions
-    if (status === 'in_progress' && oldStatus === 'scheduled') {
-      // Start maintenance - move item to maintenance
+    if (status === 'in_progress') {
       await this.updateItemMaintenanceStatus(
         companyId,
         maintenance.itemId.toString(),
@@ -154,9 +157,8 @@ class MaintenanceService {
         userId,
         maintenance._id
       );
-    } else if (status === 'completed' && oldStatus !== 'completed') {
-      // Complete maintenance - return item to available
-      maintenance.completedDate = data?.completedDate || new Date();
+    } else if (status === 'completed') {
+      maintenance.completedDate = data?.completedDate ? new Date(data.completedDate) : new Date();
       if (data?.performedBy) maintenance.performedBy = data.performedBy;
       if (data?.notes) maintenance.notes = data.notes;
 
@@ -169,7 +171,15 @@ class MaintenanceService {
       );
     }
 
+    console.log('[maintenance before save]', {
+      status: maintenance.status,
+      completedDate: maintenance.completedDate,
+    });
+
+    maintenance.status = status;
+    console.log('[ANTES DO SAVE] status:', maintenance.status);
     await maintenance.save();
+    console.log('[DEPOIS DO SAVE] status:', maintenance.status);
     return maintenance;
   }
 

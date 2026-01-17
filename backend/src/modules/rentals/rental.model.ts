@@ -290,7 +290,7 @@ const RentalSchema = new Schema<IRental>(
     },
     rentalNumber: {
       type: String,
-      required: [true, 'Rental number is required'],
+      //required: [true, 'Rental number is required'], garado automaticamente pelo backend
       unique: true,
     },
     customerId: {

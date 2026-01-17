@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryService } from '../modules/inventory/inventory.service';
-import { CreateItemData, ItemFilters, AdjustQuantityData } from '../types/inventory.types';
+import { CreateItemData, ItemFilters, AdjustQuantityData, EditItemData } from '../types/inventory.types';
 
 export const useItems = (filters: ItemFilters = {}) => {
   return useQuery({
@@ -32,8 +32,9 @@ export const useUpdateItem = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<CreateItemData> }) =>
+    mutationFn: ({ id, data }: { id: string; data: EditItemData }) =>
       inventoryService.updateItem(id, data),
+
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['items'] });
       queryClient.invalidateQueries({ queryKey: ['item', variables.id] });

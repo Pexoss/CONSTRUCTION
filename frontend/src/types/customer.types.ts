@@ -1,5 +1,6 @@
 export interface CustomerAddress {
   type: 'main' | 'billing' | 'work' | 'other';
+  workName?: string;
   street: string;
   number?: string;
   complement?: string;
@@ -10,6 +11,7 @@ export interface CustomerAddress {
   isDefault: boolean;
   notes?: string;
 }
+
 
 export interface CustomerWork {
   workId: string;

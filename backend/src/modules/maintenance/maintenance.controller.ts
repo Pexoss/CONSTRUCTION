@@ -24,6 +24,7 @@ export class MaintenanceController {
         data: maintenance,
       });
     } catch (error) {
+      console.log('ZOD ERROR 👉', error);
       next(error);
     }
   }

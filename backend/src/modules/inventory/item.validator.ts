@@ -24,13 +24,13 @@ const itemSchemaBase = z.object({
   sku: z.string().min(1, 'SKU is required'),
   barcode: z.string().optional(),
   customId: z.string().optional(),
-  
+
   // NOVO: Tipo de controle
   trackingType: z.enum(['unit', 'quantity']).default('quantity'),
-  
+
   // NOVO: Array de unidades (para tipo unitário)
   units: z.array(itemUnitSchema).optional(),
-  
+
   // Quantidade (para tipo quantitativo ou calculada para unitário)
   quantity: z.object({
     total: z.number().int().min(0, 'Total quantity cannot be negative'),
@@ -39,7 +39,7 @@ const itemSchemaBase = z.object({
     maintenance: z.number().int().min(0).optional(),
     damaged: z.number().int().min(0).optional(),
   }),
-  
+
   photos: z.array(z.string().url()).optional().default([]),
   specifications: z.record(z.any()).optional(),
   pricing: z.object({
@@ -67,18 +67,59 @@ const itemSchemaBase = z.object({
 
 // Schema de criação com refine
 export const createItemSchema = itemSchemaBase.refine((data) => {
-  // Se for tipo unitário, deve ter array de units
   if (data.trackingType === 'unit') {
-    return data.units && data.units.length > 0;
+    // Se units estiver vazio, podemos criar uma unidade a partir do customId
+    return data.units && data.units.length > 0 || !!data.customId;
   }
   return true;
 }, {
-  message: 'Items with unit tracking type must have at least one unit',
+  message: 'Items with unit tracking type must have at least one unit or customId',
   path: ['units'],
 });
 
+
 // Schema de atualização (partial, sem refine)
-export const updateItemSchema = itemSchemaBase.partial();
+export const updateItemSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  category: z.string().optional(),
+  subcategory: z.string().optional(),
+  sku: z.string().min(1).optional(),
+  barcode: z.string().optional(),
+  customId: z.string().optional(),
+
+  quantity: z
+    .object({
+      total: z.number().min(0).optional(),
+      rented: z.number().min(0).optional(),
+      maintenance: z.number().min(0).optional(),
+      damaged: z.number().min(0).optional(),
+    })
+    .optional(),
+
+  pricing: z
+    .object({
+      dailyRate: z.number().min(0).optional(),
+      weeklyRate: z.number().min(0).optional(),
+      biweeklyRate: z.number().min(0).optional(),
+      monthlyRate: z.number().min(0).optional(),
+      depositAmount: z.number().min(0).optional(),
+    })
+    .optional(),
+
+  depreciation: z
+    .object({
+      initialValue: z.number().positive(),
+      depreciationRate: z.number().positive(),
+      purchaseDate: z.string().min(1),
+    })
+    .optional()
+    .nullable(),
+
+  location: z.string().optional(),
+  lowStockThreshold: z.number().min(0).optional(),
+  isActive: z.boolean().optional(),
+});
 
 export const createCategorySchema = z.object({
   name: z.string().min(1, 'Category name is required'),

@@ -131,17 +131,50 @@ export interface CreateItemData {
   };
   location?: string;
   depreciation?: {
-    initialValue?: number;
-    currentValue?: number;
-    depreciationRate?: number;
-    annualRate?: number;
-    accumulatedDepreciation?: number;
-    purchaseDate?: string;
-    lastDepreciationDate?: string;
-  };
+    initialValue: number;
+    depreciationRate: number;
+    purchaseDate: string;
+  }
   lowStockThreshold?: number;
   isActive?: boolean;
 }
+
+export interface EditItemData {
+  name?: string;
+  description?: string;
+  category?: string;
+  subcategory?: string;
+  sku?: string;
+  barcode?: string;
+  customId?: string;
+  photos?: string[];
+  specifications?: Record<string, any>;
+  quantity?: {
+    total?: number;
+    rented?: number;
+    maintenance?: number;
+    damaged?: number;
+  };
+
+  pricing?: {
+    dailyRate?: number;
+    weeklyRate?: number;
+    biweeklyRate?: number;
+    monthlyRate?: number;
+    depositAmount?: number;
+  };
+
+  depreciation?: {
+    initialValue?: number;
+    depreciationRate?: number;
+    purchaseDate?: string;
+  } | null;
+
+  location?: string;
+  lowStockThreshold?: number;
+  isActive?: boolean;
+}
+
 
 export interface ItemFilters {
   category?: string;

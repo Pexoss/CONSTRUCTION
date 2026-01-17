@@ -9,6 +9,9 @@ const router = Router();
 router.use(authMiddleware);
 router.use(tenantMiddleware);
 
+// NOVO: Dashboard de vencimentos
+router.get('/rentals/expiration-dashboard',rentalController.getExpirationDashboard.bind(rentalController));
+
 // Rental routes
 router.post('/rentals', rentalController.createRental.bind(rentalController));
 router.get('/rentals', rentalController.getRentals.bind(rentalController));
@@ -28,7 +31,5 @@ router.post('/rentals/:id/reject/:approvalIndex', rentalController.rejectRequest
 router.post('/rentals/:id/discount', rentalController.applyDiscount.bind(rentalController));
 router.post('/rentals/:id/change-rental-type', rentalController.changeRentalType.bind(rentalController));
 
-// NOVO: Dashboard de vencimentos
-router.get('/rentals/expiration-dashboard', rentalController.getExpirationDashboard.bind(rentalController));
 
 export default router;

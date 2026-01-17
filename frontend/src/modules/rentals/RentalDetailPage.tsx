@@ -243,6 +243,40 @@ const RentalDetailPage: React.FC = () => {
                   </div>
                 );
               })}
+              {rental.services && rental.services.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">Serviços Adicionais</h3>
+                  {rental.services.map((service, index) => (
+                    <div key={index} className="border border-gray-200 rounded-md p-4 bg-gray-50">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="font-medium text-gray-900">{service.description}</div>
+                          <div className="text-sm text-gray-500">
+                            Quantidade: {service.quantity} • Preço unitário: R$ {service.price.toFixed(2)} • Categoria: {service.category}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-semibold text-gray-900">R$ {service.subtotal.toFixed(2)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {rental.workAddress && rental.workAddress.street && (
+                <div className="mt-6">
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">Endereço de entrega</h3>
+                  <div className="border border-gray-200 rounded-md p-4 bg-gray-50">
+                    <div className="font-medium text-gray-900">{rental.workAddress.workName}</div>
+                    <div className="text-sm text-gray-500">
+                      {rental.workAddress.street}, {rental.workAddress.number} <br />
+                      {rental.workAddress.neighborhood} • {rental.workAddress.city} - {rental.workAddress.state} <br />
+                      CEP: {rental.workAddress.zipCode}
+                    </div>
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
 
