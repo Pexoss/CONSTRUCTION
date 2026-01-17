@@ -2,13 +2,15 @@ import { Router } from 'express';
 import { subscriptionController } from './subscription.controller';
 import { authMiddleware } from '../../shared/middleware/auth.middleware';
 import { tenantMiddleware } from '../../shared/middleware/tenant.middleware';
+import { requireSuperAdmin } from '../../shared/middleware/role.middleware';
 
 const router = Router();
 
 // All routes require authentication
 router.use(authMiddleware);
 
-// Admin routes (super admin only - should add role check middleware)
+// Admin routes (super admin only)
+router.use('/admin', requireSuperAdmin);
 router.post('/admin/subscriptions/payments', subscriptionController.createPayment.bind(subscriptionController));
 router.get('/admin/subscriptions/payments', subscriptionController.getCompanyPayments.bind(subscriptionController));
 router.patch('/admin/subscriptions/payments/:id/paid', subscriptionController.markPaymentAsPaid.bind(subscriptionController));

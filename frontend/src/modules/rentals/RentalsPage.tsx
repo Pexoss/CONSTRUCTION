@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { rentalService } from './rental.service';
 import { RentalFilters, RentalStatus } from '../../types/rental.types';
-import BackButton from 'components/BackButton';
+import BackButton from '../../components/BackButton';
 
 const RentalsPage: React.FC = () => {
   const [filters, setFilters] = useState<RentalFilters>({
