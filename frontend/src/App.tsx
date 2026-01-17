@@ -198,7 +198,7 @@ function App() {
               <Route
                 path="/finance"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredRoles={['admin', 'superadmin']}>
                     <FinancialDashboardPage />
                   </ProtectedRoute>
                 }
@@ -222,7 +222,7 @@ function App() {
               <Route
                 path="/admin"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredRoles={['superadmin']}>
                     <AdminPage />
                   </ProtectedRoute>
                 }

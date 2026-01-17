@@ -13,6 +13,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import Layout from '../../components/Layout';
 
 const ReportsPage: React.FC = () => {
   const [reportType, setReportType] = useState<'rentals' | 'financial' | 'maintenance'>('rentals');
@@ -78,7 +79,7 @@ const ReportsPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Relatórios" backTo="/dashboard">
       <div className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <h1 className="text-2xl font-bold text-gray-900">Relatórios</h1>
@@ -296,7 +297,7 @@ const ReportsPage: React.FC = () => {
           </div>
         )}
       </div>
-    </div>
+    </Layout>
   );
 };
 

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { maintenanceService } from './maintenance.service';
 import { CreateMaintenanceData, MaintenanceType } from '../../types/maintenance.types';
+import { useItem, useItems } from '../../hooks/useInventory';
 
 const EditMaintenancePage: React.FC = () => {
     const navigate = useNavigate();
@@ -18,6 +19,7 @@ const EditMaintenancePage: React.FC = () => {
 
     const [formData, setFormData] = useState<Partial<CreateMaintenanceData>>({
         itemId: '',
+        unitId: '',
         type: undefined,
         status: undefined,
         scheduledDate: '',
@@ -27,12 +29,16 @@ const EditMaintenancePage: React.FC = () => {
         notes: '',
     });
 
+    const { data: itemsData } = useItems({ isActive: true, limit: 500 });
+    const { data: selectedItemData } = useItem(formData.itemId || '');
+
     useEffect(() => {
         if (data?.data) {
             const m = data.data;
 
             setFormData({
                 itemId: typeof m.itemId === 'string' ? m.itemId : m.itemId._id,
+                unitId: m.unitId || '',
                 type: m.type,
                 status: m.status,
                 scheduledDate: m.scheduledDate.slice(0, 10),
@@ -58,6 +64,14 @@ const EditMaintenancePage: React.FC = () => {
         e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
     ) => {
         const { name, value } = e.target;
+        if (name === 'itemId') {
+            setFormData((prev) => ({
+                ...prev,
+                itemId: value,
+                unitId: '',
+            }));
+            return;
+        }
         setFormData(prev => ({
             ...prev,
             [name]: name === 'cost' ? Number(value) : value,
@@ -69,9 +83,35 @@ const EditMaintenancePage: React.FC = () => {
         updateMutation.mutate(formData);
     };
 
+    const items = itemsData?.data || [];
+    const selectedItemFromApi = selectedItemData?.data;
+    const selectedItem = selectedItemFromApi || items.find((item) => item._id === formData.itemId);
+    const itemsForSelect = selectedItemFromApi
+        ? [selectedItemFromApi, ...items.filter((item) => item._id !== selectedItemFromApi._id)]
+        : items;
+    const availableUnits =
+        selectedItem?.units?.filter((unit) =>
+            unit.status === 'available' || unit.status === 'damaged' || unit.unitId === formData.unitId
+        ) || [];
+
+    useEffect(() => {
+        if (!selectedItem) return;
+        if (selectedItem.trackingType === 'unit') {
+            setFormData((prev) => ({
+                ...prev,
+                unitId: prev.unitId ?? '',
+            }));
+        } else {
+            setFormData((prev) => ({
+                ...prev,
+                unitId: undefined,
+            }));
+        }
+    }, [selectedItem]);
+
     if (isLoading) {
         return (
-            <Layout title="Editar Manutenção" backTo="/maintenances">
+            <Layout title="Editar Manutenção" backTo="/maintenance">
                 <div className="flex justify-center items-center h-64 text-gray-600">
                     Carregando...
                 </div>
@@ -80,7 +120,7 @@ const EditMaintenancePage: React.FC = () => {
     }
 
     return (
-        <Layout title="Editar Manutenção" backTo="/maintenances">
+        <Layout title="Editar Manutenção" backTo="/maintenance">
             <div className="max-w-2xl mx-auto bg-white rounded-lg border border-gray-200 p-6">
                 <div className="mb-6">
                     <h1 className="text-2xl font-bold text-gray-900">Editar Manutenção</h1>
@@ -103,6 +143,48 @@ const EditMaintenancePage: React.FC = () => {
                 )}
 
                 <form onSubmit={handleSubmit} className="space-y-6">
+                    {/* Item */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Item *
+                        </label>
+                        <select
+                            name="itemId"
+                            value={formData.itemId || ''}
+                            onChange={handleChange}
+                            required
+                            className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-black"
+                        >
+                            <option value="">Selecione o item</option>
+                            {itemsForSelect.map((item) => (
+                                <option key={item._id} value={item._id}>
+                                    {item.name} - {item.sku} ({item.trackingType === 'unit' ? 'Unitário' : 'Quantidade'})
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {selectedItem?.trackingType === 'unit' && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Unidade *
+                            </label>
+                            <select
+                                name="unitId"
+                                value={formData.unitId || ''}
+                                onChange={handleChange}
+                                required
+                                className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-black"
+                            >
+                                <option value="">Selecione a unidade</option>
+                                {availableUnits.map((unit) => (
+                                    <option key={unit.unitId} value={unit.unitId}>
+                                        {unit.unitId} ({unit.status === 'damaged' ? 'Danificada' : unit.status === 'maintenance' ? 'Em manutenção' : 'Disponível'})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                     {/* Tipo de Manutenção */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -197,7 +279,7 @@ const EditMaintenancePage: React.FC = () => {
                     <div className="pt-6 border-t border-gray-200 flex justify-end gap-4">
                         <button
                             type="button"
-                            onClick={() => navigate('/maintenances')}
+                            onClick={() => navigate('/maintenance')}
                             className="px-6 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                         >
                             Cancelar

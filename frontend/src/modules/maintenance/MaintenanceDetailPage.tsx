@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { maintenanceService } from './maintenance.service';
 import { MaintenanceStatus } from '../../types/maintenance.types';
+import Layout from '../../components/Layout';
 
 const MaintenanceDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -56,17 +57,21 @@ const MaintenanceDetailPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-gray-600">Carregando...</div>
-      </div>
+      <Layout title="Detalhes da Manutenção" backTo="/maintenance">
+        <div className="flex justify-center items-center h-64">
+          <div className="text-gray-600">Carregando...</div>
+        </div>
+      </Layout>
     );
   }
 
   if (!data?.data) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <p className="text-red-800">Manutenção não encontrada</p>
-      </div>
+      <Layout title="Detalhes da Manutenção" backTo="/maintenance">
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <p className="text-red-800">Manutenção não encontrada</p>
+        </div>
+      </Layout>
     );
   }
 
@@ -74,7 +79,7 @@ const MaintenanceDetailPage: React.FC = () => {
   const item = typeof maintenance.itemId === 'object' ? maintenance.itemId : null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Detalhes da Manutenção" backTo="/maintenance">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-6">
@@ -154,6 +159,12 @@ const MaintenanceDetailPage: React.FC = () => {
                     </label>
                     <p className="font-medium text-gray-900 font-mono">{item.sku}</p>
                   </div>
+                  {maintenance.unitId && (
+                    <div>
+                      <span className="text-sm text-gray-600">Unidade:</span>{' '}
+                      <span className="font-medium">{maintenance.unitId}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -337,7 +348,7 @@ const MaintenanceDetailPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </Layout>
   );
 };
 

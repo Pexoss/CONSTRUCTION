@@ -15,6 +15,16 @@ class MaintenanceService {
       throw new Error('Item not found');
     }
 
+    // For unit-based items, unitId is required
+    if (item.trackingType === 'unit' && !data.unitId) {
+      throw new Error('Unit ID is required for unit-based items');
+    }
+
+    // For quantity-based items, maintenance should be informational by default
+    if (item.trackingType === 'quantity' && data.itemUnavailable === undefined) {
+      data.itemUnavailable = false;
+    }
+
     const maintenance = await Maintenance.create({
       ...data,
       companyId,
@@ -22,7 +32,15 @@ class MaintenanceService {
 
     // If maintenance is starting, update item status
     if (data.status === 'in_progress') {
-      await this.updateItemMaintenanceStatus(companyId, data.itemId, 'start', userId, maintenance._id);
+      await this.updateItemMaintenanceStatus(
+        companyId,
+        data.itemId,
+        'start',
+        userId,
+        maintenance._id,
+        maintenance.unitId,
+        maintenance.itemUnavailable
+      );
     }
 
     return maintenance;
@@ -155,7 +173,9 @@ class MaintenanceService {
         maintenance.itemId.toString(),
         'start',
         userId,
-        maintenance._id
+        maintenance._id,
+        maintenance.unitId,
+        maintenance.itemUnavailable
       );
     } else if (status === 'completed') {
       maintenance.completedDate = data?.completedDate ? new Date(data.completedDate) : new Date();
@@ -167,7 +187,9 @@ class MaintenanceService {
         maintenance.itemId.toString(),
         'end',
         userId,
-        maintenance._id
+        maintenance._id,
+        maintenance.unitId,
+        maintenance.itemUnavailable
       );
     }
 
@@ -227,7 +249,9 @@ class MaintenanceService {
         maintenance.itemId.toString(),
         'end',
         userId,
-        maintenance._id
+        maintenance._id,
+        maintenance.unitId,
+        maintenance.itemUnavailable
       );
     }
 
@@ -303,12 +327,46 @@ class MaintenanceService {
     itemId: mongoose.Types.ObjectId | string,
     action: 'start' | 'end',
     userId: string,
-    maintenanceId: mongoose.Types.ObjectId
+    maintenanceId: mongoose.Types.ObjectId,
+    unitId?: string,
+    itemUnavailable?: boolean
   ): Promise<void> {
     const item = await Item.findOne({ _id: itemId, companyId });
 
     if (!item) {
       throw new Error('Item not found');
+    }
+
+    // Unit-based items: update only the unit status
+    if (item.trackingType === 'unit') {
+      if (!unitId) {
+        throw new Error('Unit ID is required for unit-based maintenance');
+      }
+
+      const unit = item.units?.find((u) => u.unitId === unitId);
+      if (!unit) {
+        throw new Error('Unit not found');
+      }
+
+      if (action === 'start') {
+        if (unit.status !== 'available' && unit.status !== 'damaged') {
+          throw new Error('Unit is not available for maintenance');
+        }
+        unit.status = 'maintenance';
+      } else if (action === 'end') {
+        if (unit.status === 'maintenance') {
+          unit.status = 'available';
+          unit.maintenanceDetails = undefined;
+        }
+      }
+
+      await item.save();
+      return;
+    }
+
+    // Quantity-based items: only change quantities if itemUnavailable is true
+    if (itemUnavailable === false) {
+      return;
     }
 
     const previousQuantity = {

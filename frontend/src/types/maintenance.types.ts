@@ -7,12 +7,15 @@ export interface Maintenance {
   _id: string;
   companyId: string;
   itemId: string | Item;
+  unitId?: string;
   type: MaintenanceType;
   status: MaintenanceStatus;
   scheduledDate: string;
+  expectedReturnDate?: string;
   completedDate?: string;
   description: string;
   cost: number;
+  itemUnavailable?: boolean;
   performedBy?: string;
   notes?: string;
   attachments: string[];
@@ -22,12 +25,15 @@ export interface Maintenance {
 
 export interface CreateMaintenanceData {
   itemId: string;
+  unitId?: string;
   type: MaintenanceType;
   status?: MaintenanceStatus;
   scheduledDate: string;
+  expectedReturnDate?: string;
   completedDate?: string;
   description: string;
   cost: number;
+  itemUnavailable?: boolean;
   performedBy?: string;
   notes?: string;
   attachments?: string[];

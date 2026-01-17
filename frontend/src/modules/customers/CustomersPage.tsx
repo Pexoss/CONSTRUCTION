@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customerService } from './customer.service';
 import { CustomerFilters } from '../../types/customer.types';
-import BackButton from '../../components/BackButton';
+import Layout from '../../components/Layout';
 
 const CustomersPage: React.FC = () => {
   const [filters, setFilters] = useState<CustomerFilters>({
@@ -38,17 +38,21 @@ const CustomersPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-gray-600">Carregando clientes...</div>
-      </div>
+      <Layout title="Clientes" backTo="/dashboard">
+        <div className="flex justify-center items-center h-64">
+          <div className="text-gray-600">Carregando clientes...</div>
+        </div>
+      </Layout>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <p className="text-red-800">Erro ao carregar clientes. Tente novamente.</p>
-      </div>
+      <Layout title="Clientes" backTo="/dashboard">
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <p className="text-red-800">Erro ao carregar clientes. Tente novamente.</p>
+        </div>
+      </Layout>
     );
   }
 
@@ -56,7 +60,7 @@ const CustomersPage: React.FC = () => {
   const pagination = data?.pagination;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Clientes" backTo="/dashboard">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -315,7 +319,7 @@ const CustomersPage: React.FC = () => {
           )}
         </div>
       </div>
-    </div>
+    </Layout>
   );
 };
 

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useItem, useUpdateItem, useCategories, useSubcategories } from '../../hooks/useInventory';
 import { updateItemSchema } from '../../utils/inventory.validation';
 import { EditItemData } from '../../types/inventory.types';
+import Layout from '../../components/Layout';
 
 const EditItemPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -140,17 +141,21 @@ const EditItemPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-gray-600">Carregando item...</div>
-      </div>
+      <Layout title="Editar Item" backTo="/inventory/items">
+        <div className="flex justify-center items-center h-64">
+          <div className="text-gray-600">Carregando item...</div>
+        </div>
+      </Layout>
     );
   }
 
   if (!itemData?.data) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <p className="text-red-800">Item não encontrado</p>
-      </div>
+      <Layout title="Editar Item" backTo="/inventory/items">
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <p className="text-red-800">Item não encontrado</p>
+        </div>
+      </Layout>
     );
   }
 
@@ -158,22 +163,12 @@ const EditItemPage: React.FC = () => {
   const subcategories = subcategoriesData?.data || [];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Editar Item" backTo="/inventory/items">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Cabeçalho Clean */}
         <div className="mb-8">
-          <div className="flex items-center">
-            <button
-              onClick={() => navigate(`/inventory/items/${id}`)}
-              className="mr-4 text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-              </svg>
-            </button>
-            <h1 className="text-2xl font-semibold text-gray-900">Editar Item</h1>
-          </div>
-          <p className="text-sm text-gray-600 mt-1 ml-9">
+          <h1 className="text-2xl font-semibold text-gray-900">Editar Item</h1>
+          <p className="text-sm text-gray-600 mt-1">
             Atualize as informações do item
           </p>
         </div>
@@ -587,7 +582,7 @@ const EditItemPage: React.FC = () => {
           </form>
         </div>
       </div>
-    </div>
+    </Layout>
   );
 };
 

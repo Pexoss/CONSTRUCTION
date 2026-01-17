@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useItem, useDeleteItem, useItemMovements, useAdjustQuantity, useCalculateDepreciation } from '../../hooks/useInventory';
 import { adjustQuantitySchema } from '../../utils/inventory.validation';
 import { inventoryService } from './inventory.service';
+import Layout from '../../components/Layout';
 
 const ItemDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -86,43 +87,34 @@ const ItemDetailPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-gray-600">Carregando item...</div>
-      </div>
+      <Layout title="Detalhes do Item" backTo="/inventory/items">
+        <div className="flex justify-center items-center h-64">
+          <div className="text-gray-600">Carregando item...</div>
+        </div>
+      </Layout>
     );
   }
 
   if (!item) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <p className="text-red-800">Item não encontrado</p>
-        <Link to="/inventory/items" className="text-indigo-600 hover:text-indigo-500 mt-2 inline-block">
-          Voltar para lista
-        </Link>
-      </div>
+      <Layout title="Detalhes do Item" backTo="/inventory/items">
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <p className="text-red-800">Item não encontrado</p>
+        </div>
+      </Layout>
     );
   }
   const movements = movementsData?.data || [];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Detalhes do Item" backTo="/inventory/items">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="bg-white rounded-xl shadow-lg mb-6 border border-gray-100">
           <div className="px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex-1">
-              {/* Cabeçalho com voltar e título */}
+              {/* Cabeçalho com título */}
               <div className="flex items-start">
-                <Link
-                  to="/inventory/items"
-                  className="inline-flex items-center text-indigo-600 hover:text-indigo-800 transition-colors mr-4 mt-1"
-                >
-                  <svg className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                  </svg>
-                  Voltar
-                </Link>
-
                 <div className="flex-1">
                   {/* Título e status */}
                   <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -736,7 +728,7 @@ const ItemDetailPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </Layout>
   );
 };
 

@@ -126,7 +126,7 @@ InvoiceSchema.index({ companyId: 1, status: 1 });
 InvoiceSchema.index({ companyId: 1, customerId: 1 });
 InvoiceSchema.index({ companyId: 1, rentalId: 1 });
 InvoiceSchema.index({ companyId: 1, issueDate: 1 });
-InvoiceSchema.index({ invoiceNumber: 1 });
+// invoiceNumber index is automatically created by unique: true
 
 // Pre-save hook to generate invoice number if not provided
 InvoiceSchema.pre('save', async function (next) {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useCategories, useCreateCategory, useUpdateCategory, useDeleteCategory } from '../../hooks/useInventory';
 import { createCategorySchema } from '../../utils/inventory.validation';
+import Layout from '../../components/Layout';
 
 const CategoriesPage: React.FC = () => {
   const { data: categoriesData, isLoading } = useCategories();
@@ -92,27 +92,21 @@ const CategoriesPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-gray-600">Carregando categorias...</div>
-      </div>
+      <Layout title="Categorias" backTo="/inventory/items">
+        <div className="flex justify-center items-center h-64">
+          <div className="text-gray-600">Carregando categorias...</div>
+        </div>
+      </Layout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Categorias" backTo="/inventory/items">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header - Apenas estilos alterados */}
         <div className="bg-white rounded-lg border border-gray-200 mb-6">
           <div className="px-6 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <Link to="/inventory/items" className="text-gray-600 hover:text-gray-900 mb-2 inline-block transition-colors">
-                <div className="flex items-center">
-                  <svg className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-                  </svg>
-                  Voltar para Inventário
-                </div>
-              </Link>
               <h1 className="text-2xl font-semibold text-gray-900">Categorias</h1>
               <p className="mt-1 text-sm text-gray-600">Gerenciar categorias de itens</p>
             </div>
@@ -303,7 +297,7 @@ const CategoriesPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </Layout>
   );
 };
 

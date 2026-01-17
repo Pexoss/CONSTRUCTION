@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useCreateItem, useCategories, useSubcategories } from '../../hooks/useInventory';
 import { createItemSchema } from '../../utils/inventory.validation';
 import { CreateItemData } from '../../types/inventory.types';
+import Layout from '../../components/Layout';
 
 const CreateItemPage: React.FC = () => {
   const navigate = useNavigate();
@@ -186,22 +187,12 @@ const CreateItemPage: React.FC = () => {
   const subcategories = subcategoriesData?.data || [];
 
 return (
-  <div className="min-h-screen bg-gray-50">
+  <Layout title="Novo Item" backTo="/inventory/items">
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Cabeçalho Clean */}
       <div className="mb-8">
-        <div className="flex items-center">
-          <button
-            onClick={() => navigate('/inventory/items')}
-            className="mr-4 text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-            </svg>
-          </button>
-          <h1 className="text-2xl font-semibold text-gray-900">Novo Item</h1>
-        </div>
-        <p className="text-sm text-gray-600 mt-1 ml-9">
+        <h1 className="text-2xl font-semibold text-gray-900">Novo Item</h1>
+        <p className="text-sm text-gray-600 mt-1">
           Cadastre um novo item no inventário
         </p>
       </div>
@@ -780,7 +771,7 @@ return (
         </form>
       </div>
     </div>
-  </div>
+  </Layout>
 );
 };
 

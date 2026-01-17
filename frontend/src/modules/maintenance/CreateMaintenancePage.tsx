@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { maintenanceService } from './maintenance.service';
-import { useItems } from '../../hooks/useInventory';
-import { CreateMaintenanceData, MaintenanceType } from '../../types/maintenance.types';
+import { useItem, useItems } from '../../hooks/useInventory';
+import { CreateMaintenanceData } from '../../types/maintenance.types';
+import Layout from '../../components/Layout';
 
 const CreateMaintenancePage: React.FC = () => {
   const navigate = useNavigate();
@@ -19,7 +20,8 @@ const CreateMaintenancePage: React.FC = () => {
     attachments: [],
   });
 
-  const { data: itemsData } = useItems({ isActive: true, limit: 100 });
+  const { data: itemsData } = useItems({ isActive: true, limit: 500 });
+  const { data: selectedItemData } = useItem(formData.itemId || '');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +52,16 @@ const CreateMaintenancePage: React.FC = () => {
       type,
     });
 
+    if (name === 'itemId') {
+      setFormData((prev) => ({
+        ...prev,
+        itemId: value,
+        unitId: '',
+        itemUnavailable: prev.itemUnavailable,
+      }));
+      return;
+    }
+
     setFormData((prev) => ({
       ...prev,
       [name]: parsedValue,
@@ -57,9 +69,35 @@ const CreateMaintenancePage: React.FC = () => {
   };
 
   const items = itemsData?.data || [];
+  const selectedItemFromApi = selectedItemData?.data;
+  const selectedItem = selectedItemFromApi || items.find((item) => item._id === formData.itemId);
+  const itemsForSelect = selectedItemFromApi
+    ? [selectedItemFromApi, ...items.filter((item) => item._id !== selectedItemFromApi._id)]
+    : items;
+
+  useEffect(() => {
+    if (!selectedItem) return;
+    if (selectedItem.trackingType === 'unit') {
+      setFormData((prev) => ({
+        ...prev,
+        unitId: prev.unitId ?? '',
+        itemUnavailable: true,
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        unitId: undefined,
+        itemUnavailable: false,
+      }));
+    }
+  }, [selectedItem]);
+  const availableUnits =
+    selectedItem?.units?.filter((unit) =>
+      unit.status === 'available' || unit.status === 'damaged'
+    ) || [];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Nova Manutenção" backTo="/maintenance">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header de navegação */}
         <div className="mb-6">
@@ -105,13 +143,41 @@ const CreateMaintenancePage: React.FC = () => {
                 className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-black"
               >
                 <option value="">Selecione um item</option>
-                {items.map((item) => (
+                {itemsForSelect.map((item) => (
                   <option key={item._id} value={item._id}>
                     {item.name} - {item.sku} (Disponível: {item.quantity.available})
                   </option>
                 ))}
               </select>
             </div>
+
+            {selectedItem?.trackingType === 'unit' && (
+              <div>
+                <label htmlFor="unitId" className="block text-sm font-medium text-gray-700">
+                  Unidade *
+                </label>
+                <select
+                  id="unitId"
+                  name="unitId"
+                  required
+                  value={formData.unitId || ''}
+                  onChange={handleChange}
+                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="">Selecione a unidade</option>
+                  {availableUnits.map((unit) => (
+                    <option key={unit.unitId} value={unit.unitId}>
+                      {unit.unitId} ({unit.status === 'damaged' ? 'Danificada' : 'Disponível'})
+                    </option>
+                  ))}
+                </select>
+                {availableUnits.length === 0 && (
+                  <p className="mt-2 text-sm text-amber-600">
+                    Nenhuma unidade disponível para manutenção.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Seção de Tipo e Status */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -293,7 +359,7 @@ const CreateMaintenancePage: React.FC = () => {
           </form>
         </div>
       </div>
-    </div>
+    </Layout>
   );
 };
 

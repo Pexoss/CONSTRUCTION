@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { maintenanceService } from './maintenance.service';
 import { MaintenanceFilters, MaintenanceType, MaintenanceStatus } from '../../types/maintenance.types';
+import Layout from '../../components/Layout';
 
 const MaintenancesPage: React.FC = () => {
   const [filters, setFilters] = useState<MaintenanceFilters>({
@@ -52,17 +53,21 @@ const MaintenancesPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-gray-600">Carregando manutenções...</div>
-      </div>
+      <Layout title="Manutenções" backTo="/dashboard">
+        <div className="flex justify-center items-center h-64">
+          <div className="text-gray-600">Carregando manutenções...</div>
+        </div>
+      </Layout>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <p className="text-red-800">Erro ao carregar manutenções. Tente novamente.</p>
-      </div>
+      <Layout title="Manutenções" backTo="/dashboard">
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <p className="text-red-800">Erro ao carregar manutenções. Tente novamente.</p>
+        </div>
+      </Layout>
     );
   }
 
@@ -70,7 +75,7 @@ const MaintenancesPage: React.FC = () => {
   const pagination = data?.pagination;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Manutenções" backTo="/dashboard">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -211,6 +216,9 @@ const MaintenancesPage: React.FC = () => {
                         Item
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                        Unidade
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                         Tipo
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -250,6 +258,11 @@ const MaintenancesPage: React.FC = () => {
                                   <div className="text-xs text-gray-500">{item.sku}</div>
                                 )}
                               </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="text-sm text-gray-900">
+                              {maintenance.unitId || '-'}
                             </div>
                           </td>
                           <td className="px-6 py-4">
@@ -365,7 +378,7 @@ const MaintenancesPage: React.FC = () => {
           )}
         </div>
       </div>
-    </div>
+    </Layout>
   );
 };
 

@@ -2,11 +2,14 @@ import { Router } from 'express';
 import { transactionController } from './transaction.controller';
 import { authMiddleware } from '../../shared/middleware/auth.middleware';
 import { tenantMiddleware } from '../../shared/middleware/tenant.middleware';
+import { requireRoles } from '../../shared/middleware/role.middleware';
+import { UserRole } from '../../shared/constants/roles';
 
 const router = Router();
 
 // All routes require authentication and tenant identification
 router.use(authMiddleware);
+router.use(requireRoles([UserRole.ADMIN, UserRole.SUPERADMIN]));
 router.use(tenantMiddleware);
 
 // Transaction routes

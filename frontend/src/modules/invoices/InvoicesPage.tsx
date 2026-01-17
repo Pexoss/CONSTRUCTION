@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { invoiceService } from './invoice.service';
 import { InvoiceFilters, InvoiceStatus } from '../../types/invoice.types';
+import Layout from '../../components/Layout';
 
 const InvoicesPage: React.FC = () => {
   const [filters] = useState<InvoiceFilters>({
@@ -49,9 +50,11 @@ const InvoicesPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-gray-600">Carregando faturas...</div>
-      </div>
+      <Layout title="Faturas" backTo="/dashboard">
+        <div className="flex justify-center items-center h-64">
+          <div className="text-gray-600">Carregando faturas...</div>
+        </div>
+      </Layout>
     );
   }
 
@@ -59,7 +62,7 @@ const InvoicesPage: React.FC = () => {
   const pagination = data?.pagination;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Faturas" backTo="/dashboard">
       <div className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <h1 className="text-2xl font-bold text-gray-900">Faturas</h1>
@@ -109,7 +112,7 @@ const InvoicesPage: React.FC = () => {
           </table>
         </div>
       </div>
-    </div>
+    </Layout>
   );
 };
 
