@@ -10,6 +10,7 @@ export interface CustomerAddress {
   zipCode: string;
   isDefault: boolean;
   notes?: string;
+  _isSaved?: boolean;
 }
 
 

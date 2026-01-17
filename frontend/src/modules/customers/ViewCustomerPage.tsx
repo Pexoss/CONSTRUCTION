@@ -1,6 +1,6 @@
 // modules/customers/ViewCustomerPage.tsx
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { customerService } from './customer.service';
@@ -48,65 +48,95 @@ const ViewCustomerPage: React.FC = () => {
         {/* Layout principal: duas colunas no desktop */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Informações do Cliente */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-6 border-b border-gray-200 pb-3">
               Informações do Cliente
             </h2>
-            <div className="space-y-3 mt-3">
+            <div className="space-y-4">
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">Nome</p>
-                <p className="font-medium text-gray-900 dark:text-white">{customer.name}</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Nome</p>
+                <p className="font-medium text-gray-900">{customer.name}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">CPF/CNPJ</p>
-                <p className="font-medium text-gray-900 dark:text-white">{customer.cpfCnpj}</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">CPF/CNPJ</p>
+                <p className="font-medium text-gray-900 font-mono">{customer.cpfCnpj}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">Email</p>
-                <p className="font-medium text-gray-900 dark:text-white">{customer.email || '-'}</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Email</p>
+                <p className="font-medium text-gray-900">{customer.email || '-'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">Telefone</p>
-                <p className="font-medium text-gray-900 dark:text-white">{customer.phone || '-'}</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Telefone</p>
+                <p className="font-medium text-gray-900">{customer.phone || '-'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">Observações</p>
-                <p className="font-medium text-gray-900 dark:text-white">{customer.notes || '-'}</p>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Observações</p>
+                <p className="font-medium text-gray-900">{customer.notes || '-'}</p>
               </div>
             </div>
           </div>
 
           {/* Endereços */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-6 border-b border-gray-200 pb-3">
               Endereços
             </h2>
-            <div className="space-y-4 mt-3">
-              {(customer.addresses ?? []).map((address: CustomerAddress, index: number) => (
-                <div
-                  key={index}
-                  className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow"
-                >
-                  <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400 mb-2">
-                    {address.type === 'main'
-                      ? 'Principal'
-                      : address.type === 'billing'
-                      ? 'Cobrança'
-                      : address.type === 'work'
-                      ? address.workName || `Obra ${index + 1}`
-                      : `Outro ${index + 1}`}
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-gray-700 dark:text-gray-300 text-sm">
-                    <p><span className="font-semibold">Bairro:</span> {address.neighborhood || '-'}</p>
-                    <p><span className="font-semibold">Rua:</span> {address.street || '-'}</p>
-                    <p><span className="font-semibold">Número:</span> {address.number || '-'}</p>
-                    <p><span className="font-semibold">Complemento:</span> {address.complement || '-'}</p>
-                    <p><span className="font-semibold">Cidade:</span> {address.city || '-'}</p>
-                    <p><span className="font-semibold">Estado:</span> {address.state || '-'}</p>
-                    <p><span className="font-semibold">CEP:</span> {address.zipCode || '-'}</p>
-                  </div>
+            <div className="space-y-4">
+              {(customer.addresses ?? []).length === 0 ? (
+                <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                  <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <p className="mt-4 text-gray-600">Nenhum endereço registrado</p>
+                  <Link
+                    to={`/customers/${customer._id}/edit`}
+                    className="mt-2 text-sm text-black hover:text-gray-800 font-medium"
+                  >
+                    Clique para adicionar endereço
+                  </Link>
                 </div>
-              ))}
+              ) : (
+                (customer.addresses ?? []).map((address: CustomerAddress, index: number) => (
+                  <div
+                    key={index}
+                    className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors"
+                  >
+                    <p className="text-sm font-medium text-gray-900 mb-3">
+                      {address.type === 'main'
+                        ? 'Principal'
+                        : address.type === 'billing'
+                          ? 'Cobrança'
+                          : address.type === 'work'
+                            ? address.workName || `Obra ${index + 1}`
+                            : `Outro ${index + 1}`}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-gray-600 text-sm">
+                      <div>
+                        <span className="font-medium text-gray-700">Bairro:</span> {address.neighborhood || '-'}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">Rua:</span> {address.street || '-'}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">Número:</span> {address.number || '-'}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">Complemento:</span> {address.complement || '-'}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">Cidade:</span> {address.city || '-'}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">Estado:</span> {address.state || '-'}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700">CEP:</span> {address.zipCode || '-'}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
