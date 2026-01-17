@@ -88,10 +88,10 @@ const RentalsPage: React.FC = () => {
     rentals.forEach((rental) => {
       const pickupDate = new Date(rental.dates.pickupScheduled).toDateString();
       const returnDate = new Date(rental.dates.returnScheduled).toDateString();
-      
+
       if (!rentalsByDate[pickupDate]) rentalsByDate[pickupDate] = [];
       rentalsByDate[pickupDate].push(rental);
-      
+
       if (pickupDate !== returnDate) {
         if (!rentalsByDate[returnDate]) rentalsByDate[returnDate] = [];
         rentalsByDate[returnDate].push(rental);
@@ -99,9 +99,9 @@ const RentalsPage: React.FC = () => {
     });
 
     return (
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-gray-900">
+          <h2 className="text-xl font-semibold text-gray-900">
             {selectedDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
           </h2>
           <div className="flex gap-2">
@@ -109,13 +109,13 @@ const RentalsPage: React.FC = () => {
               onClick={() =>
                 setSelectedDate(new Date(year, month - 1, 1))
               }
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
             >
               ←
             </button>
             <button
               onClick={() => setSelectedDate(new Date())}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
             >
               Hoje
             </button>
@@ -123,7 +123,7 @@ const RentalsPage: React.FC = () => {
               onClick={() =>
                 setSelectedDate(new Date(year, month + 1, 1))
               }
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
             >
               →
             </button>
@@ -138,7 +138,7 @@ const RentalsPage: React.FC = () => {
           ))}
           {days.map((date, index) => {
             if (!date) {
-              return <div key={index} className="h-24 border border-gray-200 rounded"></div>;
+              return <div key={index} className="h-24 border border-gray-200 rounded-lg"></div>;
             }
             const dateStr = date.toDateString();
             const dayRentals = rentalsByDate[dateStr] || [];
@@ -147,16 +147,15 @@ const RentalsPage: React.FC = () => {
             return (
               <div
                 key={index}
-                className={`h-24 border border-gray-200 rounded p-1 ${
-                  isToday ? 'bg-blue-50 border-blue-300' : ''
-                }`}
+                className={`h-24 border border-gray-200 rounded-lg p-2 ${isToday ? 'bg-blue-50 border-blue-300' : ''
+                  }`}
               >
                 <div className="text-sm font-medium mb-1">{date.getDate()}</div>
                 <div className="space-y-1">
                   {dayRentals.slice(0, 2).map((rental) => (
                     <div
                       key={rental._id}
-                      className={`text-xs p-1 rounded truncate ${getStatusColor(rental.status)}`}
+                      className={`text-xs p-1.5 rounded truncate ${getStatusColor(rental.status)}`}
                       title={rental.rentalNumber}
                     >
                       {rental.rentalNumber}
@@ -177,16 +176,16 @@ const RentalsPage: React.FC = () => {
   return (
     <Layout title="Aluguéis e Reservas" backTo="/dashboard">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 shadow">
+      <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Aluguéis e Reservas</h1>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Gerenciar aluguéis e reservas</p>
+              <h1 className="text-2xl font-bold text-gray-900">Aluguéis e Reservas</h1>
+              <p className="mt-1 text-sm text-gray-600">Gerenciar aluguéis e reservas</p>
             </div>
             <Link
               to="/rentals/new"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+              className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
             >
               + Novo Aluguel
             </Link>
@@ -196,26 +195,24 @@ const RentalsPage: React.FC = () => {
 
       {/* Filters */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex gap-4 items-center">
             <div className="flex gap-2">
               <button
                 onClick={() => setViewMode('list')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  viewMode === 'list'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${viewMode === 'list'
+                  ? 'bg-gray-800 text-white focus:ring-gray-500'
+                  : 'border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-400'
+                  }`}
               >
                 Lista
               </button>
               <button
                 onClick={() => setViewMode('calendar')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  viewMode === 'calendar'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${viewMode === 'calendar'
+                  ? 'bg-gray-800 text-white focus:ring-gray-500'
+                  : 'border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-400'
+                  }`}
               >
                 Calendário
               </button>
@@ -223,7 +220,7 @@ const RentalsPage: React.FC = () => {
             <select
               value={filters.status || ''}
               onChange={(e) => handleFilterChange('status', e.target.value || undefined)}
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
             >
               <option value="">Todos os status</option>
               <option value="reserved">Reservado</option>
@@ -241,29 +238,29 @@ const RentalsPage: React.FC = () => {
         {viewMode === 'calendar' ? (
           renderCalendarView()
         ) : (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                     Número
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                     Cliente
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                     Itens
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                     Período
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                     Valor Total
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
                     Ações
                   </th>
                 </tr>
@@ -282,7 +279,7 @@ const RentalsPage: React.FC = () => {
                         ? rental.customerId
                         : { name: 'Cliente' };
                     return (
-                      <tr key={rental._id}>
+                      <tr key={rental._id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">
                             {rental.rentalNumber}
@@ -297,7 +294,7 @@ const RentalsPage: React.FC = () => {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-500">
+                          <div className="text-sm text-gray-600">
                             {new Date(rental.dates.pickupScheduled).toLocaleDateString('pt-BR')} -{' '}
                             {new Date(rental.dates.returnScheduled).toLocaleDateString('pt-BR')}
                           </div>
@@ -309,7 +306,7 @@ const RentalsPage: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span
-                            className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(
+                            className={`px-3 py-1 inline-flex text-xs leading-5 font-medium rounded-full border ${getStatusColor(
                               rental.status
                             )}`}
                           >
@@ -319,7 +316,7 @@ const RentalsPage: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <Link
                             to={`/rentals/${rental._id}`}
-                            className="text-indigo-600 hover:text-indigo-900"
+                            className="text-gray-700 hover:text-gray-900 font-medium transition-colors"
                           >
                             Ver Detalhes
                           </Link>
@@ -335,27 +332,29 @@ const RentalsPage: React.FC = () => {
 
         {/* Pagination */}
         {viewMode === 'list' && pagination && pagination.totalPages > 1 && (
-          <div className="mt-4 flex justify-between items-center">
-            <div className="text-sm text-gray-700">
-              Mostrando {((pagination.page - 1) * pagination.limit) + 1} a{' '}
-              {Math.min(pagination.page * pagination.limit, pagination.total)} de {pagination.total}{' '}
-              aluguéis
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setFilters((prev) => ({ ...prev, page: prev.page! - 1 }))}
-                disabled={pagination.page === 1}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Anterior
-              </button>
-              <button
-                onClick={() => setFilters((prev) => ({ ...prev, page: prev.page! + 1 }))}
-                disabled={pagination.page >= pagination.totalPages}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Próxima
-              </button>
+          <div className="mt-6 bg-white rounded-lg border border-gray-200 p-4">
+            <div className="flex justify-between items-center">
+              <div className="text-sm text-gray-600">
+                Mostrando {((pagination.page - 1) * pagination.limit) + 1} a{' '}
+                {Math.min(pagination.page * pagination.limit, pagination.total)} de {pagination.total}{' '}
+                aluguéis
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setFilters((prev) => ({ ...prev, page: prev.page! - 1 }))}
+                  disabled={pagination.page === 1}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Anterior
+                </button>
+                <button
+                  onClick={() => setFilters((prev) => ({ ...prev, page: prev.page! + 1 }))}
+                  disabled={pagination.page >= pagination.totalPages}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Próxima
+                </button>
+              </div>
             </div>
           </div>
         )}

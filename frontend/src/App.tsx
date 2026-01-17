@@ -24,6 +24,7 @@ import RentalDetailPage from './modules/rentals/RentalDetailPage';
 import ExpirationDashboardPage from './modules/rentals/ExpirationDashboardPage';
 import MaintenancesPage from './modules/maintenance/MaintenancesPage';
 import CreateMaintenancePage from './modules/maintenance/CreateMaintenancePage';
+import EditMaintenancePage from './modules/maintenance/EditMaintenancePage';
 import MaintenanceDetailPage from './modules/maintenance/MaintenanceDetailPage';
 import FinancialDashboardPage from './modules/transactions/FinancialDashboardPage';
 import InvoicesPage from './modules/invoices/InvoicesPage';
@@ -183,6 +184,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <MaintenanceDetailPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/maintenance/edit/:id"
+                element={
+                  <ProtectedRoute>
+                    <EditMaintenancePage />
                   </ProtectedRoute>
                 }
               />

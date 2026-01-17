@@ -1,4 +1,5 @@
 import api from '../../config/api';
+import { Category } from '../../types/inventory.types';
 import {
   Rental,
   CreateRentalData,
@@ -122,4 +123,18 @@ export const rentalService = {
 
     return response.data;
   },
+
+  //mesmo service do invetory
+  getCategories: async (isActive?: boolean) => {
+    const params = new URLSearchParams();
+    if (isActive !== undefined) {
+      params.append('isActive', String(isActive));
+    }
+
+    const response = await api.get<{ success: boolean; data: Category[] }>(
+      `/inventory/categories?${params.toString()}`
+    );
+
+    return response.data.data;
+  }
 };
