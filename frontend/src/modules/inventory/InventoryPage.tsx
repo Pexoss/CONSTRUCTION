@@ -293,6 +293,11 @@ const InventoryPage: React.FC = () => {
                                 <span className="font-semibold mr-1">ID:</span> {item.customId}
                               </span>
                             )}
+                            {item.trackingType === 'unit' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
+                                Unitário
+                              </span>
+                            )}
                             {item.category && (
                               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-50 text-purple-700">
                                 <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
@@ -306,11 +311,20 @@ const InventoryPage: React.FC = () => {
                           {/* Linha 3: Detalhes do estoque */}
                           <div className="flex items-center space-x-6 text-sm text-gray-600">
                             <div className="flex items-center">
-                              <span className="font-medium text-gray-500 mr-1">Estoque:</span>
+                              <span className="font-medium text-gray-500 mr-1">
+                                {item.trackingType === 'unit' ? 'Unidades:' : 'Estoque:'}
+                              </span>
                               <span className="font-semibold text-green-600">{item.quantity.available}</span>
                               <span className="mx-1">disponíveis de</span>
                               <span className="font-semibold text-gray-700">{item.quantity.total}</span>
                             </div>
+
+                            {item.trackingType === 'unit' && item.quantity.maintenance > 0 && (
+                              <div className="flex items-center">
+                                <span className="font-medium text-gray-500 mr-1">Manutenção:</span>
+                                <span className="font-semibold text-amber-600">{item.quantity.maintenance}</span>
+                              </div>
+                            )}
 
                             {item.lowStockThreshold && (
                               <div className="flex items-center">

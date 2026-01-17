@@ -124,6 +124,12 @@ const MaintenanceDetailPage: React.FC = () => {
                     <span className="text-sm text-gray-600">SKU:</span>{' '}
                     <span className="font-medium">{item.sku}</span>
                   </div>
+                  {maintenance.unitId && (
+                    <div>
+                      <span className="text-sm text-gray-600">Unidade:</span>{' '}
+                      <span className="font-medium">{maintenance.unitId}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -148,6 +148,9 @@ const MaintenancesPage: React.FC = () => {
                   Item
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Unidade
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Tipo
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -170,7 +173,7 @@ const MaintenancesPage: React.FC = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {maintenances.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
                     Nenhuma manutenção encontrada
                   </td>
                 </tr>
@@ -186,6 +189,11 @@ const MaintenancesPage: React.FC = () => {
                         {item && (
                           <div className="text-sm text-gray-500">{item.sku}</div>
                         )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">
+                          {maintenance.unitId || '-'}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">{getTypeLabel(maintenance.type)}</div>

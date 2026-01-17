@@ -90,10 +90,20 @@ const CreateRentalPage: React.FC = () => {
   };
 
   const handleAddItem = (item: Item) => {
+    if (item.trackingType === 'unit') {
+      const availableUnits = item.units?.filter((u) => u.status === 'available') || [];
+      if (availableUnits.length === 0) {
+        alert(`O item "${item.name}" não possui unidades disponíveis para aluguel.`);
+        return;
+      }
+    }
+
     const existingIndex = selectedItems.findIndex((si) => si.itemId === item._id);
     if (existingIndex >= 0) {
       const updated = [...selectedItems];
-      updated[existingIndex].quantity += 1;
+      if (item.trackingType !== 'unit') {
+        updated[existingIndex].quantity += 1;
+      }
       setSelectedItems(updated);
     } else {
       setSelectedItems([...selectedItems, { itemId: item._id, quantity: 1, item }]);
@@ -322,11 +332,12 @@ const CreateRentalPage: React.FC = () => {
                           <input
                             type="number"
                             min="1"
-                            max={selectedItem.item.quantity.available}
+                            max={selectedItem.item.trackingType === 'unit' ? 1 : selectedItem.item.quantity.available}
                             value={selectedItem.quantity}
                             onChange={(e) =>
                               handleQuantityChange(selectedItem.itemId, parseInt(e.target.value) || 1)
                             }
+                            disabled={selectedItem.item.trackingType === 'unit'}
                             className="w-20 border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1 text-sm dark:bg-gray-800 dark:text-white"
                           />
                           <button
