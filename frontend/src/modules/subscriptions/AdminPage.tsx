@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { subscriptionService } from './subscription.service';
+import Layout from '../../components/Layout';
 
 const AdminPage: React.FC = () => {
   const [selectedCompany, setSelectedCompany] = useState<string>('');
@@ -76,7 +77,7 @@ const AdminPage: React.FC = () => {
   const metrics = metricsData?.data;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Administração" backTo="/dashboard">
       <div className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex justify-between items-center">
@@ -292,7 +293,7 @@ const AdminPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </Layout>
   );
 };
 

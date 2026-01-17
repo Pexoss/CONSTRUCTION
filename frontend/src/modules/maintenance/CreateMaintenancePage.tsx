@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { maintenanceService } from './maintenance.service';
 import { useItems } from '../../hooks/useInventory';
 import { CreateMaintenanceData, MaintenanceType } from '../../types/maintenance.types';
+import Layout from '../../components/Layout';
 
 const CreateMaintenancePage: React.FC = () => {
   const navigate = useNavigate();
@@ -59,7 +60,7 @@ const CreateMaintenancePage: React.FC = () => {
   const items = itemsData?.data || [];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Nova Manutenção" backTo="/maintenance">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-white rounded-lg shadow p-6">
           <h1 className="text-2xl font-bold text-gray-900 mb-6">Nova Manutenção</h1>
@@ -249,7 +250,7 @@ const CreateMaintenancePage: React.FC = () => {
           </form>
         </div>
       </div>
-    </div>
+    </Layout>
   );
 };
 

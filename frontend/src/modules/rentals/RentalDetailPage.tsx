@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { rentalService } from './rental.service';
 import { RentalStatus, ChecklistData } from '../../types/rental.types';
+import Layout from '../../components/Layout';
 
 const RentalDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -83,17 +84,21 @@ const RentalDetailPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-gray-600">Carregando...</div>
-      </div>
+      <Layout title="Detalhes do Aluguel" backTo="/rentals">
+        <div className="flex justify-center items-center h-64">
+          <div className="text-gray-600">Carregando...</div>
+        </div>
+      </Layout>
     );
   }
 
   if (!data?.data) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <p className="text-red-800">Aluguel não encontrado</p>
-      </div>
+      <Layout title="Detalhes do Aluguel" backTo="/rentals">
+        <div className="bg-red-50 border border-red-200 rounded-md p-4">
+          <p className="text-red-800">Aluguel não encontrado</p>
+        </div>
+      </Layout>
     );
   }
 
@@ -101,14 +106,8 @@ const RentalDetailPage: React.FC = () => {
   const customer = typeof rental.customerId === 'object' ? rental.customerId : null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <Layout title="Detalhes do Aluguel" backTo="/rentals">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-6">
-          <Link to="/rentals" className="text-indigo-600 hover:text-indigo-900 text-sm">
-            ← Voltar para Aluguéis
-          </Link>
-        </div>
-
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex justify-between items-start mb-6">
             <div>
@@ -450,7 +449,7 @@ const RentalDetailPage: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </Layout>
   );
 };
 
