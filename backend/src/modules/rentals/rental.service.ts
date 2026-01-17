@@ -117,18 +117,30 @@ class RentalService {
         throw new Error(`Item ${item.itemId} not found`);
       }
 
-      // Check if enough items are available (considering current reservations)
-      const activeRentals = await Rental.countDocuments({
-        companyId,
-        'items.itemId': item.itemId,
-        status: { $in: ['reserved', 'active'] },
-      });
+      if (inventoryItem.trackingType === 'unit') {
+        if (!item.unitId) {
+          throw new Error(`Item ${inventoryItem.name} is unit-based. Please specify unitId.`);
+        }
 
-      const totalRented = inventoryItem.quantity.rented || 0;
-      const available = inventoryItem.quantity.available || 0;
+        if (item.quantity && item.quantity !== 1) {
+          throw new Error(`Unit-based item ${inventoryItem.name} must have quantity 1`);
+        }
 
-      if (available < item.quantity) {
-        throw new Error(`Insufficient quantity for item ${inventoryItem.name}. Available: ${available}, Requested: ${item.quantity}`);
+        const unit = inventoryItem.units?.find((u) => u.unitId === item.unitId);
+        if (!unit) {
+          throw new Error(`Unit ${item.unitId} not found for item ${inventoryItem.name}`);
+        }
+
+        if (unit.status !== 'available') {
+          throw new Error(`Unit ${item.unitId} is not available for rental`);
+        }
+      } else {
+        // Quantity-based: check available stock
+        const available = inventoryItem.quantity.available || 0;
+
+        if (available < item.quantity) {
+          throw new Error(`Insufficient quantity for item ${inventoryItem.name}. Available: ${available}, Requested: ${item.quantity}`);
+        }
       }
     }
 
@@ -251,7 +263,16 @@ class RentalService {
 
     // Update item quantities (reserve items)
     for (const item of data.items) {
-      await this.updateItemQuantityForRental(companyId, item.itemId, item.quantity, 'reserve', userId, rental._id);
+      await this.updateItemQuantityForRental(
+        companyId,
+        item.itemId,
+        item.quantity,
+        'reserve',
+        userId,
+        rental._id,
+        item.unitId,
+        data.customerId
+      );
     }
 
     return rental;
@@ -351,7 +372,16 @@ class RentalService {
 
       // Update item quantities (move from reserved to rented)
       for (const item of rental.items) {
-        await this.updateItemQuantityForRental(companyId, item.itemId, item.quantity, 'activate', userId, rental._id);
+        await this.updateItemQuantityForRental(
+          companyId,
+          item.itemId,
+          item.quantity,
+          'activate',
+          userId,
+          rental._id,
+          item.unitId,
+          rental.customerId.toString()
+        );
       }
     } else if (status === 'completed' && (oldStatus === 'active' || oldStatus === 'overdue')) {
       // Mark return as actual
@@ -378,12 +408,30 @@ class RentalService {
 
       // Update item quantities (return items)
       for (const item of rental.items) {
-        await this.updateItemQuantityForRental(companyId, item.itemId, item.quantity, 'return', userId, rental._id);
+        await this.updateItemQuantityForRental(
+          companyId,
+          item.itemId,
+          item.quantity,
+          'return',
+          userId,
+          rental._id,
+          item.unitId,
+          rental.customerId.toString()
+        );
       }
     } else if (status === 'cancelled' && oldStatus === 'reserved') {
       // Release reserved items
       for (const item of rental.items) {
-        await this.updateItemQuantityForRental(companyId, item.itemId, item.quantity, 'cancel', userId, rental._id);
+        await this.updateItemQuantityForRental(
+          companyId,
+          item.itemId,
+          item.quantity,
+          'cancel',
+          userId,
+          rental._id,
+          item.unitId,
+          rental.customerId.toString()
+        );
       }
     }
 
@@ -641,12 +689,48 @@ class RentalService {
     quantity: number,
     action: 'reserve' | 'activate' | 'return' | 'cancel',
     userId: string,
-    rentalId: mongoose.Types.ObjectId
+    rentalId: mongoose.Types.ObjectId,
+    unitId?: string,
+    customerId?: string
   ): Promise<void> {
     const item = await Item.findOne({ _id: itemId, companyId });
 
     if (!item) {
       throw new Error('Item not found');
+    }
+
+    if (item.trackingType === 'unit') {
+      if (!unitId) {
+        throw new Error('Unit ID is required for unit-based rentals');
+      }
+
+      const unit = item.units?.find((u) => u.unitId === unitId);
+      if (!unit) {
+        throw new Error('Unit not found');
+      }
+
+      switch (action) {
+        case 'reserve':
+        case 'activate':
+          if (unit.status !== 'available') {
+            throw new Error('Unit is not available for rental');
+          }
+          unit.status = 'rented';
+          unit.currentRental = rentalId;
+          unit.currentCustomer = customerId ? new mongoose.Types.ObjectId(customerId) : undefined;
+          break;
+        case 'return':
+        case 'cancel':
+          if (unit.status === 'rented') {
+            unit.status = 'available';
+            unit.currentRental = undefined;
+            unit.currentCustomer = undefined;
+          }
+          break;
+      }
+
+      await item.save();
+      return;
     }
 
     const previousQuantity = {

@@ -51,6 +51,17 @@ const CreateMaintenancePage: React.FC = () => {
       type,
     });
 
+    if (name === 'itemId') {
+      const selectedItem = items.find((item) => item._id === value);
+      setFormData((prev) => ({
+        ...prev,
+        itemId: value,
+        unitId: selectedItem?.trackingType === 'unit' ? '' : undefined,
+        itemUnavailable: selectedItem?.trackingType === 'quantity' ? false : true,
+      }));
+      return;
+    }
+
     setFormData((prev) => ({
       ...prev,
       [name]: parsedValue,
@@ -58,6 +69,11 @@ const CreateMaintenancePage: React.FC = () => {
   };
 
   const items = itemsData?.data || [];
+  const selectedItem = items.find((item) => item._id === formData.itemId);
+  const availableUnits =
+    selectedItem?.units?.filter((unit) =>
+      unit.status === 'available' || unit.status === 'damaged'
+    ) || [];
 
   return (
     <Layout title="Nova Manutenção" backTo="/maintenance">
@@ -96,6 +112,34 @@ const CreateMaintenancePage: React.FC = () => {
                 ))}
               </select>
             </div>
+
+            {selectedItem?.trackingType === 'unit' && (
+              <div>
+                <label htmlFor="unitId" className="block text-sm font-medium text-gray-700">
+                  Unidade *
+                </label>
+                <select
+                  id="unitId"
+                  name="unitId"
+                  required
+                  value={formData.unitId || ''}
+                  onChange={handleChange}
+                  className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                >
+                  <option value="">Selecione a unidade</option>
+                  {availableUnits.map((unit) => (
+                    <option key={unit.unitId} value={unit.unitId}>
+                      {unit.unitId} ({unit.status === 'damaged' ? 'Danificada' : 'Disponível'})
+                    </option>
+                  ))}
+                </select>
+                {availableUnits.length === 0 && (
+                  <p className="mt-2 text-sm text-amber-600">
+                    Nenhuma unidade disponível para manutenção.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div>

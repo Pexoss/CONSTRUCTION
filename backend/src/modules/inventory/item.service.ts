@@ -549,7 +549,40 @@ class ItemService {
     if (!item) {
       throw new Error('Item não encontrado');
     }
-    // Buscar a manutenção específica para este item
+    if (item.trackingType === 'unit') {
+      const units = item.units || [];
+      const maintenanceUnits = units.filter((u) => u.status === 'maintenance');
+      const rentedUnits = units.filter((u) => u.status === 'rented');
+      const availableUnits = units.filter((u) => u.status === 'available');
+
+      if (maintenanceUnits.length > 0) {
+        return {
+          status: 'maintenance',
+          label: 'Em manutenção',
+          className: 'bg-yellow-100 text-yellow-800',
+          unitIds: maintenanceUnits.map((u) => u.unitId),
+          quantity: availableUnits.length,
+        };
+      }
+
+      if (rentedUnits.length > 0) {
+        return {
+          status: 'rented',
+          label: 'Locado',
+          className: 'bg-red-100 text-red-800',
+          quantity: availableUnits.length,
+        };
+      }
+
+      return {
+        status: 'available',
+        label: 'Disponível',
+        className: 'bg-green-100 text-green-800',
+        quantity: availableUnits.length,
+      };
+    }
+
+    // Buscar a manutenção específica para este item (quantitativo)
     if (item.quantity.maintenance > 0) {
       const maintenanceItem = await Maintenance.findOne({
         companyId,
