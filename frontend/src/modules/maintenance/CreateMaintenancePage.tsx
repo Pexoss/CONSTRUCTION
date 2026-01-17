@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { maintenanceService } from './maintenance.service';
-import { useItems } from '../../hooks/useInventory';
+import { useItem, useItems } from '../../hooks/useInventory';
 import { CreateMaintenanceData } from '../../types/maintenance.types';
 import Layout from '../../components/Layout';
 
@@ -20,7 +20,8 @@ const CreateMaintenancePage: React.FC = () => {
     attachments: [],
   });
 
-  const { data: itemsData } = useItems({ isActive: true, limit: 100 });
+  const { data: itemsData } = useItems({ isActive: true, limit: 500 });
+  const { data: selectedItemData } = useItem(formData.itemId || '');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,12 +53,11 @@ const CreateMaintenancePage: React.FC = () => {
     });
 
     if (name === 'itemId') {
-      const selectedItem = items.find((item) => item._id === value);
       setFormData((prev) => ({
         ...prev,
         itemId: value,
-        unitId: selectedItem?.trackingType === 'unit' ? '' : undefined,
-        itemUnavailable: selectedItem?.trackingType === 'quantity' ? false : true,
+        unitId: '',
+        itemUnavailable: prev.itemUnavailable,
       }));
       return;
     }
@@ -69,7 +69,28 @@ const CreateMaintenancePage: React.FC = () => {
   };
 
   const items = itemsData?.data || [];
-  const selectedItem = items.find((item) => item._id === formData.itemId);
+  const selectedItemFromApi = selectedItemData?.data;
+  const selectedItem = selectedItemFromApi || items.find((item) => item._id === formData.itemId);
+  const itemsForSelect = selectedItemFromApi
+    ? [selectedItemFromApi, ...items.filter((item) => item._id !== selectedItemFromApi._id)]
+    : items;
+
+  useEffect(() => {
+    if (!selectedItem) return;
+    if (selectedItem.trackingType === 'unit') {
+      setFormData((prev) => ({
+        ...prev,
+        unitId: prev.unitId ?? '',
+        itemUnavailable: true,
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        unitId: undefined,
+        itemUnavailable: false,
+      }));
+    }
+  }, [selectedItem]);
   const availableUnits =
     selectedItem?.units?.filter((unit) =>
       unit.status === 'available' || unit.status === 'damaged'
@@ -122,7 +143,7 @@ const CreateMaintenancePage: React.FC = () => {
                 className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-black"
               >
                 <option value="">Selecione um item</option>
-                {items.map((item) => (
+                {itemsForSelect.map((item) => (
                   <option key={item._id} value={item._id}>
                     {item.name} - {item.sku} (Disponível: {item.quantity.available})
                   </option>
