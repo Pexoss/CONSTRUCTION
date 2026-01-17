@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customerService } from './customer.service';
 import { CustomerFilters } from '../../types/customer.types';
-import BackButton from '../../components/BackButton';
+import BackButton from 'components/BackButton';
 
 const CustomersPage: React.FC = () => {
   const [filters, setFilters] = useState<CustomerFilters>({

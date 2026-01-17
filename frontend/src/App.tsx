@@ -17,7 +17,7 @@ import CategoriesPage from './modules/inventory/CategoriesPage';
 import CustomersPage from './modules/customers/CustomersPage';
 import CreateCustomerPage from './modules/customers/CreateCustomerPage';
 import EditCustomerPage from './modules/customers/EditCustomerPage';
-import ViewCustomerPage from './modules/customers/ViewCustomerPage';
+import ViewCustomerPage from 'modules/customers/ViewCustomerPage';
 import RentalsPage from './modules/rentals/RentalsPage';
 import CreateRentalPage from './modules/rentals/CreateRentalPage';
 import RentalDetailPage from './modules/rentals/RentalDetailPage';
