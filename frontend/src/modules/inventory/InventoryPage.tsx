@@ -118,7 +118,6 @@ const InventoryPage: React.FC = () => {
       </div>
 
       {/* Alert Estoque Baixo */}
-      {/* Alert Estoque Baixo */}
       {lowStockData && lowStockData.count > 0 && (
         <div
           className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 cursor-pointer"
