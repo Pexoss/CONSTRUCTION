@@ -371,7 +371,7 @@ RentalSchema.index({ companyId: 1, status: 1 });
 RentalSchema.index({ companyId: 1, customerId: 1 });
 RentalSchema.index({ companyId: 1, 'dates.pickupScheduled': 1 });
 RentalSchema.index({ companyId: 1, 'dates.returnScheduled': 1 });
-RentalSchema.index({ rentalNumber: 1 });
+// rentalNumber index is automatically created by unique: true
 
 // Pre-save hook to generate rental number if not provided
 RentalSchema.pre('save', async function (next) {

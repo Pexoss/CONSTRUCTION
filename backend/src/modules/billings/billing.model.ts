@@ -235,7 +235,7 @@ BillingSchema.index({ companyId: 1, rentalId: 1 });
 BillingSchema.index({ companyId: 1, customerId: 1 });
 BillingSchema.index({ companyId: 1, status: 1 });
 BillingSchema.index({ companyId: 1, billingDate: 1 });
-BillingSchema.index({ billingNumber: 1 });
+// billingNumber index is automatically created by unique: true
 
 // Pre-save hook to generate billing number if not provided
 BillingSchema.pre('save', async function (next) {
