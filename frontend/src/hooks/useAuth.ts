@@ -51,7 +51,6 @@ export const useAuth = () => {
       queryClient.invalidateQueries({ queryKey: ['me'] });
     },
     onError: (error: any) => {
-      // Error will be available in registerError
       console.error('Registration error:', error);
     },
   });
@@ -67,7 +66,7 @@ export const useAuth = () => {
     isAuthenticated,
     isLoadingUser,
     login: loginMutation.mutate,
-    registerCompany: registerCompanyMutation.mutate,
+    registerCompany: registerCompanyMutation.mutateAsync,
     logout: handleLogout,
     isLoggingIn: loginMutation.isPending,
     isRegistering: registerCompanyMutation.isPending,

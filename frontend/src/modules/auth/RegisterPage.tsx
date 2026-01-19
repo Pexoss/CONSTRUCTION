@@ -7,6 +7,7 @@ import { RegisterCompanyData } from '../../types/auth.types';
 const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
   const { registerCompany, isRegistering, registerError } = useAuth();
+  const [count, setCount] = useState(5);
   const [formData, setFormData] = useState<RegisterCompanyData>({
     companyName: '',
     cnpj: '',
@@ -23,7 +24,9 @@ const RegisterPage: React.FC = () => {
     userEmail: '',
     password: '',
   });
+
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [companyCode, setCompanyCode] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -50,20 +53,28 @@ const RegisterPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrors({});
+    setCompanyCode(null);
 
     try {
       // Remove non-numeric characters from CNPJ
       const cleanCnpj = formData.cnpj.replace(/\D/g, '');
-      
+      console.log('CNPJ limpo:', cleanCnpj);
+
       // Validate with Zod
       const validatedData = registerCompanySchema.parse({
         ...formData,
         cnpj: cleanCnpj,
       });
+      // Register company
+      const result = await registerCompany(validatedData as RegisterCompanyData);
 
-      // Register company - will be handled by mutation callbacks
-      registerCompany(validatedData as RegisterCompanyData);
+      if (result?.data?.company?.code) {
+        setCompanyCode(result.data.company.code);
+        setCount(5);
+      }
+
     } catch (error: any) {
+
       if (error.errors) {
         // Zod validation errors
         const zodErrors: Record<string, string> = {};
@@ -75,17 +86,38 @@ const RegisterPage: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (!companyCode) return;
+    if (count <= 0) {
+      navigate('/login');
+      return;
+    }
+    const timer = setTimeout(() => setCount(count - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [companyCode, count, navigate]);
+
   // Handle registration success/error via useEffect
   useEffect(() => {
-    if (!isRegistering && !registerError && localStorage.getItem('accessToken')) {
-      navigate('/dashboard');
-    }
     if (registerError) {
       setErrors({
         submit: (registerError as any)?.response?.data?.message || 'Erro ao registrar. Tente novamente.',
       });
     }
   }, [isRegistering, registerError, navigate]);
+
+  if (companyCode) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-gray-100 p-4">
+        <h1 className="text-2xl font-bold mb-4">Empresa registrada!</h1>
+        <p className="text-lg mb-2">
+          Seu código de acesso é:
+          <span className="font-mono text-indigo-600 text-xl ml-2">{companyCode}</span>
+        </p>
+        <p className="mb-4">Será utilizado para logar em sua conta. Guarde com segurança.</p>
+        <p>Redirecionando em {count}...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">

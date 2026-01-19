@@ -110,6 +110,15 @@ const ItemDetailPage: React.FC = () => {
     <Layout title="Detalhes do Item" backTo="/inventory/items">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
+        <div className="mb-8">
+          <Link
+            to="/inventory/items"
+            className="text-sm text-gray-500 hover:text-gray-700 inline-flex items-center"
+          >
+            ← Voltar para o Inventário
+          </Link>
+        </div>
+
         <div className="bg-white rounded-xl shadow-lg mb-6 border border-gray-100">
           <div className="px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex-1">

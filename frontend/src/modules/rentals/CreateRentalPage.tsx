@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { data, useNavigate } from 'react-router-dom';
+import { data, useNavigate, Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { rentalService } from './rental.service';
 import { customerService } from '../customers/customer.service';
@@ -296,8 +296,17 @@ const CreateRentalPage: React.FC = () => {
   }, [filteredItems, sort]);
 
   return (
-    <Layout title="Novo Aluguel" backTo="/rentals">
+    <Layout title="Novo Aluguel" backTo="/dashboard">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mb-4">
+          <Link
+            to="/rentals"
+            className="text-sm text-gray-500 hover:text-gray-700 inline-flex items-center"
+          >
+            ← Voltar para Aluguéis
+          </Link>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-6">
           {/* Left Column - Items Selection */}
           <div className="lg:col-span-2 space-y-6">

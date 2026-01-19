@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { maintenanceService } from './maintenance.service';
@@ -122,6 +122,14 @@ const EditMaintenancePage: React.FC = () => {
     return (
         <Layout title="Editar Manutenção" backTo="/maintenance">
             <div className="max-w-2xl mx-auto bg-white rounded-lg border border-gray-200 p-6">
+                <div className="mb-6">
+                    <Link to="/maintenance" className="text-black hover:text-gray-800 text-sm font-medium flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                        </svg>
+                        Voltar para Manutenções
+                    </Link>
+                </div>
                 <div className="mb-6">
                     <h1 className="text-2xl font-bold text-gray-900">Editar Manutenção</h1>
                     <p className="text-sm text-gray-600 mt-2">Atualize as informações da manutenção</p>
@@ -288,8 +296,8 @@ const EditMaintenancePage: React.FC = () => {
                             type="submit"
                             disabled={updateMutation.isPending}
                             className={`px-6 py-3 rounded-lg text-sm font-medium transition-colors ${updateMutation.isPending
-                                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                    : 'bg-black hover:bg-gray-800 text-white'
+                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                : 'bg-black hover:bg-gray-800 text-white'
                                 }`}
                         >
                             {updateMutation.isPending ? (

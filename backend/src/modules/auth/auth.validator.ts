@@ -32,7 +32,7 @@ export const registerUserSchema = z.object({
 export const loginSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(1, 'Password is required'),
-  companyId: z.string().min(1, 'Company ID is required'),
+  companyCode: z.string().min(1, 'Company code is required'),
 });
 
 export const refreshTokenSchema = z.object({

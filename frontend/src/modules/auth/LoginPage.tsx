@@ -10,7 +10,7 @@ const LoginPage: React.FC = () => {
   const [formData, setFormData] = useState<LoginCredentials>({
     email: '',
     password: '',
-    companyId: '',
+    companyCode: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -35,12 +35,20 @@ const LoginPage: React.FC = () => {
       login(formData);
     } catch (error: any) {
       if (error.errors) {
-        // Zod validation errors
         const zodErrors: Record<string, string> = {};
         error.errors.forEach((err: any) => {
           zodErrors[err.path[0]] = err.message;
         });
         setErrors(zodErrors);
+      } else if (error.response) {
+        // Erros vindos do backend
+        setErrors({
+          submit: error.response.data?.message || 'Erro ao fazer login. Tente novamente.',
+        });
+      } else {
+        setErrors({
+          submit: error.message || 'Erro inesperado. Tente novamente.',
+        });
       }
     }
   };
@@ -71,21 +79,21 @@ const LoginPage: React.FC = () => {
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
-              <label htmlFor="companyId" className="sr-only">
-                ID da Empresa
+              <label htmlFor="companyCode" className="sr-only">
+                Código de acesso
               </label>
               <input
-                id="companyId"
-                name="companyId"
+                id="companyCode"
+                name="companyCode"
                 type="text"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                placeholder="ID da Empresa"
-                value={formData.companyId}
+                placeholder="Código de acesso"
+                value={formData.companyCode}
                 onChange={handleChange}
               />
-              {errors.companyId && (
-                <p className="mt-1 text-sm text-red-600">{errors.companyId}</p>
+              {errors.companyCode && (
+                <p className="mt-1 text-sm text-red-600">{errors.companyCode}</p>
               )}
             </div>
             <div>

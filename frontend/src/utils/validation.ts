@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const loginSchema = z.object({
   email: z.string().email('Email inválido'),
   password: z.string().min(1, 'Senha é obrigatória'),
-  companyId: z.string().min(1, 'ID da empresa é obrigatório'),
+  companyCode: z.string().min(1, 'O Código é obrigatório'),
 });
 
 export const registerCompanySchema = z.object({
