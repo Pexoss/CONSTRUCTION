@@ -44,6 +44,14 @@ const ViewCustomerPage: React.FC = () => {
 
   return (
     <Layout title={`Cliente: ${customer.name}`} backTo="/customers">
+      <div className="mb-8">
+        <Link
+          to="/customers"
+          className="text-sm text-gray-500 hover:text-gray-700 inline-flex items-center"
+        >
+          ← Voltar para Clientes
+        </Link>
+      </div>
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Layout principal: duas colunas no desktop */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

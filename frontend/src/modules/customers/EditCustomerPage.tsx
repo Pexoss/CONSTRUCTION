@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { customerService } from './customer.service';
 import { CreateCustomerData, CustomerAddress } from '../../types/customer.types';
@@ -150,6 +150,15 @@ const EditCustomerPage: React.FC = () => {
   return (
     <Layout title="Editar Cliente" backTo="/customers">
       <div className="max-w-3xl mx-auto">
+        <div className="mb-8">
+          <Link
+            to="/customers"
+            className="text-sm text-gray-500 hover:text-gray-700 inline-flex items-center"
+          >
+            ← Voltar para Clientes
+          </Link>
+        </div>
+
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           {updateMutation.isError && (
             <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">

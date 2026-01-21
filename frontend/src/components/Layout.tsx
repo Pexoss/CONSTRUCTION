@@ -79,6 +79,9 @@ const Layout: React.FC<LayoutProps> = ({
                 <span className="text-xs text-gray-500 dark:text-gray-400">
                   ({user?.role})
                 </span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  Código de Identificação({user?.companyCode})
+                </span>
               </div>
               <button
                 onClick={logout}

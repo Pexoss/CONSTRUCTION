@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useCategories, useCreateCategory, useUpdateCategory, useDeleteCategory } from '../../hooks/useInventory';
+import { Link } from 'react-router-dom';
 import { createCategorySchema } from '../../utils/inventory.validation';
 import Layout from '../../components/Layout';
 
@@ -104,6 +105,16 @@ const CategoriesPage: React.FC = () => {
     <Layout title="Categorias" backTo="/inventory/items">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header - Apenas estilos alterados */}
+
+        <div className="mb-8">
+          <Link
+            to="/inventory/items"
+            className="text-sm text-gray-500 hover:text-gray-700 inline-flex items-center"
+          >
+            ← Voltar para o Inventário
+          </Link>
+        </div>
+
         <div className="bg-white rounded-lg border border-gray-200 mb-6">
           <div className="px-6 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
@@ -195,8 +206,8 @@ const CategoriesPage: React.FC = () => {
                         )}
                         <span
                           className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${category.isActive
-                              ? 'bg-green-100 text-green-800 border-green-200'
-                              : 'bg-red-100 text-red-800 border-red-200'
+                            ? 'bg-green-100 text-green-800 border-green-200'
+                            : 'bg-red-100 text-red-800 border-red-200'
                             }`}
                         >
                           {category.isActive ? 'Ativo' : 'Inativo'}

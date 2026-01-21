@@ -106,7 +106,7 @@ const RentalDetailPage: React.FC = () => {
   const customer = typeof rental.customerId === 'object' ? rental.customerId : null;
 
   return (
-    <Layout title="Detalhes do Aluguel" backTo="/rentals">
+    <Layout title="Detalhes do Aluguel" backTo="/dashboard">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Cabeçalho */}
         <div className="mb-6">

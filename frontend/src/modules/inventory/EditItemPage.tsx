@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useItem, useUpdateItem, useCategories, useSubcategories } from '../../hooks/useInventory';
 import { updateItemSchema } from '../../utils/inventory.validation';
 import { EditItemData } from '../../types/inventory.types';
@@ -165,6 +165,15 @@ const EditItemPage: React.FC = () => {
   return (
     <Layout title="Editar Item" backTo="/inventory/items">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <Link
+            to="/inventory/items"
+            className="text-sm text-gray-500 hover:text-gray-700 inline-flex items-center"
+          >
+            ← Voltar para o Inventário
+          </Link>
+        </div>
+
         {/* Cabeçalho Clean */}
         <div className="mb-8">
           <h1 className="text-2xl font-semibold text-gray-900">Editar Item</h1>

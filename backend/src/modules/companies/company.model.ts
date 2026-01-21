@@ -34,6 +34,13 @@ const CompanySchema = new Schema<ICompany>(
       type: String,
       trim: true,
     },
+    code: {
+      type: String,
+      required: true,
+      unique: true,
+      uppercase: true,
+      index: true,
+    },
     address: {
       street: String,
       city: String,
