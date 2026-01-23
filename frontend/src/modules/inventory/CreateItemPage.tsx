@@ -41,7 +41,6 @@ const CreateItemPage: React.FC = () => {
   });
 
   const [units, setUnits] = useState<Array<{ unitId: string; status: 'available' | 'rented' | 'maintenance' | 'damaged'; location?: string; notes?: string }>>([]);
-
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -161,6 +160,7 @@ const CreateItemPage: React.FC = () => {
       }
 
       const validatedData = createItemSchema.parse(dataToSend);
+      console.log(validatedData)
 
       createItem.mutate(validatedData as CreateItemData, {
         onSuccess: () => {

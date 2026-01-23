@@ -12,62 +12,62 @@ class ItemService {
    * Create a new item
    */
   async createItem(companyId: string, data: any, userId: string): Promise<IItem> {
-    // Garantir que trackingType seja unit se tiver customId mas sem units
-    let trackingType: 'unit' | 'quantity' = data.trackingType === 'unit' ? 'unit' : 'quantity';
+    const trackingType: 'unit' | 'quantity' =
+      data.trackingType === 'unit' ? 'unit' : 'quantity';
+
+    // ===== UNIT-BASED =====
     if (trackingType === 'unit') {
-      // criar unidade implícita se não houver
+      // Criar unidade implícita se não vier units
       if (!data.units || data.units.length === 0) {
-        if (!data.customId) throw new Error('Unitário precisa de customId se não houver units');
-        data.units = [{
-          unitId: data.customId,
-          status: 'available',
-          location: data.location || '',
-          notes: '',
-        }];
+        if (!data.customId) {
+          throw new Error('Unitário precisa de customId se não houver units');
+        }
+
+        data.units = [
+          {
+            unitId: data.customId,
+            status: 'available',
+            location: data.location || '',
+            notes: '',
+          },
+        ];
       }
 
-      // quantity sempre zero
-      data.quantity = { total: 0, available: 0, rented: 0, maintenance: 0, damaged: 0 };
-    } else {
-      // quantity-based
-      if (data.quantity.available == null) {
-        data.quantity.available =
-          data.quantity.total -
-          (data.quantity.rented || 0) -
-          (data.quantity.maintenance || 0) -
-          (data.quantity.damaged || 0);
-      }
-    }
-
-    // Calcular quantity se for quantity-based
-    if (trackingType === 'quantity') {
-      // Se disponível não foi definido, calcula como total - outros
-      if (data.quantity.available == null) {
-        data.quantity.available =
-          data.quantity.total -
-          (data.quantity.rented || 0) -
-          (data.quantity.maintenance || 0) -
-          (data.quantity.damaged || 0);
-      }
-    }
-
-    // Se for unit-based, validar IDs únicos
-    else if (trackingType === 'unit') {
+      // Validar IDs únicos
       const unitIds = data.units.map((u: any) => u.unitId);
-      const uniqueUnitIds = new Set(unitIds);
-      if (unitIds.length !== uniqueUnitIds.size) {
+      if (unitIds.length !== new Set(unitIds).size) {
         throw new Error('Unit IDs must be unique');
       }
-      // Inicializar quantity como 0
-      data.quantity = { total: 0, available: 0, rented: 0, maintenance: 0, damaged: 0 };
+
+      // Calcular quantity a partir das units
+      data.quantity = {
+        total: data.units.length,
+        available: data.units.filter((u: any) => u.status === 'available').length,
+        rented: data.units.filter((u: any) => u.status === 'rented').length,
+        maintenance: data.units.filter((u: any) => u.status === 'maintenance').length,
+        damaged: data.units.filter((u: any) => u.status === 'damaged').length,
+      };
     }
 
-    // Depreciação
+    // ===== QUANTITY-BASED =====
+    if (trackingType === 'quantity') {
+      if (data.quantity.available == null) {
+        data.quantity.available =
+          data.quantity.total -
+          (data.quantity.rented || 0) -
+          (data.quantity.maintenance || 0) -
+          (data.quantity.damaged || 0);
+      }
+    }
+
+    // ===== DEPRECIAÇÃO =====
     if (data.depreciation) {
       const { initialValue, depreciationRate, purchaseDate } = data.depreciation;
+
       if (initialValue == null || !purchaseDate) {
         throw new Error('Depreciation requires initialValue and purchaseDate');
       }
+
       data.depreciation = {
         initialValue,
         currentValue: initialValue,
@@ -84,21 +84,29 @@ class ItemService {
       trackingType,
     });
 
-
-    // Register initial movement
     await this.registerMovement({
       companyId: new mongoose.Types.ObjectId(companyId),
       itemId: item._id as mongoose.Types.ObjectId,
       type: 'in',
       quantity: item.quantity.total,
-      previousQuantity: { total: 0, available: 0, rented: 0, maintenance: 0, damaged: 0 },
+      previousQuantity: {
+        total: 0,
+        available: 0,
+        rented: 0,
+        maintenance: 0,
+        damaged: 0,
+      },
       newQuantity: item.quantity,
-      notes: trackingType === 'unit' ? `Item criado com ${item.units?.length || 0} unidades` : 'Item criado',
+      notes:
+        trackingType === 'unit'
+          ? `Item criado com ${item.units?.length || 0} unidades`
+          : 'Item criado',
       createdBy: new mongoose.Types.ObjectId(userId),
     });
 
     return item;
   }
+
 
   /**
    * Get all items with filters
