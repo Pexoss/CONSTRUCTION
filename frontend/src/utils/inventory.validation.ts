@@ -1,13 +1,14 @@
 import { z } from 'zod';
 
+const itemUnitStatusValues = new Set(['available', 'rented', 'maintenance', 'damaged']);
+const trackingTypeValues = new Set(['unit', 'quantity']);
+
 const itemUnitSchema = z.object({
   unitId: z.string().min(1, { message: 'ID da unidade é obrigatório' }),
-  status: z.union([
-    z.literal('available'),
-    z.literal('rented'),
-    z.literal('maintenance'),
-    z.literal('damaged'),
-  ]),
+  status: z.string().refine(
+    (value) => itemUnitStatusValues.has(value),
+    { message: 'Status inválido' }
+  ),
   location: z.string().optional(),
   notes: z.string().optional(),
 });
@@ -23,10 +24,10 @@ const itemSchemaBase = z.object({
   barcode: z.string().optional(),
   customId: z.string().optional(),
 
-  trackingType: z.union([
-    z.literal('unit'),
-    z.literal('quantity'),
-  ]),
+  trackingType: z.string().refine(
+    (value) => trackingTypeValues.has(value),
+    { message: 'Tipo de rastreamento inválido' }
+  ),
 
   units: z.array(itemUnitSchema).optional(),
 
