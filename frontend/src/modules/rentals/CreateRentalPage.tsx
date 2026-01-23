@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { data, useNavigate, Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { rentalService } from './rental.service';
@@ -17,7 +17,6 @@ interface SelectedItem {
   rentalType?: 'daily' | 'weekly' | 'biweekly' | 'monthly';
   item: Item;
 }
-
 
 const CreateRentalPage: React.FC = () => {
   const navigate = useNavigate();
@@ -50,6 +49,7 @@ const CreateRentalPage: React.FC = () => {
       navigate('/rentals');
     },
   });
+
 
   const calculatePrice = (item: Item, quantity: number, startDate: Date, endDate: Date): number => {
     const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -228,6 +228,21 @@ const CreateRentalPage: React.FC = () => {
 
   const customerAddresses = selectedCustomerData?.addresses ?? [];
 
+  useEffect(() => {
+    if (customerAddresses.length === 1) {
+      const addr = customerAddresses[0];
+      setWorkAddress({
+        workName: addr.workName || '',
+        street: addr.street,
+        number: addr.number,
+        neighborhood: addr.neighborhood,
+        city: addr.city,
+        state: addr.state,
+        zipCode: addr.zipCode,
+      });
+    }
+  }, [customerAddresses]);
+
   const addressOptions =
     selectedCustomerData?.addresses?.map((address, index) => ({
       label:
@@ -259,6 +274,7 @@ const CreateRentalPage: React.FC = () => {
 
     return true;
   });
+
 
   const handleClearFilters = () => {
     setSearch('');
@@ -745,11 +761,12 @@ const CreateRentalPage: React.FC = () => {
                       <h2 className="text-lg font-semibold text-gray-900">Endereço da Obra</h2>
                       <p className="text-sm text-gray-600 mt-1">Opcional - para entrega no local</p>
                     </div>
-                    {customerAddresses.length > 0 && (
+                    {customerAddresses.length > 1 && (
                       <div className="flex items-center gap-2">
                         <label className="text-sm text-gray-700">Usar endereço salvo:</label>
                         <select
                           className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-black focus:border-black"
+                          defaultValue=""
                           onChange={(e) => {
                             const index = Number(e.target.value);
                             const addr = customerAddresses[index];
@@ -766,7 +783,7 @@ const CreateRentalPage: React.FC = () => {
                             });
                           }}
                         >
-                          <option value="">Selecione...</option>
+                          <option value="">Selecione um endereço</option>
                           {customerAddresses.map((address, index) => (
                             <option key={index} value={index}>
                               {address.type === 'work'

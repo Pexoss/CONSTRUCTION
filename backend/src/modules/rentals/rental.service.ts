@@ -699,12 +699,16 @@ class RentalService {
       throw new Error('Item not found');
     }
 
+    // =========================
+    // ITEM UNITÁRIO
+    // =========================
     if (item.trackingType === 'unit') {
       if (!unitId) {
-        throw new Error('Unit ID is required for unit-based rentals');
+        console.warn('Unit action without unitId', { itemId, rentalId });
+        return;
       }
 
-      const unit = item.units?.find((u) => u.unitId === unitId);
+      const unit = item.units?.find(u => u.unitId === unitId);
       if (!unit) {
         throw new Error('Unit not found');
       }
@@ -713,12 +717,15 @@ class RentalService {
         case 'reserve':
         case 'activate':
           if (unit.status !== 'available') {
-            throw new Error('Unit is not available for rental');
+            throw new Error(`Unit ${unit.unitId} is not available`);
           }
           unit.status = 'rented';
           unit.currentRental = rentalId;
-          unit.currentCustomer = customerId ? new mongoose.Types.ObjectId(customerId) : undefined;
+          unit.currentCustomer = customerId
+            ? new mongoose.Types.ObjectId(customerId)
+            : undefined;
           break;
+
         case 'return':
         case 'cancel':
           if (unit.status === 'rented') {
@@ -729,34 +736,48 @@ class RentalService {
           break;
       }
 
+      //RECALCULA ESTOQUE BASEADO NAS UNITS
+      const units = item.units ?? [];
+
+      item.quantity.total = units.length;
+      item.quantity.available = units.filter(u => u.status === 'available').length;
+      item.quantity.rented = units.filter(u => u.status === 'rented').length;
+      item.quantity.maintenance = units.filter(u => u.status === 'maintenance').length;
+      item.quantity.damaged = units.filter(u => u.status === 'damaged').length;
+
       await item.save();
+
+      // MOVIMENTAÇÃO
+      await ItemMovement.create({
+        companyId: new mongoose.Types.ObjectId(companyId),
+        itemId,
+        type: action === 'return' ? 'return' : 'rent',
+        quantity: 1,
+        referenceId: rentalId,
+        notes: `Unit ${unit.unitId} ${action}`,
+        createdBy: new mongoose.Types.ObjectId(userId),
+      });
+
       return;
     }
 
-    const previousQuantity = {
-      total: item.quantity.total,
-      available: item.quantity.available,
-      rented: item.quantity.rented,
-      maintenance: item.quantity.maintenance,
-      damaged: item.quantity.damaged,
-    };
+    // =========================
+    // ITEM QUANTITATIVO
+    // =========================
+    const previousQuantity = { ...item.quantity };
 
     switch (action) {
       case 'reserve':
-        // Reserve items: reduce available
         item.quantity.available -= quantity;
         break;
       case 'activate':
-        // Activate: move from reserved to rented (available already reduced)
         item.quantity.rented += quantity;
         break;
       case 'return':
-        // Return: increase available, decrease rented
         item.quantity.rented -= quantity;
         item.quantity.available += quantity;
         break;
       case 'cancel':
-        // Cancel: restore available
         item.quantity.available += quantity;
         break;
     }
@@ -767,20 +788,13 @@ class RentalService {
 
     await item.save();
 
-    // Register movement
     await ItemMovement.create({
       companyId: new mongoose.Types.ObjectId(companyId),
       itemId,
-      type: action === 'reserve' ? 'rent' : action === 'return' ? 'return' : 'adjustment',
+      type: action === 'return' ? 'return' : 'rent',
       quantity,
       previousQuantity,
-      newQuantity: {
-        total: item.quantity.total,
-        available: item.quantity.available,
-        rented: item.quantity.rented,
-        maintenance: item.quantity.maintenance,
-        damaged: item.quantity.damaged,
-      },
+      newQuantity: item.quantity,
       referenceId: rentalId,
       notes: `Rental ${action}: ${quantity} units`,
       createdBy: new mongoose.Types.ObjectId(userId),

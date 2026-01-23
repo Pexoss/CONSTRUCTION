@@ -1,43 +1,83 @@
 import { z } from 'zod';
 
-export const createItemSchema = z.object({
+const itemUnitSchema = z.object({
+  unitId: z.string().min(1, { message: 'ID da unidade é obrigatório' }),
+  status: z.union([
+    z.literal('available'),
+    z.literal('rented'),
+    z.literal('maintenance'),
+    z.literal('damaged'),
+  ]),
+  location: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+const itemSchemaBase = z.object({
   name: z.string().min(1, { message: 'Nome é obrigatório' }),
   description: z.string().optional(),
+
   category: z.string().min(1, { message: 'Categoria é obrigatória' }),
   subcategory: z.string().optional(),
+
   sku: z.string().min(1, { message: 'SKU é obrigatório' }),
   barcode: z.string().optional(),
   customId: z.string().optional(),
+
+  trackingType: z.union([
+    z.literal('unit'),
+    z.literal('quantity'),
+  ]),
+
+  units: z.array(itemUnitSchema).optional(),
+
   photos: z.array(z.string().url({ message: 'URL inválida' })).optional().default([]),
   specifications: z.record(z.string(), z.any()).optional(),
 
   quantity: z.object({
-    total: z.number().int().min(0, { message: 'Quantidade total não pode ser negativa' }),
+    total: z.number().int().min(0),
     available: z.number().int().min(0).optional(),
     rented: z.number().int().min(0).optional(),
     maintenance: z.number().int().min(0).optional(),
     damaged: z.number().int().min(0).optional(),
   }),
+
   pricing: z.object({
-    dailyRate: z.number().min(0, { message: 'Taxa diária não pode ser negativa' }),
+    dailyRate: z.number().min(0),
     weeklyRate: z.number().min(0).optional(),
+    biweeklyRate: z.number().min(0).optional(),
     monthlyRate: z.number().min(0).optional(),
     depositAmount: z.number().min(0).optional(),
   }),
+
   location: z.string().optional(),
-  depreciation: z
-    .object({
-      initialValue: z.number().min(0).optional(),
-      currentValue: z.number().min(0).optional(),
-      depreciationRate: z.number().min(0).max(100).optional(),
-      purchaseDate: z.string().optional(),
-    })
-    .optional(),
+
+  depreciation: z.object({
+    initialValue: z.number().min(0).optional(),
+    currentValue: z.number().min(0).optional(),
+    depreciationRate: z.number().min(0).max(100).optional(),
+    purchaseDate: z.string().optional(),
+  }).optional(),
+
   lowStockThreshold: z.number().int().min(0).optional(),
   isActive: z.boolean().optional().default(true),
 });
 
-export const updateItemSchema = createItemSchema.partial();
+export const createItemSchema = itemSchemaBase.refine((data) => {
+  if (data.trackingType === 'unit') {
+    return (
+      (data.units && data.units.length > 0) ||
+      !!data.customId
+    );
+  }
+
+  // quantity
+  return data.quantity.total > 0;
+}, {
+  message: 'Item unitário precisa de unidades ou customId',
+  path: ['units'],
+});
+
+export const updateItemSchema = itemSchemaBase.partial();
 
 export const adjustQuantitySchema = z.object({
   type: z.string().refine(
@@ -60,3 +100,7 @@ export const createSubcategorySchema = z.object({
   description: z.string().optional(),
   isActive: z.boolean().optional().default(true),
 });
+
+
+
+
