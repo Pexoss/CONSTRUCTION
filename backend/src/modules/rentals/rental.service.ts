@@ -365,48 +365,53 @@ class RentalService {
     const oldStatus = rental.status;
     rental.status = status;
 
-    // Handle status transitions
-    if (status === 'active' && oldStatus === 'reserved') {
-      // Mark pickup as actual
+    /**
+     * 🔹 ATIVOU O ALUGUEL → ITEM FICA RENTED
+     */
+    if (status === 'active' && oldStatus !== 'active') {
       rental.dates.pickupActual = new Date();
 
-      // Update item quantities (move from reserved to rented)
       for (const item of rental.items) {
         await this.updateItemQuantityForRental(
           companyId,
           item.itemId,
           item.quantity,
-          'activate',
+          'activate', //marca unit como rented
           userId,
           rental._id,
           item.unitId,
           rental.customerId.toString()
         );
       }
-    } else if (status === 'completed' && (oldStatus === 'active' || oldStatus === 'overdue')) {
-      // Mark return as actual
+    }
+
+    /**
+     * 🔹 FINALIZOU O ALUGUEL → ITEM VOLTA PRA AVAILABLE
+     */
+    if (
+      status === 'completed' &&
+      (oldStatus === 'active' || oldStatus === 'overdue')
+    ) {
       rental.dates.returnActual = new Date();
 
-      // Calculate late fee if applicable
-      if (rental.dates.returnActual > rental.dates.returnScheduled) {
-        let totalLateFee = 0;
-        for (const item of rental.items) {
-          const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
-          if (inventoryItem) {
-            const lateFee = this.calculateLateFee(
-              rental.dates.returnScheduled,
-              rental.dates.returnActual,
-              inventoryItem.pricing.dailyRate,
-              item.quantity
-            );
-            totalLateFee += lateFee;
-          }
-        }
-        rental.pricing.lateFee = totalLateFee;
-        rental.pricing.total = rental.pricing.subtotal - rental.pricing.discount + totalLateFee;
+      for (const item of rental.items) {
+        await this.updateItemQuantityForRental(
+          companyId,
+          item.itemId,
+          item.quantity,
+          'return', //devolve unidade
+          userId,
+          rental._id,
+          item.unitId,
+          rental.customerId.toString()
+        );
       }
+    }
 
-      // Update item quantities (return items)
+    /**
+     * 🔹 CANCELOU → DEVOLVE ITEM
+     */
+    if (status === 'cancelled' && oldStatus === 'active') {
       for (const item of rental.items) {
         await this.updateItemQuantityForRental(
           companyId,
@@ -419,25 +424,12 @@ class RentalService {
           rental.customerId.toString()
         );
       }
-    } else if (status === 'cancelled' && oldStatus === 'reserved') {
-      // Release reserved items
-      for (const item of rental.items) {
-        await this.updateItemQuantityForRental(
-          companyId,
-          item.itemId,
-          item.quantity,
-          'cancel',
-          userId,
-          rental._id,
-          item.unitId,
-          rental.customerId.toString()
-        );
-      }
     }
 
     await rental.save();
     return rental;
   }
+
 
   /**
    * Extend rental period
@@ -681,8 +673,8 @@ class RentalService {
   }
 
   /**
-   * Helper method to update item quantities based on rental actions
-   */
+  * Helper method to update item quantities based on rental actions
+  */
   private async updateItemQuantityForRental(
     companyId: string,
     itemId: mongoose.Types.ObjectId,
@@ -728,15 +720,13 @@ class RentalService {
 
         case 'return':
         case 'cancel':
-          if (unit.status === 'rented') {
-            unit.status = 'available';
-            unit.currentRental = undefined;
-            unit.currentCustomer = undefined;
-          }
+          unit.status = 'available';
+          unit.currentRental = undefined;
+          unit.currentCustomer = undefined;
           break;
       }
 
-      //RECALCULA ESTOQUE BASEADO NAS UNITS
+      // RECALCULA ESTOQUE PELOS STATUS DAS UNITS
       const units = item.units ?? [];
 
       item.quantity.total = units.length;
@@ -747,7 +737,6 @@ class RentalService {
 
       await item.save();
 
-      // MOVIMENTAÇÃO
       await ItemMovement.create({
         companyId: new mongoose.Types.ObjectId(companyId),
         itemId,
@@ -768,17 +757,19 @@ class RentalService {
 
     switch (action) {
       case 'reserve':
-        item.quantity.available -= quantity;
         break;
+
       case 'activate':
+        item.quantity.available -= quantity;
         item.quantity.rented += quantity;
         break;
+
       case 'return':
         item.quantity.rented -= quantity;
         item.quantity.available += quantity;
         break;
+
       case 'cancel':
-        item.quantity.available += quantity;
         break;
     }
 

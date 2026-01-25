@@ -638,6 +638,65 @@ class ItemService {
       quantity: item.quantity.available,
     };
   }
+
+  async getInformationsItens(companyId: string) {
+    const items = await Item.find({
+      companyId,
+      isActive: true,
+    });
+
+    let totalItems = 0;
+    let inStock = 0;
+    let lowStock = 0;
+    let outOfStock = 0;
+
+    for (const item of items) {
+      //quantitativos
+      if (item.trackingType === 'quantity') {
+        const available = item.quantity?.available ?? 0;
+        const threshold = item.lowStockThreshold ?? 0;
+
+        totalItems += available;
+
+        if (available === 0) {
+          outOfStock += 1;
+          lowStock += 1; // esgotado também conta como baixo
+        } else {
+          inStock += available;
+
+          if (available <= threshold) {
+            lowStock += available;
+          }
+        }
+      }
+
+      //unitarios
+      if (item.trackingType === 'unit') {
+        const availableUnits =
+          item.units?.filter(u => u.status === 'available').length ?? 0;
+
+        totalItems += availableUnits;
+
+        if (availableUnits === 0) {
+          outOfStock += 1;
+          lowStock += 1;
+        } else {
+          inStock += availableUnits;
+
+          if (availableUnits === 1) {
+            lowStock += 1;
+          }
+        }
+      }
+    }
+
+    return {
+      totalItems,
+      inStock,
+      lowStock,
+      outOfStock,
+    };
+  }
 }
 
 export const itemService = new ItemService();

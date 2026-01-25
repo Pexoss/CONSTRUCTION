@@ -372,7 +372,6 @@ export class ItemController {
       next(error);
     }
   }
-
   /**
    *item status
    */
@@ -385,6 +384,18 @@ export class ItemController {
       res.json(status);
     } catch (error) {
       // console.error('ERRO getItemOperationalStatus:', error);
+      next(error);
+    }
+  }
+
+  async getInformationsItensController(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const informations = await itemService.getInformationsItens(companyId);
+
+      res.json(informations);
+    } catch (error) {
+      // console.error('ERRO getInformationsItensController:', error);
       next(error);
     }
   }
