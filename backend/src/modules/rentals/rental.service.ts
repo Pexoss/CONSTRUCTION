@@ -357,18 +357,20 @@ class RentalService {
     userId: string
   ): Promise<IRental | null> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
-
-    if (!rental) {
-      throw new Error('Rental not found');
-    }
+    if (!rental) throw new Error('Rental not found');
 
     const oldStatus = rental.status;
+
+    //trava mudança inválida
+    if (oldStatus === status) return rental;
+
     rental.status = status;
 
     /**
-     * 🔹 ATIVOU O ALUGUEL → ITEM FICA RENTED
+     *RESERVED → ACTIVE
+     * reserved → rented
      */
-    if (status === 'active' && oldStatus !== 'active') {
+    if (oldStatus === 'reserved' && status === 'active') {
       rental.dates.pickupActual = new Date();
 
       for (const item of rental.items) {
@@ -376,7 +378,7 @@ class RentalService {
           companyId,
           item.itemId,
           item.quantity,
-          'activate', //marca unit como rented
+          'activate',
           userId,
           rental._id,
           item.unitId,
@@ -386,32 +388,15 @@ class RentalService {
     }
 
     /**
-     * 🔹 FINALIZOU O ALUGUEL → ITEM VOLTA PRA AVAILABLE
+     *ACTIVE / OVERDUE → COMPLETED
+     * rented → available
      */
     if (
-      status === 'completed' &&
-      (oldStatus === 'active' || oldStatus === 'overdue')
+      (oldStatus === 'active' || oldStatus === 'overdue') &&
+      status === 'completed'
     ) {
       rental.dates.returnActual = new Date();
 
-      for (const item of rental.items) {
-        await this.updateItemQuantityForRental(
-          companyId,
-          item.itemId,
-          item.quantity,
-          'return', //devolve unidade
-          userId,
-          rental._id,
-          item.unitId,
-          rental.customerId.toString()
-        );
-      }
-    }
-
-    /**
-     * 🔹 CANCELOU → DEVOLVE ITEM
-     */
-    if (status === 'cancelled' && oldStatus === 'active') {
       for (const item of rental.items) {
         await this.updateItemQuantityForRental(
           companyId,
@@ -426,10 +411,28 @@ class RentalService {
       }
     }
 
+    /**
+     * RESERVED → CANCELLED
+     * reserved → available
+     */
+    if (oldStatus === 'reserved' && status === 'cancelled') {
+      for (const item of rental.items) {
+        await this.updateItemQuantityForRental(
+          companyId,
+          item.itemId,
+          item.quantity,
+          'cancel',
+          userId,
+          rental._id,
+          item.unitId,
+          rental.customerId.toString()
+        );
+      }
+    }
+
     await rental.save();
     return rental;
   }
-
 
   /**
    * Extend rental period
@@ -707,22 +710,44 @@ class RentalService {
 
       switch (action) {
         case 'reserve':
-        case 'activate':
           if (unit.status !== 'available') {
             throw new Error(`Unit ${unit.unitId} is not available`);
           }
-          unit.status = 'rented';
+          unit.status = 'reserved';
           unit.currentRental = rentalId;
-          unit.currentCustomer = customerId
-            ? new mongoose.Types.ObjectId(customerId)
-            : undefined;
+          unit.currentCustomer = customerId ? new mongoose.Types.ObjectId(customerId) : undefined;
+
+          // Atualiza quantity também
+          item.quantity.available -= 1;
+          item.quantity.reserved += 1;
+          break;
+
+        case 'activate':
+          if (unit.status !== 'reserved') {
+            throw new Error(`Unit ${unit.unitId} is not reserved`);
+          }
+          unit.status = 'rented';
+
+          item.quantity.reserved -= 1;
+          item.quantity.rented += 1;
           break;
 
         case 'return':
+          unit.status = 'available';
+          unit.currentRental = undefined;
+          unit.currentCustomer = undefined;
+
+          item.quantity.rented -= 1;
+          item.quantity.available += 1;
+          break;
+
         case 'cancel':
           unit.status = 'available';
           unit.currentRental = undefined;
           unit.currentCustomer = undefined;
+
+          item.quantity.reserved -= 1;
+          item.quantity.available += 1;
           break;
       }
 
@@ -731,6 +756,7 @@ class RentalService {
 
       item.quantity.total = units.length;
       item.quantity.available = units.filter(u => u.status === 'available').length;
+      item.quantity.reserved = units.filter(u => u.status === 'reserved').length; // <-- aqui
       item.quantity.rented = units.filter(u => u.status === 'rented').length;
       item.quantity.maintenance = units.filter(u => u.status === 'maintenance').length;
       item.quantity.damaged = units.filter(u => u.status === 'damaged').length;
@@ -757,10 +783,12 @@ class RentalService {
 
     switch (action) {
       case 'reserve':
+        item.quantity.available -= quantity;
+        item.quantity.reserved += quantity;
         break;
 
       case 'activate':
-        item.quantity.available -= quantity;
+        item.quantity.reserved -= quantity;
         item.quantity.rented += quantity;
         break;
 

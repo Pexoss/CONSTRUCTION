@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 // Interface para unidades individuais (itens unitários)
 export interface IItemUnit {
   unitId: string; // Ex: "F421", "B013"
-  status: 'available' | 'rented' | 'maintenance' | 'damaged';
+  status: 'available' | 'rented' | 'reserved' | 'maintenance' | 'damaged';
   currentRental?: mongoose.Types.ObjectId; // Referência ao aluguel atual (se rented)
   currentCustomer?: mongoose.Types.ObjectId; // Cliente atual (se rented)
   maintenanceDetails?: {
@@ -36,6 +36,7 @@ export interface IItem extends Document {
   quantity: {
     total: number;
     available: number;
+    reserved: number;
     rented: number;
     maintenance: number;
     damaged: number;
