@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 
 // Interface para endereços múltiplos
 export interface ICustomerAddress {
+  _id?: string;
   type: 'main' | 'billing' | 'work' | 'other';
   street: string;
   number?: string;

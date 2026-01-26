@@ -59,5 +59,14 @@ export const customerService = {
     }>(`/customers/${customerId}/addresses`, addressData);
 
     return response.data.data; // retorna o cliente atualizado
+  },
+
+  deleteAddress: async (customerId: string, addressId: string) => {
+    const response = await api.delete<{ success: boolean; customer: Customer }>(
+      `/customers/${customerId}/addresses/${addressId}`
+    );
+
+    return response.data.customer; // retorna o cliente atualizado
   }
+
 };

@@ -761,7 +761,7 @@ const CreateRentalPage: React.FC = () => {
                       <h2 className="text-lg font-semibold text-gray-900">Endereço da Obra</h2>
                       <p className="text-sm text-gray-600 mt-1">Opcional - para entrega no local</p>
                     </div>
-                    {customerAddresses.length > 1 && (
+                    {customerAddresses.length > 0 && (
                       <div className="flex items-center gap-2">
                         <label className="text-sm text-gray-700">Usar endereço salvo:</label>
                         <select

@@ -20,7 +20,7 @@ router.patch('/customers/:id/block', customerController.toggleBlockCustomer.bind
 // NOVO: Endereços
 router.post('/customers/:id/addresses', customerController.addAddress.bind(customerController));
 router.put('/customers/:id/addresses/:index', customerController.updateAddress.bind(customerController));
-router.delete('/customers/:id/addresses/:index', customerController.removeAddress.bind(customerController));
+router.delete('/customers/:id/addresses/:addressId', customerController.removeAddressById.bind(customerController));
 
 // NOVO: Obras
 router.post('/customers/:id/works', customerController.addWork.bind(customerController));
