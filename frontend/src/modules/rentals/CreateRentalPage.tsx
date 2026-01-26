@@ -53,28 +53,44 @@ const CreateRentalPage: React.FC = () => {
   });
 
 
-  const calculatePrice = (item: Item, quantity: number, startDate: Date, endDate: Date): number => {
-    const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-    if (days <= 0) return 0;
+  // Calcula o preço de um item considerando o tipo de aluguel
+  const calculatePrice = (
+    item: Item,
+    quantity: number,
+    startDate: Date,
+    endDate: Date,
+    rentalType?: 'diario' | 'semanal' | 'quinzenal' | 'mensal'
+  ) => {
+    if (!startDate || !endDate) return 0;
 
     let price = 0;
-    if (item.pricing.monthlyRate && days >= 30) {
-      const months = Math.floor(days / 30);
-      const remainingDays = days % 30;
-      price = months * item.pricing.monthlyRate + remainingDays * item.pricing.dailyRate;
-    } else if (item.pricing.weeklyRate && days >= 7) {
-      const weeks = Math.floor(days / 7);
-      const remainingDays = days % 7;
-      price = weeks * item.pricing.weeklyRate + remainingDays * item.pricing.dailyRate;
-    } else {
-      price = days * item.pricing.dailyRate;
+
+    switch (rentalType) {
+      case 'mensal':
+        price = (item.pricing.monthlyRate ?? item.pricing.dailyRate) * quantity;
+        break;
+      case 'quinzenal':
+        price = (item.pricing.biweeklyRate ?? item.pricing.dailyRate) * quantity;
+        break;
+      case 'semanal':
+        price = (item.pricing.weeklyRate ?? item.pricing.dailyRate) * quantity;
+        break;
+      case 'diario':
+      default:
+        const days = Math.ceil(
+          (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        price = (days > 0 ? days : 1) * (item.pricing.dailyRate ?? 0) * quantity;
+        break;
     }
 
-    return price * quantity;
+    return price;
   };
 
-  const calculateTotals = () => {
-    if (!pickupDate || !returnDate) return { equipmentSubtotal: 0, servicesSubtotal: 0, subtotal: 0, deposit: 0, total: 0 };
+  // Calcula o resumo completo do aluguel
+  const calculateTotals = (rentalType?: 'diario' | 'semanal' | 'quinzenal' | 'mensal') => {
+    if (!pickupDate || !returnDate)
+      return { equipmentSubtotal: 0, servicesSubtotal: 0, subtotal: 0, deposit: 0, total: 0 };
 
     const startDate = new Date(pickupDate);
     const endDate = new Date(returnDate);
@@ -84,9 +100,15 @@ const CreateRentalPage: React.FC = () => {
     let deposit = 0;
 
     selectedItems.forEach((selectedItem) => {
-      const itemPrice = calculatePrice(selectedItem.item, selectedItem.quantity, startDate, endDate);
+      const itemPrice = calculatePrice(
+        selectedItem.item,
+        selectedItem.quantity,
+        startDate,
+        endDate,
+        rentalType // passa o tipo de aluguel aqui
+      );
       equipmentSubtotal += itemPrice;
-      deposit += (selectedItem.item.pricing.depositAmount || 0) * selectedItem.quantity;
+      deposit += (selectedItem.item.pricing.depositAmount ?? 0) * selectedItem.quantity;
     });
 
     services.forEach((service) => {
@@ -94,10 +116,12 @@ const CreateRentalPage: React.FC = () => {
     });
 
     const subtotal = equipmentSubtotal + servicesSubtotal;
-    const total = subtotal - discount;
+    const total = subtotal + deposit - discount;
 
     return { equipmentSubtotal, servicesSubtotal, subtotal, deposit, total };
   };
+
+
 
   const handleAddItem = (item: Item) => {
     if (item.trackingType === 'unit') {
@@ -224,7 +248,7 @@ const CreateRentalPage: React.FC = () => {
     });
   };
 
-  const totals = calculateTotals();
+  const totals = calculateTotals(rentalType);
   const items = itemsData?.data || [];
   const customers = customersData?.data || [];
   const selectedCustomerData = customers.find(
@@ -245,10 +269,11 @@ const CreateRentalPage: React.FC = () => {
 
   const totalsWithRentalType = {
     ...totals,
-    subtotal: totals.subtotal * calculateMultiplier(),
-    total: totals.total * calculateMultiplier() - discount,
-    equipmentSubtotal: totals.equipmentSubtotal * calculateMultiplier(),
-    servicesSubtotal: totals.servicesSubtotal * calculateMultiplier(),
+    // apenas copia, sem multiplicar
+    subtotal: totals.subtotal,
+    total: totals.total,
+    equipmentSubtotal: totals.equipmentSubtotal,
+    servicesSubtotal: totals.servicesSubtotal,
   };
 
   const calculateReturnDate = (pickup: string, type: typeof rentalType) => {
@@ -601,9 +626,10 @@ const CreateRentalPage: React.FC = () => {
                                 {pickupDate && returnDate
                                   ? `R$ ${calculatePrice(
                                     selectedItem.item,
-                                    1,
+                                    selectedItem.quantity,
                                     new Date(pickupDate),
-                                    new Date(returnDate)
+                                    new Date(returnDate),
+                                    rentalType
                                   ).toFixed(2)}/unidade`
                                   : 'Defina as datas'}
                               </span>
