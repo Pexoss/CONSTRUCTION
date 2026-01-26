@@ -14,6 +14,7 @@ const RentalDetailPage: React.FC = () => {
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [checklistType, setChecklistType] = useState<'pickup' | 'return'>('pickup');
   const [newStatus, setNewStatus] = useState<RentalStatus>('reserved');
+  const [serverError, setServerError] = useState<string | null>(null);
   const [newReturnDate, setNewReturnDate] = useState('');
   const [checklistData, setChecklistData] = useState<ChecklistData>({
     photos: [],
@@ -34,8 +35,12 @@ const RentalDetailPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['rentals'] });
       queryClient.invalidateQueries({ queryKey: ['items'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
-
+      setServerError(null); // limpa erro se sucesso
       setShowStatusModal(false);
+    },
+    onError: (err: any) => {
+      const message = err.response?.data?.message || "Erro ao atualizar status";
+      setServerError(message);
     },
   });
 
@@ -45,7 +50,12 @@ const RentalDetailPage: React.FC = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rental', id] });
       queryClient.invalidateQueries({ queryKey: ['rentals'] });
+      setServerError(null);
       setShowExtendModal(false);
+    },
+    onError: (err: any) => {
+      const message = err.response?.data?.message || "Erro ao estender período";
+      setServerError(message);
     },
   });
 
@@ -59,7 +69,12 @@ const RentalDetailPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rental', id] });
+      setServerError(null);
       setShowChecklistModal(false);
+    },
+    onError: (err: any) => {
+      const message = err.response?.data?.message || "Erro ao atualizar checklist";
+      setServerError(message);
     },
   });
 
@@ -154,6 +169,11 @@ const RentalDetailPage: React.FC = () => {
                 >
                   Estender Período
                 </button>
+              )}
+              {serverError && (
+                <span className="text-red-500 text-xs mt-1 font-semibold block">
+                  {serverError}
+                </span>
               )}
             </div>
           </div>
@@ -383,6 +403,11 @@ const RentalDetailPage: React.FC = () => {
               <option value="completed">Finalizado</option>
               <option value="cancelled">Cancelado</option>
             </select>
+            {serverError && (
+              <span className="text-red-500 text-xs mt-1 mb-3 font-semibold block">
+                {serverError}
+              </span>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowStatusModal(false)}

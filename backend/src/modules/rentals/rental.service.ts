@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import { ICustomer } from '../customers/customer.types';
 import { Customer } from '../customers/customer.model';
 import { RoleType } from '@/shared/constants/roles';
-import { canApplyDiscount } from '../../helpers/UserPermission';
+import { canApplyDiscount, canUpdateRentalStatus } from '../../helpers/UserPermission';
 import { User } from '../users/user.model';
 class RentalService {
   /**
@@ -117,7 +117,7 @@ class RentalService {
     }
     //verifica se o usuário um superadmin ou admin
     if (data.pricing?.discount && !canApplyDiscount(user.role as RoleType)) {
-      throw new Error('Somente admin pode aplicar desconto');
+      throw new Error('Somente o admin pode aplicar desconto');
     }
 
     // Validate items availability
@@ -369,6 +369,13 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
     if (!rental) throw new Error('Rental not found');
 
+    const user = await User.findById(userId);
+    if (!user) throw new Error('Usuário não encontrado');
+
+    // verifica se o usuário pode alterar o status
+    if (!canUpdateRentalStatus(user.role as RoleType)) {
+      throw new Error('Somente o admin podem alterar o status do aluguel');
+    }
     const oldStatus = rental.status;
 
     //trava mudança inválida

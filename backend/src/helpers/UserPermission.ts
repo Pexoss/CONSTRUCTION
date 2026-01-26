@@ -5,3 +5,5 @@ export const canApplyDiscount = (role: RoleType) => hasPermission(role, ROLES.AD
 export const canEditAluguel = (role: RoleType) => hasPermission(role, ROLES.ADMIN);
 export const canRequestChange = (role: RoleType) => !hasPermission(role, ROLES.ADMIN);
 export const canApproveChange = (role: RoleType) => hasPermission(role, ROLES.ADMIN);
+export const canUpdateRentalStatus = (role: RoleType) =>
+  hasPermission(role, ROLES.ADMIN) || hasPermission(role, ROLES.SUPERADMIN);
