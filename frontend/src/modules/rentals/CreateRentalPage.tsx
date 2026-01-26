@@ -30,6 +30,8 @@ const CreateRentalPage: React.FC = () => {
   const [notes, setNotes] = useState('');
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
+  const [rentalType, setRentalType] = useState<'diario' | 'semanal' | 'quinzenal' | 'mensal'>('diario');
+  const [serverError, setServerError] = useState<string | null>(null);
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
     queryFn: () => rentalService.getCategories(true),
@@ -213,8 +215,11 @@ const CreateRentalPage: React.FC = () => {
 
     createMutation.mutate(data, {
       onSuccess: (res) => {
+        setServerError(null);
       },
       onError: (err: any) => {
+        const message = err.response?.data?.message || "Erro ao processar a requisição";
+        setServerError(message);
       },
     });
   };
@@ -227,6 +232,49 @@ const CreateRentalPage: React.FC = () => {
   ) ?? null;
 
   const customerAddresses = selectedCustomerData?.addresses ?? [];
+
+  const calculateMultiplier = () => {
+    switch (rentalType) {
+      case 'diario': return 1;
+      case 'semanal': return 7; // 1 semana = 7 dias
+      case 'quinzenal': return 15;
+      case 'mensal': return 30;
+      default: return 1;
+    }
+  };
+
+  const totalsWithRentalType = {
+    ...totals,
+    subtotal: totals.subtotal * calculateMultiplier(),
+    total: totals.total * calculateMultiplier() - discount,
+    equipmentSubtotal: totals.equipmentSubtotal * calculateMultiplier(),
+    servicesSubtotal: totals.servicesSubtotal * calculateMultiplier(),
+  };
+
+  const calculateReturnDate = (pickup: string, type: typeof rentalType) => {
+    if (!pickup) return '';
+    const pickupDateObj = new Date(pickup);
+
+    let daysToAdd = 1; // padrão diário
+    switch (type) {
+      case 'diario': daysToAdd = 1; break;
+      case 'semanal': daysToAdd = 7; break;
+      case 'quinzenal': daysToAdd = 15; break;
+      case 'mensal': daysToAdd = 30; break;
+    }
+
+    const returnDateObj = new Date(pickupDateObj);
+    returnDateObj.setDate(returnDateObj.getDate() + daysToAdd);
+
+    return returnDateObj.toISOString().split('T')[0];
+  };
+
+  useEffect(() => {
+    if (pickupDate) {
+      const newReturnDate = calculateReturnDate(pickupDate, rentalType);
+      setReturnDate(newReturnDate);
+    }
+  }, [pickupDate, rentalType]);
 
   useEffect(() => {
     if (customerAddresses.length === 1) {
@@ -934,6 +982,22 @@ const CreateRentalPage: React.FC = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Tipo de Aluguel *
+                    </label>
+                    <select
+                      value={rentalType}
+                      onChange={(e) => setRentalType(e.target.value as typeof rentalType)}
+                      className="w-full border border-gray-300 rounded-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-black"
+                    >
+                      <option value="diario">Diário</option>
+                      <option value="semanal">Semanal</option>
+                      <option value="quinzenal">Quinzenal</option>
+                      <option value="mensal">Mensal</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       Desconto (R$)
                     </label>
                     <input
@@ -941,9 +1005,19 @@ const CreateRentalPage: React.FC = () => {
                       min="0"
                       step="0.01"
                       value={discount}
-                      onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
-                      className="w-full border border-gray-300 rounded-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-black"
+                      onChange={(e) => {
+                        setDiscount(parseFloat(e.target.value) || 0);
+                        if (serverError) setServerError(null);
+                      }}
+                      className={`w-full border rounded-md px-4 py-3 focus:outline-none focus:ring-2 ${serverError ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-black'
+                        }`}
                     />
+
+                    {serverError && (
+                      <span className="text-red-500 text-xs mt-1 font-semibold block">
+                        {serverError}
+                      </span>
+                    )}
                   </div>
 
                   <div>
@@ -987,7 +1061,7 @@ const CreateRentalPage: React.FC = () => {
                   )}
                   <div className="flex justify-between items-center pt-4 border-t border-gray-200">
                     <span className="text-lg font-bold text-gray-900">Total:</span>
-                    <span className="text-lg font-bold text-gray-900">R$ {totals.total.toFixed(2)}</span>
+                    <span className="text-lg font-bold text-gray-900">R${totalsWithRentalType.total.toFixed(2)}</span>
                   </div>
                 </div>
 

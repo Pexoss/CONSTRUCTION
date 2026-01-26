@@ -5,7 +5,9 @@ import { IRental, RentalStatus, IRentalItem, IRentalPricing, IRentalService, IRe
 import mongoose from 'mongoose';
 import { ICustomer } from '../customers/customer.types';
 import { Customer } from '../customers/customer.model';
-
+import { RoleType } from '@/shared/constants/roles';
+import { canApplyDiscount } from '../../helpers/UserPermission';
+import { User } from '../users/user.model';
 class RentalService {
   /**
    * Calculate rental price based on period and rates
@@ -108,7 +110,15 @@ class RentalService {
   async createRental(companyId: string, data: any, userId: string): Promise<IRental> {
     //rentailNumber gera automaticamente ao registrar aluguel
     const rentalNumber = await this.generateRentalNumber(companyId);
-    console.log('Rental number que será usado no createRental:', rentalNumber);
+    const user = await User.findById(userId);
+
+    if (!user) {
+      throw new Error('Usuário não encontrado');
+    }
+    //verifica se o usuário um superadmin ou admin
+    if (data.pricing?.discount && !canApplyDiscount(user.role as RoleType)) {
+      throw new Error('Somente admin pode aplicar desconto');
+    }
 
     // Validate items availability
     for (const item of data.items) {
