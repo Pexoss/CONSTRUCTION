@@ -47,10 +47,15 @@ const CreateCustomerPage: React.FC = () => {
       {
         type: 'main',
         street: '',
+        number: '',
+        complement: '',
+        neighborhood: '',
         city: '',
         state: '',
         zipCode: '',
-        isDefault: addresses.length === 0,
+        country: 'Brasil',
+        isDefault: addresses.length === 0, 
+        _isSaved: false, 
       },
     ]);
   };

@@ -168,50 +168,56 @@ class CustomerService {
   /**
    * NOVO: Atualizar endereço do cliente
    */
-  async updateAddress(companyId: string, customerId: string, addressIndex: number, addressData: any): Promise<ICustomer | null> {
+  async updateAddressById(companyId: string, customerId: string, addressId: string, addressData: any): Promise<ICustomer | null> {
     const customer = await Customer.findOne({ _id: customerId, companyId });
+    if (!customer) throw new Error('Customer not found');
+    if (!customer.addresses || customer.addresses.length === 0) throw new Error('No addresses found');
 
-    if (!customer) {
-      throw new Error('Customer not found');
-    }
+    const addr = customer.addresses.find(a => a._id?.toString() === addressId);
+    if (!addr) throw new Error('Address not found');
 
-    if (!customer.addresses || addressIndex < 0 || addressIndex >= customer.addresses.length) {
-      throw new Error('Address not found');
-    }
-
-    // Se marcar como default, remover default de outros
+    // Se marcar como default, remove o default de outros
     if (addressData.isDefault) {
-      customer.addresses.forEach((addr, idx) => {
-        if (idx !== addressIndex) {
-          addr.isDefault = false;
-        }
+      customer.addresses.forEach(a => {
+        a.isDefault = a._id?.toString() === addressId;
       });
     }
 
-    Object.assign(customer.addresses[addressIndex], addressData);
+    Object.assign(addr, addressData);
     await customer.save();
-
     return customer;
   }
 
   /**
    * NOVO: Remover endereço do cliente
    */
-  async removeAddress(companyId: string, customerId: string, addressIndex: number): Promise<ICustomer | null> {
+  /**
+   * Remover endereço do cliente pelo _id do endereço
+   */
+  async removeAddressById(companyId: string, customerId: string, addressId: string): Promise<ICustomer | null> {
     const customer = await Customer.findOne({ _id: customerId, companyId });
 
     if (!customer) {
       throw new Error('Customer not found');
     }
 
-    if (!customer.addresses || addressIndex < 0 || addressIndex >= customer.addresses.length) {
+    if (!customer.addresses || customer.addresses.length === 0) {
+      throw new Error('No addresses found');
+    }
+
+    // Converter addressId para string para evitar problemas de tipo
+    const addressIdStr = addressId.toString();
+
+    const filteredAddresses = customer.addresses.filter(addr => addr._id && addr._id.toString() !== addressIdStr);
+
+    if (filteredAddresses.length === customer.addresses.length) {
       throw new Error('Address not found');
     }
 
-    customer.addresses.splice(addressIndex, 1);
+    customer.addresses = filteredAddresses;
 
-    // Se o endereço removido era o default, marcar o primeiro como default
-    if (customer.addresses.length > 0 && !customer.addresses.some((addr) => addr.isDefault)) {
+    // Se não houver endereço padrão, marcar o primeiro como default
+    if (!customer.addresses.some(addr => addr.isDefault) && customer.addresses.length > 0) {
       customer.addresses[0].isDefault = true;
     }
 

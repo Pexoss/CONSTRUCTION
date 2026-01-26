@@ -1,4 +1,5 @@
 export interface CustomerAddress {
+  _id?:string;
   type: 'main' | 'billing' | 'work' | 'other';
   workName?: string;
   street: string;
@@ -7,6 +8,7 @@ export interface CustomerAddress {
   neighborhood?: string;
   city: string;
   state: string;
+  country: "Brasil";
   zipCode: string;
   isDefault: boolean;
   notes?: string;

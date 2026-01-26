@@ -18,6 +18,7 @@ import CustomersPage from './modules/customers/CustomersPage';
 import CreateCustomerPage from './modules/customers/CreateCustomerPage';
 import EditCustomerPage from './modules/customers/EditCustomerPage';
 import ViewCustomerPage from './modules/customers/ViewCustomerPage';
+import CustomerAddressesPage from 'modules/customers/CustomerAddressesPage';
 import RentalsPage from './modules/rentals/RentalsPage';
 import CreateRentalPage from './modules/rentals/CreateRentalPage';
 import RentalDetailPage from './modules/rentals/RentalDetailPage';
@@ -128,6 +129,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <EditCustomerPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/customers/:id/addresses"
+                element={
+                  <ProtectedRoute>
+                    <CustomerAddressesPage />
                   </ProtectedRoute>
                 }
               />
