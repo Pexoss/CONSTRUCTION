@@ -19,7 +19,7 @@ export class SubscriptionController {
         message: 'Payment created successfully',
         data: payment,
       });
-    } catch (error) {
+    } catch (error: any) {
       next(error);
     }
   }
@@ -61,32 +61,25 @@ export class SubscriptionController {
    * Mark payment as paid
    * PATCH /api/admin/subscriptions/payments/:id/paid
    */
-  async markPaymentAsPaid(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async markPaymentAsPaid(req: Request, res: Response, next: NextFunction) {
     try {
-      const companyId = req.query.companyId ? (req.query.companyId as string) : req.companyId!;
-      const paymentId = req.params.id;
+      const companyId = req.query.companyId || req.body.companyId;
+      const paymentId = req.params.paymentId;
       const validatedData = markPaymentAsPaidSchema.parse(req.body);
-      const payment = await subscriptionService.markPaymentAsPaid(companyId, paymentId, {
-        paidDate: validatedData.paidDate ? new Date(validatedData.paidDate) : undefined,
-        paymentMethod: validatedData.paymentMethod,
-        notes: validatedData.notes,
-      });
 
-      if (!payment) {
-        res.status(404).json({
-          success: false,
-          message: 'Payment not found',
-        });
-        return;
-      }
+      const result = await subscriptionService.markPaymentAsPaid(
+        companyId as string,
+        paymentId,
+        validatedData
+      );
 
-      res.json({
+      res.status(200).json({
         success: true,
-        message: 'Payment marked as paid successfully',
-        data: payment,
+        message: 'Payment marked as paid',
+        data: result,
       });
-    } catch (error) {
-      next(error);
+    } catch (err) {
+      next(err);
     }
   }
 

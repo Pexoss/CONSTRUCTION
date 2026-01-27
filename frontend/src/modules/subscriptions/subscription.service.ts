@@ -40,19 +40,21 @@ export const subscriptionService = {
     return response.data;
   },
 
-  markPaymentAsPaid: async (paymentId: string, companyId: string, data: {
-    paidDate?: string;
-    paymentMethod?: string;
-    notes?: string;
-  }) => {
+  markPaymentAsPaid: async (
+    paymentId: string,
+    companyId: string,
+    data: { paidDate?: string; paymentMethod?: string; notes?: string }
+  ) => {
     const params = new URLSearchParams();
     if (companyId) params.append('companyId', companyId);
 
-    const response = await api.patch<{ success: boolean; message: string; data: SubscriptionPayment }>(
-      `/admin/subscriptions/payments/${paymentId}/paid?${params.toString()}`,
-      data
-    );
-    return response.data;
+    const response = await api.patch<{
+      success: boolean;
+      message: string;
+      data: { payment: SubscriptionPayment; company: Company };
+    }>(`/admin/subscriptions/payments/${paymentId}/paid?${params.toString()}`, data);
+
+    return response.data.data;
   },
 
   getAllCompanies: async (filters?: {

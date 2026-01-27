@@ -28,9 +28,7 @@ const AdminPage: React.FC = () => {
   const { data: companiesData } = useQuery({
     queryKey: ['admin-companies'],
     queryFn: async () => {
-      console.log('[QUERY] Buscando empresas...');
       const res = await subscriptionService.getAllCompanies();
-      console.log('[QUERY] Empresas response:', res);
       return res;
     },
   });
@@ -38,9 +36,7 @@ const AdminPage: React.FC = () => {
   const { data: paymentsData } = useQuery({
     queryKey: ['admin-payments', selectedCompany],
     queryFn: async () => {
-      console.log('[QUERY] Buscando pagamentos:', selectedCompany);
       const res = await subscriptionService.getCompanyPayments(selectedCompany);
-      console.log('[QUERY] Pagamentos response:', res);
       return res;
     },
     enabled: !!selectedCompany,
@@ -49,9 +45,7 @@ const AdminPage: React.FC = () => {
   const { data: metricsData } = useQuery({
     queryKey: ['company-metrics', selectedCompany],
     queryFn: async () => {
-      console.log('[QUERY] Buscando métricas:', selectedCompany);
       const res = await subscriptionService.getCompanyMetrics(selectedCompany);
-      console.log('[QUERY] Métricas response:', res);
       return res;
     },
     enabled: !!selectedCompany,
@@ -60,36 +54,37 @@ const AdminPage: React.FC = () => {
   const { data: upcomingPayments } = useQuery({
     queryKey: ['upcoming-payments'],
     queryFn: async () => {
-      console.log('[QUERY] Buscando pagamentos próximos...');
       return subscriptionService.getUpcomingPayments(7);
     },
   });
 
   const createPaymentMutation = useMutation({
     mutationFn: async (data: PaymentFormData) => {
-      console.log('[MUTATION] Criando pagamento:', data);
       return subscriptionService.createPayment(data);
     },
     onSuccess: () => {
-      console.log('[MUTATION] Pagamento criado com sucesso');
-      queryClient.invalidateQueries({ queryKey: ['admin-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-payments', selectedCompany] });
       setShowPaymentModal(false);
     },
     onError: (err) => {
-      console.error('[MUTATION] Erro ao criar pagamento:', err);
+      return (err);
     },
   });
 
   const markPaidMutation = useMutation({
     mutationFn: ({ paymentId, companyId }: { paymentId: string; companyId: string }) => {
-      console.log('[MUTATION] Marcando como pago:', paymentId);
       return subscriptionService.markPaymentAsPaid(paymentId, companyId, {
         paidDate: new Date().toISOString(),
       });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-payments'] });
+    onSuccess: ({ payment, company }) => {
+      // Atualiza as queries
+      queryClient.invalidateQueries({ queryKey: ['admin-payments', company._id] });
       queryClient.invalidateQueries({ queryKey: ['admin-companies'] });
+      queryClient.invalidateQueries({ queryKey: ['company-metrics', company._id] });
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.message || err.message || 'Erro ao atualizar pagamento');
     },
   });
 
@@ -138,20 +133,26 @@ const AdminPage: React.FC = () => {
     return labels[plan] || plan;
   };
 
-  const handleCreatePayment = () => {
+  const handleCreatePayment = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
     if (!paymentData.companyId) {
-      console.error('Empresa não selecionada');
       return;
     }
 
-    createPaymentMutation.mutate(paymentData);
+    const payload = {
+      ...paymentData,
+      dueDate: new Date(paymentData.dueDate).toISOString(),
+    };
+
+    createPaymentMutation.mutate(payload);
   };
-  
+
+
   const handleDeleteCompany = async (companyId: string) => {
     const confirmed = window.confirm(
       'Tem certeza que deseja excluir esta empresa? Essa ação não pode ser desfeita.'
     );
-
     if (!confirmed) return;
 
     try {
@@ -161,10 +162,16 @@ const AdminPage: React.FC = () => {
       if (selectedCompany === companyId) {
         setSelectedCompany('');
       }
-    } catch (error) {
-      alert('Erro ao excluir empresa');
+
+      alert('Empresa deletada com sucesso!');
+    } catch (error: any) {
+      // Captura a mensagem do backend
+      const message =
+        error.response?.data?.message || error.message || 'Erro ao excluir empresa';
+      alert(message);
     }
   };
+  ;
 
   return (
     <Layout title="Administração" backTo="/dashboard">
@@ -180,17 +187,18 @@ const AdminPage: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* EMPRESAS */}
+          {/* EMPRESAS E PAGAMENTOS */}
           <div className="lg:col-span-2 bg-white rounded shadow p-4">
+            {/* LISTA DE EMPRESAS */}
             {companies.map((company) => (
               <div
                 key={company._id}
                 onClick={() => setSelectedCompany(company._id)}
                 className={`p-3 border rounded cursor-pointer mb-2 transition
-        ${selectedCompany === company._id
+          ${selectedCompany === company._id
                     ? 'border-indigo-500 bg-indigo-50'
                     : 'hover:bg-gray-50'}
-      `}
+        `}
               >
                 <div className="flex justify-between items-start">
                   <div>
@@ -207,18 +215,12 @@ const AdminPage: React.FC = () => {
                       {company.subscription.status}
                     </span>
 
-                    {/* BOTÃO DE DELETAR */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDeleteCompany(company._id);
                       }}
-                      className="
-              text-red-600
-              hover:text-red-800
-              text-xs
-              font-medium
-            "
+                      className="text-red-600 hover:text-red-800 text-xs font-medium"
                     >
                       Excluir
                     </button>
@@ -230,8 +232,46 @@ const AdminPage: React.FC = () => {
                 </div>
               </div>
             ))}
-          </div>
 
+            {/* PAGAMENTOS DA EMPRESA SELECIONADA */}
+            {selectedCompany && payments.length > 0 && (
+              <div className="mt-4">
+                <h3 className="font-semibold mb-2">Pagamentos</h3>
+
+                {payments.map((payment) => (
+                  <div
+                    key={payment._id}
+                    className="flex justify-between items-center p-2 border-b"
+                  >
+                    <div>
+                      <div>Plano: {getPlanLabel(payment.plan)}</div>
+                      <div>Status: {payment.status}</div>
+                      <div>Vencimento: {new Date(payment.dueDate).toLocaleDateString()}</div>
+                      <div>Valor: R$ {payment.amount.toFixed(2)}</div>
+                    </div>
+
+                    {payment.status !== 'paid' && (
+                      <button
+                        onClick={() =>
+                          markPaidMutation.mutate({
+                            paymentId: payment._id,
+                            companyId: selectedCompany,
+                          })
+                        }
+                        className="bg-green-600 text-white px-2 py-1 rounded text-sm"
+                      >
+                        Marcar como pago
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {selectedCompany && payments.length === 0 && (
+              <p className="text-sm text-gray-500 mt-2">Nenhum pagamento encontrado para esta empresa.</p>
+            )}
+          </div>
 
           {/* MÉTRICAS */}
           <div className="bg-white rounded shadow p-4">
@@ -254,6 +294,7 @@ const AdminPage: React.FC = () => {
             )}
           </div>
         </div>
+
       </div>
 
       {/* MODAL */}

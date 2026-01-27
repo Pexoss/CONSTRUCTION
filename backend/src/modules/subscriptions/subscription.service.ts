@@ -6,21 +6,36 @@ import { Maintenance } from '../maintenance/maintenance.model';
 import { Item } from '../inventory/item.model';
 import { Customer } from '../customers/customer.model';
 import { ISubscriptionPayment, PaymentStatus, SubscriptionPlan } from './subscriptionPayment.types';
+import { canDeleteCompany } from '../../helpers/UserPermission';
 import mongoose from 'mongoose';
+import { User } from '../users/user.model';
+import { RoleType } from '@/shared/constants/roles';
 
 class SubscriptionService {
   /**
    * Create a new subscription payment
    */
   async createPayment(companyId: string, data: any): Promise<ISubscriptionPayment> {
+    const dueDate = typeof data.dueDate === 'string' ? new Date(data.dueDate) : data.dueDate;
+
     const payment = await SubscriptionPayment.create({
-      ...data,
       companyId,
+      amount: data.amount,
+      plan: data.plan,
+      dueDate,
+      paymentMethod: data.paymentMethod || undefined,
+      notes: data.notes || undefined,
+    });
+
+    await Company.findByIdAndUpdate(companyId, {
+      $set: {
+        'subscription.plan': data.plan,
+        'subscription.paymentDueDate': dueDate,
+      },
     });
 
     return payment;
   }
-
   /**
    * Get all payments for a company
    */
@@ -69,31 +84,33 @@ class SubscriptionService {
   async markPaymentAsPaid(
     companyId: string,
     paymentId: string,
-    data: { paidDate?: Date; paymentMethod?: string; notes?: string }
-  ): Promise<ISubscriptionPayment> {
+    data: { paidDate?: string | Date; paymentMethod?: string; notes?: string }
+  ): Promise<{ payment: ISubscriptionPayment; company: any }> {
+    
+    //Busca o pagamento
     const payment = await SubscriptionPayment.findOne({ _id: paymentId, companyId });
+    if (!payment) throw new Error('Pagamento não encontrado');
 
-    if (!payment) {
-      throw new Error('Payment not found');
-    }
-
-    // 1️⃣ Atualiza pagamento
+    //Atualiza o pagamento
     payment.status = 'paid';
-    payment.paidDate = data.paidDate || new Date();
+    payment.paidDate = data.paidDate ? new Date(data.paidDate) : new Date();
     if (data.paymentMethod) payment.paymentMethod = data.paymentMethod;
     if (data.notes) payment.notes = data.notes;
 
     await payment.save();
 
-    // 2️⃣ Atualiza assinatura da empresa
-    await Company.findByIdAndUpdate(companyId, {
-      'subscription.plan': payment.plan,
-      'subscription.status': 'active',
-      'subscription.lastPaymentDate': payment.paidDate,
-      'subscription.paymentDueDate': payment.dueDate,
-    });
+    //Busca a empresa e atualiza o plano corretamente
+    const company = await Company.findById(companyId);
+    if (!company) throw new Error('Empresa não encontrada');
 
-    return payment;
+    company.subscription.plan = payment.plan;
+    company.subscription.status = 'active';
+    company.subscription.lastPaymentDate = payment.paidDate;
+    company.subscription.paymentDueDate = payment.dueDate;
+
+    await company.save();
+
+    return { payment, company };
   }
 
   /**
@@ -232,17 +249,30 @@ class SubscriptionService {
       .sort({ dueDate: 1 });
   }
 
-  async deleteCompany(companyId: string) {
+  async deleteCompany(companyId: string, userId: string) {
+    // Valida o ID da empresa
     if (!mongoose.Types.ObjectId.isValid(companyId)) {
       throw new Error('ID da empresa inválido');
     }
 
+    // Busca a empresa
     const company = await Company.findById(companyId);
-
     if (!company) {
       throw new Error('Empresa não encontrada');
     }
 
+    // Busca o usuário que está tentando deletar
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('Usuário não encontrado');
+    }
+
+    // Verifica permissão
+    if (!canDeleteCompany(user.role as RoleType)) {
+      throw new Error('Somente Admin pode realizar esta ação !');
+    }
+
+    // Deleta a empresa
     await Company.findByIdAndDelete(companyId);
 
     return company;
