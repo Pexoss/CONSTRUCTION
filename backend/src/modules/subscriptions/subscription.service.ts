@@ -70,13 +70,14 @@ class SubscriptionService {
     companyId: string,
     paymentId: string,
     data: { paidDate?: Date; paymentMethod?: string; notes?: string }
-  ): Promise<ISubscriptionPayment | null> {
+  ): Promise<ISubscriptionPayment> {
     const payment = await SubscriptionPayment.findOne({ _id: paymentId, companyId });
 
     if (!payment) {
       throw new Error('Payment not found');
     }
 
+    // 1️⃣ Atualiza pagamento
     payment.status = 'paid';
     payment.paidDate = data.paidDate || new Date();
     if (data.paymentMethod) payment.paymentMethod = data.paymentMethod;
@@ -84,11 +85,12 @@ class SubscriptionService {
 
     await payment.save();
 
-    // Update company subscription status
+    // 2️⃣ Atualiza assinatura da empresa
     await Company.findByIdAndUpdate(companyId, {
+      'subscription.plan': payment.plan,
       'subscription.status': 'active',
       'subscription.lastPaymentDate': payment.paidDate,
-      'subscription.paymentDueDate': undefined, // Will be set on next billing cycle
+      'subscription.paymentDueDate': payment.dueDate,
     });
 
     return payment;
@@ -228,6 +230,22 @@ class SubscriptionService {
     })
       .populate('companyId', 'name email')
       .sort({ dueDate: 1 });
+  }
+
+  async deleteCompany(companyId: string) {
+    if (!mongoose.Types.ObjectId.isValid(companyId)) {
+      throw new Error('ID da empresa inválido');
+    }
+
+    const company = await Company.findById(companyId);
+
+    if (!company) {
+      throw new Error('Empresa não encontrada');
+    }
+
+    await Company.findByIdAndDelete(companyId);
+
+    return company;
   }
 }
 

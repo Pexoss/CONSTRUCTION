@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { subscriptionService } from './subscription.service';
 import { createPaymentSchema, markPaymentAsPaidSchema } from './subscription.validator';
+import { Company } from '../companies/company.model';
 
 export class SubscriptionController {
   /**
@@ -172,6 +173,33 @@ export class SubscriptionController {
       });
     } catch (error) {
       next(error);
+    }
+  }
+
+  async delete(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const company = await Company.findById(id);
+
+      if (!company) {
+        return res.status(404).json({
+          success: false,
+          message: 'Empresa não encontrada',
+        });
+      }
+
+      await Company.findByIdAndDelete(id);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Empresa excluída com sucesso',
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Erro ao excluir empresa',
+      });
     }
   }
 }

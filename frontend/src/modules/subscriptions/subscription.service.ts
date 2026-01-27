@@ -97,4 +97,14 @@ export const subscriptionService = {
     );
     return response.data;
   },
+
+  deleteCompany: async (companyId: string) => {
+    const response = await api.delete<{
+      success: boolean;
+      message: string;
+    }>(`/admin/companies/${companyId}`);
+
+    return response.data;
+  },
+
 };
