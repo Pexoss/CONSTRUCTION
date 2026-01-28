@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { registerCompanySchema } from '../../utils/validation';
 import { RegisterCompanyData } from '../../types/auth.types';
@@ -122,6 +122,7 @@ const RegisterPage: React.FC = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-2xl w-full space-y-8">
+        <Link to={'/'}>Tela Inicial</Link>
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             Registro de Nova Empresa

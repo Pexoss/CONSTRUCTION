@@ -29,9 +29,10 @@ export class AuthController {
    */
   async registerUser(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const companyId = req.companyId!;
       const validatedData = registerUserSchema.parse(req.body);
-      const user = await authService.registerUser(companyId, validatedData);
+
+      // Só passa o objeto validado
+      const user = await authService.registerUser(validatedData);
 
       res.status(201).json({
         success: true,
@@ -80,7 +81,6 @@ export class AuthController {
       next(error);
     }
   }
-
   /**
    * GET /api/auth/me
    * Get current authenticated user

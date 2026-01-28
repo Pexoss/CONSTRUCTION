@@ -22,64 +22,42 @@ class RentalService {
     endDate: Date,
     rentalType?: RentalType
   ): number {
-    const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    const days = Math.ceil(
+      (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
 
-    if (days <= 0) {
-      return 0;
+    if (days <= 0) return 0;
+
+    if (!rentalType) {
+      throw new Error('RentalType é obrigatório para cálculo do aluguel');
     }
 
-    // Se rentalType for especificado, usar a taxa correspondente
-    if (rentalType) {
-      switch (rentalType) {
-        case 'daily':
-          return days * dailyRate;
-        case 'weekly':
-          if (weeklyRate) {
-            const weeks = Math.ceil(days / 7);
-            return weeks * weeklyRate;
-          }
-          return days * dailyRate;
-        case 'biweekly':
-          if (biweeklyRate) {
-            const biweeks = Math.ceil(days / 15);
-            return biweeks * biweeklyRate;
-          }
-          return days * dailyRate;
-        case 'monthly':
-          if (monthlyRate) {
-            const months = Math.ceil(days / 30);
-            return months * monthlyRate;
-          }
-          return days * dailyRate;
-      }
-    }
+    switch (rentalType) {
+      case 'daily':
+        return days * dailyRate;
 
-    // Lógica antiga para compatibilidade (se rentalType não especificado)
-    // If monthly rate exists and rental is >= 30 days, use monthly rate
-    if (monthlyRate && days >= 30) {
-      const months = Math.floor(days / 30);
-      const remainingDays = days % 30;
-      return months * monthlyRate + remainingDays * dailyRate;
-    }
+      case 'weekly':
+        if (!weeklyRate) {
+          throw new Error('WeeklyRate não configurado');
+        }
+        return Math.ceil(days / 7) * weeklyRate;
 
-    // If biweekly rate exists and rental is >= 15 days, use biweekly rate
-    if (biweeklyRate && days >= 15) {
-      const biweeks = Math.floor(days / 15);
-      const remainingDays = days % 15;
-      return biweeks * biweeklyRate + remainingDays * dailyRate;
-    }
+      case 'biweekly':
+        if (!biweeklyRate) {
+          throw new Error('BiweeklyRate não configurado');
+        }
+        return Math.ceil(days / 15) * biweeklyRate;
 
-    // If weekly rate exists and rental is >= 7 days, use weekly rate
-    if (weeklyRate && days >= 7) {
-      const weeks = Math.floor(days / 7);
-      const remainingDays = days % 7;
-      return weeks * weeklyRate + remainingDays * dailyRate;
-    }
+      case 'monthly':
+        if (!monthlyRate) {
+          throw new Error('MonthlyRate não configurado');
+        }
+        return Math.ceil(days / 30) * monthlyRate;
 
-    // Default to daily rate
-    return days * dailyRate;
+      default:
+        throw new Error(`RentalType inválido: ${rentalType}`);
+    }
   }
-
   /**
    * Calculate late fee
    */

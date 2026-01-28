@@ -47,14 +47,17 @@ const RentalDetailPage: React.FC = () => {
   const extendMutation = useMutation({
     mutationFn: (newReturnDate: string) =>
       rentalService.extendRental(id!, { newReturnDate }),
+
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rental', id] });
       queryClient.invalidateQueries({ queryKey: ['rentals'] });
       setServerError(null);
       setShowExtendModal(false);
     },
+
     onError: (err: any) => {
-      const message = err.response?.data?.message || "Erro ao estender período";
+      const message =
+        err.response?.data?.message || 'Erro ao estender período';
       setServerError(message);
     },
   });
@@ -122,6 +125,7 @@ const RentalDetailPage: React.FC = () => {
 
   const rental = data.data;
   const customer = typeof rental.customerId === 'object' ? rental.customerId : null;
+  console.log(rental)
 
   return (
     <Layout title="Detalhes do Aluguel" backTo="/dashboard">
@@ -446,7 +450,7 @@ const RentalDetailPage: React.FC = () => {
               </button>
               <button
                 onClick={() => extendMutation.mutate(newReturnDate)}
-                className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg"
               >
                 Estender
               </button>

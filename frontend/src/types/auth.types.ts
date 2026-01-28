@@ -45,6 +45,7 @@ export interface RegisterUserData {
   email: string;
   password: string;
   role?: UserRole;
+  companyCode:string;
 }
 
 export interface AuthResponse {
