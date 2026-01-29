@@ -847,13 +847,22 @@ const CreateRentalPage: React.FC = () => {
                             if (!addr) return;
 
                             setWorkAddress({
-                              workName: addr.workName || '',
+                              workName:
+                                addr.addressName ||
+                                (addr.type === 'main'
+                                  ? 'Endereço Principal'
+                                  : addr.type === 'billing'
+                                    ? 'Endereço de Cobrança'
+                                    : 'Outro Endereço'),
+
                               street: addr.street,
                               number: addr.number,
+                              complement: addr.complement,
                               neighborhood: addr.neighborhood,
                               city: addr.city,
                               state: addr.state,
                               zipCode: addr.zipCode,
+                              workId: addr._id, 
                             });
                           }}
                         >

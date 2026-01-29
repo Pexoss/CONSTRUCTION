@@ -103,17 +103,15 @@ class CustomerService {
   /**
    * Delete customer (soft delete by blocking)
    */
-  async deleteCustomer(companyId: string, customerId: string): Promise<boolean> {
-    const customer = await Customer.findOne({ _id: customerId, companyId });
+  async deleteCustomer(companyId: string, customerId: string): Promise<void> {
+    const result = await Customer.deleteOne({
+      _id: customerId,
+      companyId,
+    });
 
-    if (!customer) {
+    if (result.deletedCount === 0) {
       throw new Error('Customer not found');
     }
-
-    customer.isBlocked = true;
-    await customer.save();
-
-    return true;
   }
 
   /**

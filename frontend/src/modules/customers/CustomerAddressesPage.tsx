@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { customerService } from './customer.service';
@@ -9,6 +9,7 @@ const CustomerAddressesPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['customerAddresses', id],
@@ -35,10 +36,18 @@ const CustomerAddressesPage: React.FC = () => {
     onSuccess: (updatedCustomer) => {
       setAddresses(updatedCustomer.addresses ?? []);
       queryClient.invalidateQueries({ queryKey: ['customerAddresses', id] });
+      setSuccessMessage("Endereço salvo com sucesso !")
       setLoadingAddressId(null);
       setIsSaving(false);
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.group('❌ ADD ADDRESS ERROR');
+      console.error('Error object:', error);
+      console.error('Backend response:', error?.response);
+      console.error('Status:', error?.response?.status);
+      console.error('Data:', error?.response?.data);
+      console.groupEnd();
+
       setLoadingAddressId(null);
       setIsSaving(false);
     },
@@ -54,10 +63,18 @@ const CustomerAddressesPage: React.FC = () => {
     onSuccess: (updatedCustomer) => {
       setAddresses(updatedCustomer.addresses ?? []);
       queryClient.invalidateQueries({ queryKey: ['customerAddresses', id] });
+      setSuccessMessage("Endereço salvo com sucesso !")
       setLoadingAddressId(null);
       setIsSaving(false);
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.group('❌ UPDATE ADDRESS ERROR');
+      console.error('Error object:', error);
+      console.error('Backend response:', error?.response);
+      console.error('Status:', error?.response?.status);
+      console.error('Data:', error?.response?.data);
+      console.groupEnd();
+
       setLoadingAddressId(null);
       setIsSaving(false);
     },
@@ -82,6 +99,7 @@ const CustomerAddressesPage: React.FC = () => {
     setAddresses([
       ...addresses,
       {
+        addressName: '',
         type: 'main',
         street: '',
         number: '',
@@ -97,12 +115,25 @@ const CustomerAddressesPage: React.FC = () => {
   };
 
   const handleSaveAddress = (address: CustomerAddress) => {
+    console.group('📦 SAVE ADDRESS');
+    console.log('➡️ Original address (state):', address);
+
     if (address._id) {
+      console.log('✏️ Action: UPDATE');
+      console.log('🆔 Address ID:', address._id);
+      console.log('📤 Payload sent to backend:', address);
+
       updateMutation.mutate({ addressId: address._id, address });
     } else {
+      console.log('➕ Action: CREATE');
+      console.log('📤 Payload sent to backend:', address);
+
       addMutation.mutate(address);
     }
+
+    console.groupEnd();
   };
+
 
   const handleChange = (index: number, field: keyof CustomerAddress, value: any) => {
     const newAddresses = [...addresses];
@@ -135,6 +166,13 @@ const CustomerAddressesPage: React.FC = () => {
   return (
     <Layout title="Endereços do Cliente" backTo={`/customers/${id}`}>
       <div className="max-w-3xl mx-auto">
+        <Link
+          to="/customers"
+          className="text-sm text-gray-500 hover:text-gray-700 inline-flex items-center"
+        >
+          ← Voltar para Clientes
+        </Link>
+
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Endereços</h2>
           <button
@@ -150,7 +188,7 @@ const CustomerAddressesPage: React.FC = () => {
           {addresses.map((address, index) => {
             const isLoading = isAddressLoading(address._id);
             const isDeletingAddress = isDeleting(address._id);
-            
+
             return (
               <div key={address._id || `new-${index}`} className="border p-4 rounded-md bg-white relative">
                 {/* Overlay de loading */}
@@ -177,6 +215,20 @@ const CustomerAddressesPage: React.FC = () => {
                     <option value="work">Obra</option>
                     <option value="other">Outro</option>
                   </select>
+
+                  {address.type === 'work' && (
+                    <input
+                      type="text"
+                      placeholder="Nome da Obra"
+                      value={address.addressName}
+                      onChange={(e) =>
+                        handleChange(index, 'addressName', e.target.value)
+                      }
+                      className="w-full border rounded px-3 py-2"
+                      disabled={isLoading}
+                    />
+                  )}
+
                   <input
                     type="text"
                     placeholder="CEP"
@@ -250,15 +302,20 @@ const CustomerAddressesPage: React.FC = () => {
                     Padrão
                   </label>
                 </div>
+                {successMessage && (
+                  <div className="mb-4 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                    {successMessage}
+                  </div>
+                )}
+
                 <div className="flex justify-end gap-2 mt-2">
                   <button
                     onClick={() => handleSaveAddress(addresses[index])}
                     disabled={isLoading}
-                    className={`px-3 py-1.5 text-white rounded text-sm flex items-center gap-2 ${
-                      isLoading 
-                        ? 'bg-gray-400 cursor-not-allowed' 
-                        : 'bg-green-600 hover:bg-green-700'
-                    }`}
+                    className={`px-3 py-1.5 text-white rounded text-sm flex items-center gap-2 ${isLoading
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-green-600 hover:bg-green-700'
+                      }`}
                   >
                     {isLoading && !isDeletingAddress ? (
                       <>
@@ -273,11 +330,10 @@ const CustomerAddressesPage: React.FC = () => {
                     <button
                       onClick={() => deleteMutation.mutate(address._id!)}
                       disabled={isLoading}
-                      className={`px-3 py-1.5 text-white rounded text-sm flex items-center gap-2 ${
-                        isLoading 
-                          ? 'bg-gray-400 cursor-not-allowed' 
-                          : 'bg-red-600 hover:bg-red-700'
-                      }`}
+                      className={`px-3 py-1.5 text-white rounded text-sm flex items-center gap-2 ${isLoading
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : 'bg-red-600 hover:bg-red-700'
+                        }`}
                     >
                       {isDeletingAddress ? (
                         <>

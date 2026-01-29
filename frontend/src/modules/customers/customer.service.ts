@@ -22,12 +22,9 @@ export const customerService = {
     return response.data;
   },
 
-  createCustomer: async (data: CreateCustomerData) => {
-    const response = await api.post<{ success: boolean; message: string; data: Customer }>(
-      '/customers',
-      data
-    );
-    return response.data;
+  async createCustomer(data: CreateCustomerData): Promise<Customer> {
+    const response = await api.post('/customers', data);
+    return response.data.data;
   },
 
   updateCustomer: async (id: string, data: Partial<CreateCustomerData>) => {

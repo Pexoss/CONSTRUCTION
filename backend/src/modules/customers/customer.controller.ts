@@ -118,6 +118,7 @@ export class CustomerController {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
+
       await customerService.deleteCustomer(companyId, customerId);
 
       res.json({

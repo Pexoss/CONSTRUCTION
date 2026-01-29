@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 // Interface para endereços múltiplos
 export interface ICustomerAddress {
   _id?: string;
+  addressName?: string;
   type: 'main' | 'billing' | 'work' | 'other';
   street: string;
   number?: string;
@@ -32,7 +33,7 @@ export interface ICustomer extends Document {
   companyId: mongoose.Types.ObjectId;
   name: string;
   cpfCnpj: string;
-  
+
   // NOVO: Dados validados pela Receita Federal
   validated?: {
     isValidated: boolean;
@@ -41,16 +42,16 @@ export interface ICustomer extends Document {
     birthDate?: Date;
     additionalInfo?: Record<string, any>; // Outros dados da API
   };
-  
+
   email?: string;
   phone?: string;
-  
+
   // NOVO: Múltiplos endereços (substitui address único)
   addresses?: ICustomerAddress[];
-  
+
   // NOVO: Obras do cliente
   works?: ICustomerWork[];
-  
+
   notes?: string;
   isBlocked: boolean;
   blockReason?: string; // NOVO: motivo do bloqueio

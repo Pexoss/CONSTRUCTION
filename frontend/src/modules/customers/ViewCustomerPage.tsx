@@ -1,7 +1,7 @@
 // modules/customers/ViewCustomerPage.tsx
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
 import { customerService } from './customer.service';
 import { Customer, CustomerAddress } from '../../types/customer.types';
@@ -22,15 +22,27 @@ const ViewCustomerPage: React.FC = () => {
     if (data?.data) setCustomer(data.data);
   }, [data]);
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => customerService.deleteCustomer(id),
+    onSuccess: () => {
+      navigate('/customers');
+    },
+  });
+
   if (isLoading) {
     return (
       <Layout title="Visualizar Cliente" backTo="/customers">
-        <div className="flex justify-center items-center h-64 text-gray-600 dark:text-gray-400">
+        <div className="flex justify-center items-center h-64">
           Carregando...
         </div>
       </Layout>
     );
   }
+
+  const handleDelete = () => {
+    if (!customer?._id) return;
+    deleteMutation.mutate(customer._id);
+  };
 
   if (isError || !customer) {
     return (
@@ -53,6 +65,20 @@ const ViewCustomerPage: React.FC = () => {
         </Link>
       </div>
       <div className="max-w-6xl mx-auto space-y-6">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-xl font-semibold text-gray-900">
+            Cliente: {customer.name}
+          </h1>
+
+          <button
+            onClick={handleDelete}
+            disabled={deleteMutation.isPending}
+            className="px-4 py-2 text-sm bg-black hover:bg-gray-900 text-white rounded-md disabled:opacity-50"
+          >
+            {deleteMutation.isPending ? 'Excluindo...' : 'Excluir Cliente'}
+          </button>
+        </div>
+
         {/* Layout principal: duas colunas no desktop */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Informações do Cliente */}
@@ -111,14 +137,17 @@ const ViewCustomerPage: React.FC = () => {
                     className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors"
                   >
                     <p className="text-sm font-medium text-gray-900 mb-3">
-                      {address.type === 'main'
-                        ? 'Principal'
-                        : address.type === 'billing'
-                          ? 'Cobrança'
-                          : address.type === 'work'
-                            ? address.workName || `Obra ${index + 1}`
-                            : `Outro ${index + 1}`}
+                      {address.addressName?.trim()
+                        ? address.addressName
+                        : address.type === 'main'
+                          ? 'Principal'
+                          : address.type === 'billing'
+                            ? 'Cobrança'
+                            : address.type === 'work'
+                              ? `Obra ${index + 1}`
+                              : `Outro ${index + 1}`}
                     </p>
+
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-gray-600 text-sm">
                       <div>
                         <span className="font-medium text-gray-700">Bairro:</span> {address.neighborhood || '-'}

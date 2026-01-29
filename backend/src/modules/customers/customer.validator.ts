@@ -7,6 +7,7 @@ export const createCustomerSchema = z.object({
   phone: z.string().optional(),
   addresses: z.array(
     z.object({
+      addressName: z.string().min(1, 'Nome do endereço é obrigatório'),
       street: z.string().optional(),
       city: z.string().optional(),
       state: z.string().optional(),
