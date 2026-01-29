@@ -27,6 +27,7 @@ export const registerUserSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   role: z.nativeEnum(UserRole).default(UserRole.VIEWER),
+  companyCode: z.string().min(1, 'Company code is required'),
 });
 
 export const loginSchema = z.object({

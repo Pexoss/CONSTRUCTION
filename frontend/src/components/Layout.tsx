@@ -30,6 +30,9 @@ const Layout: React.FC<LayoutProps> = ({
     }
   };
 
+  const pathSegments = location.pathname.split('/').filter(Boolean);
+  const currentTitle = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : 'Dashboard';
+
   const canGoBack = location.key !== 'default' || backTo;
 
   return (
@@ -44,31 +47,9 @@ const Layout: React.FC<LayoutProps> = ({
                 className="text-xl font-semibold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                 aria-label="Ir para o dashboard"
               >
-                Sistema de Gestão de Aluguel
+
+                Dashboard
               </Link>
-              {canGoBack && showBackButton && (
-                <button
-                  onClick={handleBack}
-                  className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                  aria-label={backLabel}
-                >
-                  <svg
-                    className="w-5 h-5 mr-1"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M10 19l-7-7m0 0l7-7m-7 7h18"
-                    />
-                  </svg>
-                  {backLabel}
-                </button>
-              )}
             </div>
             <div className="flex items-center space-x-4">
               <ThemeToggle />
@@ -106,18 +87,16 @@ const Layout: React.FC<LayoutProps> = ({
                     to="/dashboard"
                     className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
                   >
-                    Dashboard
+                    Início
                   </Link>
                 </li>
-                {title && (
-                  <>
+                {title && title !== "" && (
+                  <ol className="flex items-center space-x-2">
                     <li>
-                      <svg
-                        className="w-5 h-5 text-gray-400"
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                        aria-hidden="true"
-                      >
+                      <Link to="/dashboard"> </Link>
+                    </li>
+                    <li>
+                      <svg className="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
                         <path
                           fillRule="evenodd"
                           d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
@@ -126,11 +105,9 @@ const Layout: React.FC<LayoutProps> = ({
                       </svg>
                     </li>
                     <li>
-                      <span className="text-gray-900 dark:text-white font-medium">
-                        {title}
-                      </span>
+                      <span className="text-gray-900 dark:text-white font-medium">{title}</span>
                     </li>
-                  </>
+                  </ol>
                 )}
               </ol>
             </nav>

@@ -10,7 +10,7 @@ router.post('/login', authController.login.bind(authController));
 router.post('/refresh', authController.refreshToken.bind(authController));
 
 // Protected routes
-router.post('/register/user', authMiddleware, authController.registerUser.bind(authController));
+router.post('/register/user', authController.registerUser.bind(authController));
 router.get('/me', authMiddleware, authController.getMe.bind(authController));
 
 export default router;

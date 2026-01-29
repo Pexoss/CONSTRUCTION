@@ -19,11 +19,12 @@ export const authService = {
   /**
    * Register a new user within a company
    */
-  registerUser: async (data: RegisterUserData): Promise<{ success: boolean; data: any }> => {
+  registerUser: async (data: RegisterUserData & { companyCode: string }): Promise<{ success: boolean; data: any }> => {
+    console.log('Sending to backend:', data);
     const response = await api.post('/auth/register/user', data);
     return response.data;
   },
-
+  
   /**
    * Login user
    */

@@ -58,10 +58,15 @@ export const rentalService = {
   },
 
   extendRental: async (id: string, data: ExtendRentalData) => {
-    const response = await api.patch<{ success: boolean; message: string; data: Rental }>(
+    const response = await api.patch<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(
       `/rentals/${id}/extend`,
       data
     );
+
     return response.data;
   },
 

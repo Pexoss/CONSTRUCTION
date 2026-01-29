@@ -1,6 +1,7 @@
 export type PaymentStatus = 'pending' | 'paid' | 'overdue';
 export type SubscriptionPlan = 'basic' | 'pro' | 'enterprise';
 
+
 export interface SubscriptionPayment {
   _id: string;
   companyId: string;
@@ -16,7 +17,7 @@ export interface SubscriptionPayment {
 }
 
 export interface CreatePaymentData {
-  companyId?: string;
+  companyId: string;
   amount: number;
   plan: SubscriptionPlan;
   dueDate: string;
