@@ -4,17 +4,24 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { rentalService } from './rental.service';
 import { customerService } from '../customers/customer.service';
 import { useItems } from '../../hooks/useInventory';
-import { CreateRentalData, RentalService, RentalWorkAddress } from '../../types/rental.types';
+import { CreateRentalData, RentalService, RentalTypeAPI, RentalTypeUI, RentalWorkAddress } from '../../types/rental.types';
 import { Item } from '../../types/inventory.types';
 import Layout from '../../components/Layout';
 import axios from 'axios';
 import { filterReferenceElements } from 'recharts/types/state/selectors/axisSelectors';
 
+export const rentalTypeMapper: Record<RentalTypeUI, RentalTypeAPI> = {
+  diario: 'daily',
+  semanal: 'weekly',
+  quinzenal: 'biweekly',
+  mensal: 'monthly',
+};
+
 interface SelectedItem {
   itemId: string;
   quantity: number;
   unitId?: string;
-  rentalType?: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+  rentalType?: RentalTypeUI;
   item: Item;
 }
 
@@ -59,32 +66,37 @@ const CreateRentalPage: React.FC = () => {
     quantity: number,
     startDate: Date,
     endDate: Date,
-    rentalType?: 'diario' | 'semanal' | 'quinzenal' | 'mensal'
+    rentalType: 'diario' | 'semanal' | 'quinzenal' | 'mensal'
   ) => {
     if (!startDate || !endDate) return 0;
 
-    let price = 0;
+    const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    const weeks = Math.ceil(days / 7);
+    const biweeks = Math.ceil(days / 15);
+    const months = Math.ceil(days / 30);
+
+    let pricePerUnit = 0;
 
     switch (rentalType) {
-      case 'mensal':
-        price = (item.pricing.monthlyRate ?? item.pricing.dailyRate) * quantity;
-        break;
-      case 'quinzenal':
-        price = (item.pricing.biweeklyRate ?? item.pricing.dailyRate) * quantity;
-        break;
-      case 'semanal':
-        price = (item.pricing.weeklyRate ?? item.pricing.dailyRate) * quantity;
-        break;
       case 'diario':
-      default:
-        const days = Math.ceil(
-          (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-        );
-        price = (days > 0 ? days : 1) * (item.pricing.dailyRate ?? 0) * quantity;
-        break;
-    }
+        pricePerUnit = item.pricing.dailyRate ?? 0;
+        return pricePerUnit * days * quantity;
 
-    return price;
+      case 'semanal':
+        pricePerUnit = item.pricing.weeklyRate ?? item.pricing.dailyRate ?? 0;
+        return pricePerUnit * weeks * quantity;
+
+      case 'quinzenal':
+        pricePerUnit = item.pricing.biweeklyRate ?? item.pricing.dailyRate ?? 0;
+        return pricePerUnit * biweeks * quantity;
+
+      case 'mensal':
+        pricePerUnit = item.pricing.monthlyRate ?? item.pricing.dailyRate ?? 0;
+        return pricePerUnit * months * quantity;
+
+      default:
+        return 0;
+    }
   };
 
   // Calcula o resumo completo do aluguel
@@ -105,7 +117,7 @@ const CreateRentalPage: React.FC = () => {
         selectedItem.quantity,
         startDate,
         endDate,
-        rentalType // passa o tipo de aluguel aqui
+        rentalType ?? 'diario'
       );
       equipmentSubtotal += itemPrice;
       deposit += (selectedItem.item.pricing.depositAmount ?? 0) * selectedItem.quantity;
@@ -218,12 +230,16 @@ const CreateRentalPage: React.FC = () => {
 
     const data: CreateRentalData = {
       customerId: selectedCustomer,
-      items: selectedItems.map((si) => ({
-        itemId: si.itemId,
-        unitId: si.item.trackingType === 'unit' ? si.unitId : undefined,
-        quantity: si.quantity,
-        rentalType: si.rentalType || 'daily',
-      })),
+      items: selectedItems.map((si) => {
+        const uiType = si.rentalType ?? rentalType; // fallback da tela
+
+        return {
+          itemId: si.itemId,
+          unitId: si.item.trackingType === 'unit' ? si.unitId : undefined,
+          quantity: si.quantity,
+          rentalType: rentalTypeMapper[uiType],
+        };
+      }),
 
       services: servicesToSend.length > 0 ? servicesToSend : undefined,
       workAddress: workAddress || undefined,
@@ -862,7 +878,7 @@ const CreateRentalPage: React.FC = () => {
                               city: addr.city,
                               state: addr.state,
                               zipCode: addr.zipCode,
-                              workId: addr._id, 
+                              workId: addr._id,
                             });
                           }}
                         >

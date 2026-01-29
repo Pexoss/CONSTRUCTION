@@ -196,16 +196,17 @@ class RentalService {
     const totalSubtotal = equipmentSubtotal + servicesSubtotal;
     const discount = data.pricing?.discount || 0;
 
+    const lateFee = 0; 
     const pricing: IRentalPricing = {
-      equipmentSubtotal, // NOVO
-      servicesSubtotal, // NOVO
+      equipmentSubtotal,
+      servicesSubtotal,
       subtotal: totalSubtotal,
       deposit: totalDeposit,
       discount,
-      discountReason: data.pricing?.discountReason, // NOVO
-      discountApprovedBy: data.pricing?.discountApprovedBy ? new mongoose.Types.ObjectId(data.pricing.discountApprovedBy) : undefined, // NOVO
-      lateFee: 0,
-      total: totalSubtotal - discount,
+      discountReason: data.pricing?.discountReason,
+      discountApprovedBy: data.pricing?.discountApprovedBy ? new mongoose.Types.ObjectId(data.pricing.discountApprovedBy) : undefined,
+      lateFee,
+      total: totalSubtotal + totalDeposit - discount + lateFee,
     };
 
     // NOVO: Preparar endereço da obra se fornecido
