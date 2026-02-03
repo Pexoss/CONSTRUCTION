@@ -79,6 +79,30 @@ export interface RentalWorkAddress {
   workId?: string;
 }
 
+export type RentalStatusChangeApproval =
+  | {
+    hasPending: false;
+  }
+  | {
+    hasPending: true;
+    request: {
+      id: string;
+      fromStatus: string;
+      toStatus: string;
+      requestedBy: {
+        name: string;
+      };
+      createdAt: string;
+    };
+  };
+
+export interface UpdateRentalStatusResponse {
+  rental: Rental;
+  requiresApproval?: boolean;
+  message?: string;
+}
+
+
 export interface Rental {
   _id: string;
   companyId: string;

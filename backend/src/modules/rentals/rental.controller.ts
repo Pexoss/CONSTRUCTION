@@ -9,6 +9,8 @@ import {
 } from './rental.validator';
 import { Rental } from './rental.model';
 import { Customer } from '../customers/customer.model';
+import { Types } from 'mongoose';
+
 
 export class RentalController {
   /**
@@ -97,27 +99,32 @@ export class RentalController {
    * Update rental status
    * PATCH /api/rentals/:id/status
    */
-  async updateRentalStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async updateRentalStatus(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
       const { status } = updateRentalStatusSchema.parse(req.body);
-      const rental = await rentalService.updateRentalStatus(companyId, rentalId, status, userId);
 
-      if (!rental) {
-        res.status(404).json({
-          success: false,
-          message: 'Rental not found',
-        });
+      const result = await rentalService.updateRentalStatus(
+        companyId,
+        rentalId,
+        status,
+        userId
+      );
+      
+      // se for solicitação de aprovação
+      if (result.requiresApproval) {
+        res.status(202).json(result);
         return;
       }
 
-      res.json({
-        success: true,
-        message: 'Rental status updated successfully',
-        data: rental,
-      });
+      // sucesso normal
+      res.status(200).json(result);
     } catch (error) {
       next(error);
     }
@@ -408,7 +415,6 @@ export class RentalController {
       next(error);
     }
   }
-
   /**
    * NOVO: Alterar tipo de aluguel
    * POST /api/rentals/:id/change-rental-type

@@ -1,12 +1,13 @@
 import { Rental } from './rental.model';
 import { Item } from '../inventory/item.model';
 import { ItemMovement } from '../inventory/itemMovement.model';
-import { IRental, RentalStatus, IRentalItem, IRentalPricing, IRentalService, IRentalWorkAddress, IRentalChangeHistory, IRentalPendingApproval, RentalType, RentalDetails } from './rental.types';
+import { IRental, RentalStatus, IRentalItem, IRentalPricing, IRentalService, IRentalWorkAddress, IRentalChangeHistory, IRentalPendingApproval, RentalType, RentalDetails, UpdateRentalStatusResponse } from './rental.types';
 import mongoose from 'mongoose';
 import { ICustomer } from '../customers/customer.types';
 import { Customer } from '../customers/customer.model';
 import { RoleType } from '@/shared/constants/roles';
 import { canApplyDiscount, canUpdateRentalStatus } from '../../helpers/UserPermission';
+import { notificationService } from '../notification/notification.service'
 import { User } from '../users/user.model';
 class RentalService {
   /**
@@ -196,7 +197,7 @@ class RentalService {
     const totalSubtotal = equipmentSubtotal + servicesSubtotal;
     const discount = data.pricing?.discount || 0;
 
-    const lateFee = 0; 
+    const lateFee = 0;
     const pricing: IRentalPricing = {
       equipmentSubtotal,
       servicesSubtotal,
@@ -344,27 +345,51 @@ class RentalService {
     rentalId: string,
     status: RentalStatus,
     userId: string
-  ): Promise<IRental | null> {
+  ): Promise<UpdateRentalStatusResponse> {
+
     const rental = await Rental.findOne({ _id: rentalId, companyId });
-    if (!rental) throw new Error('Rental not found');
+    if (!rental) {
+      throw new Error('Rental not found');
+    }
 
     const user = await User.findById(userId);
-    if (!user) throw new Error('Usuário não encontrado');
+    if (!user) {
+      throw new Error('Usuário não encontrado');
+    }
 
-    // verifica se o usuário pode alterar o status
+    // funcionário → cria solicitação
     if (!canUpdateRentalStatus(user.role as RoleType)) {
-      throw new Error('Somente o admin podem alterar o status do aluguel');
+      await notificationService.notifyStatusChangeRequest({
+        title: "Solicitação de alteração de status",
+        message: `O funcionário ${user.name} solicitou alterar o status do aluguel para ${status}`,
+        companyId,
+        createdByUserId: userId,
+        referenceId: rentalId,
+        requestedStatus: status,
+      });
+
+      return {
+        success: true,
+        message: "Solicitação enviada para aprovação",
+        data: rental,
+        requiresApproval: true,
+      };
     }
     const oldStatus = rental.status;
 
-    //trava mudança inválida
-    if (oldStatus === status) return rental;
+    // trava mudança inválida
+    if (oldStatus === status) {
+      return {
+        success: true,
+        message: "Status já estava definido",
+        data: rental
+      };
+    }
 
     rental.status = status;
 
     /**
-     *RESERVED → ACTIVE
-     * reserved → rented
+     * RESERVED → ACTIVE
      */
     if (oldStatus === 'reserved' && status === 'active') {
       rental.dates.pickupActual = new Date();
@@ -384,8 +409,7 @@ class RentalService {
     }
 
     /**
-     *ACTIVE / OVERDUE → COMPLETED
-     * rented → available
+     * ACTIVE / OVERDUE → COMPLETED
      */
     if (
       (oldStatus === 'active' || oldStatus === 'overdue') &&
@@ -409,7 +433,6 @@ class RentalService {
 
     /**
      * RESERVED → CANCELLED
-     * reserved → available
      */
     if (oldStatus === 'reserved' && status === 'cancelled') {
       for (const item of rental.items) {
@@ -427,8 +450,14 @@ class RentalService {
     }
 
     await rental.save();
-    return rental;
+
+    return {
+      success: true,
+      message: "Status alterado com sucesso",
+      data: rental
+    };
   }
+
 
   /**
    * Extend rental period

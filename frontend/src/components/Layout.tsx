@@ -1,7 +1,10 @@
-import React from 'react';
+import { useEffect, useState } from "react";
+import { Bell } from "lucide-react";
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import ThemeToggle from './ThemeToggle';
+import { NotificationsDrawer } from "./NotificationsDrawer";
+import { useNotifications } from "hooks/useNotifications";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -21,6 +24,8 @@ const Layout: React.FC<LayoutProps> = ({
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const { unreadCount, loadUnreadCount } = useNotifications();
 
   const handleBack = () => {
     if (backTo) {
@@ -30,9 +35,12 @@ const Layout: React.FC<LayoutProps> = ({
     }
   };
 
+  useEffect(() => {
+    loadUnreadCount();
+  }, [loadUnreadCount]);
+
   const pathSegments = location.pathname.split('/').filter(Boolean);
   const currentTitle = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : 'Dashboard';
-
   const canGoBack = location.key !== 'default' || backTo;
 
   return (
@@ -53,6 +61,25 @@ const Layout: React.FC<LayoutProps> = ({
             </div>
             <div className="flex items-center space-x-4">
               <ThemeToggle />
+              <NotificationsDrawer
+                open={isNotificationsOpen}
+                onClose={() => setIsNotificationsOpen(false)}
+              />
+              {user?.role === "admin" || user?.role === "superadmin" ? (
+                <button
+                  onClick={() => setIsNotificationsOpen(true)}
+                  className="relative text-gray-600 dark:text-gray-300 hover:text-indigo-600"
+                >
+                  <Bell size={22} />
+
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs w-5 h-5 flex items-center justify-center rounded-full">
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+              ) : null}
+
               <div className="flex items-center space-x-2">
                 <span className="text-sm text-gray-700 dark:text-gray-300">
                   {user?.name}

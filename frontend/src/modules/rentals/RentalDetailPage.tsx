@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { rentalService } from './rental.service';
 import { RentalStatus, ChecklistData } from '../../types/rental.types';
 import Layout from '../../components/Layout';
+import { SuccessToast } from '../../components/SuccessToast';
+import { useAuth } from 'hooks/useAuth';
 
 const RentalDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -28,20 +30,37 @@ const RentalDetailPage: React.FC = () => {
     enabled: !!id,
   });
 
+  const { data: approvalData } = useQuery({
+    queryKey: ['rental-status-change', id],
+    queryFn: () => rentalService.getPendingStatusChange(id!),
+    enabled: !!id,
+  });
+
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+
   const updateStatusMutation = useMutation({
-    mutationFn: (status: RentalStatus) => rentalService.updateRentalStatus(id!, { status }),
-    onSuccess: () => {
+    mutationFn: (status: RentalStatus) =>
+      rentalService.updateRentalStatus(id!, { status }),
+
+    onSuccess: (response) => {
+      setShowStatusModal(false);
+      setServerError(null);
+
+      // Se a alteração precisa de aprovação, mostra o toast
+      if ('requiresApproval' in response) {
+        setShowSuccessToast(true);
+
+        // Fecha o toast automaticamente após 5s
+        setTimeout(() => setShowSuccessToast(false), 5000);
+        return;
+      }
+
+      // status alterado de verdade
       queryClient.invalidateQueries({ queryKey: ['rental', id] });
       queryClient.invalidateQueries({ queryKey: ['rentals'] });
       queryClient.invalidateQueries({ queryKey: ['items'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      setServerError(null); // limpa erro se sucesso
-      setShowStatusModal(false);
-    },
-    onError: (err: any) => {
-      const message = err.response?.data?.message || "Erro ao atualizar status";
-      setServerError(message);
-    },
+    }
   });
 
   const extendMutation = useMutation({
@@ -124,11 +143,20 @@ const RentalDetailPage: React.FC = () => {
   }
 
   const rental = data.data;
+  const pendingRequest =
+    approvalData?.hasPending ? approvalData.request : null;
   const customer = typeof rental.customerId === 'object' ? rental.customerId : null;
-  console.log(rental)
 
   return (
     <Layout title="Detalhes do Aluguel" backTo="/dashboard">
+      {showSuccessToast && (
+        <SuccessToast
+          onClose={() => setShowSuccessToast(false)}
+          message="Sua Solicitação Foi Enviada Com Sucesso!"
+          description="Os administradores vão cuidar disso."
+        />
+      )}
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Cabeçalho */}
         <div className="mb-6">
@@ -139,7 +167,6 @@ const RentalDetailPage: React.FC = () => {
             Voltar para Aluguéis
           </Link>
         </div>
-
         {/* Card Principal */}
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
           <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-6">
