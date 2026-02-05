@@ -99,23 +99,23 @@ const RentalsPage: React.FC = () => {
     });
 
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white">
             {selectedDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
           </h2>
-          <div className="flex gap-2">
+          <div className="flex gap-2 w-full sm:w-auto">
             <button
               onClick={() =>
                 setSelectedDate(new Date(year, month - 1, 1))
               }
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              className="flex-1 sm:flex-none px-3 py-1.5 sm:py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             >
               ←
             </button>
             <button
               onClick={() => setSelectedDate(new Date())}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              className="flex-1 sm:flex-none px-3 py-1.5 sm:py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             >
               Hoje
             </button>
@@ -123,22 +123,23 @@ const RentalsPage: React.FC = () => {
               onClick={() =>
                 setSelectedDate(new Date(year, month + 1, 1))
               }
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              className="flex-1 sm:flex-none px-3 py-1.5 sm:py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             >
               →
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-7 gap-2">
+        <div className="grid grid-cols-7 gap-1 sm:gap-2">
           {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day) => (
-            <div key={day} className="text-center font-semibold text-gray-700 py-2">
-              {day}
+            <div key={day} className="text-center text-xs sm:text-sm font-semibold text-gray-700 dark:text-gray-300 py-2">
+              <span className="hidden sm:inline">{day}</span>
+              <span className="sm:hidden">{day.charAt(0)}</span>
             </div>
           ))}
           {days.map((date, index) => {
             if (!date) {
-              return <div key={index} className="h-24 border border-gray-200 rounded-lg"></div>;
+              return <div key={index} className="h-20 sm:h-24 border border-gray-200 dark:border-gray-700 rounded-lg"></div>;
             }
             const dateStr = date.toDateString();
             const dayRentals = rentalsByDate[dateStr] || [];
@@ -147,22 +148,22 @@ const RentalsPage: React.FC = () => {
             return (
               <div
                 key={index}
-                className={`h-24 border border-gray-200 rounded-lg p-2 ${isToday ? 'bg-blue-50 border-blue-300' : ''
+                className={`h-20 sm:h-24 border rounded-lg p-1 sm:p-2 ${isToday ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700' : 'border-gray-200 dark:border-gray-700'
                   }`}
               >
-                <div className="text-sm font-medium mb-1">{date.getDate()}</div>
-                <div className="space-y-1">
+                <div className="text-xs sm:text-sm font-medium mb-1">{date.getDate()}</div>
+                <div className="space-y-0.5 sm:space-y-1 overflow-hidden">
                   {dayRentals.slice(0, 2).map((rental) => (
                     <div
                       key={rental._id}
-                      className={`text-xs p-1.5 rounded truncate ${getStatusColor(rental.status)}`}
+                      className={`text-[10px] sm:text-xs p-1 sm:p-1.5 rounded truncate ${getStatusColor(rental.status)}`}
                       title={rental.rentalNumber}
                     >
                       {rental.rentalNumber}
                     </div>
                   ))}
                   {dayRentals.length > 2 && (
-                    <div className="text-xs text-gray-500">+{dayRentals.length - 2}</div>
+                    <div className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">+{dayRentals.length - 2}</div>
                   )}
                 </div>
               </div>
@@ -173,19 +174,20 @@ const RentalsPage: React.FC = () => {
     );
   };
 
+  // Layout principal ajustado
   return (
     <Layout title="Aluguéis e Reservas" backTo="/dashboard">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex justify-between items-center">
+      {/* Header - Corrigido espaçamento */}
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Aluguéis e Reservas</h1>
-              <p className="mt-1 text-sm text-gray-600">Gerenciar aluguéis e reservas</p>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Aluguéis e Reservas</h1>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Gerenciar aluguéis e reservas</p>
             </div>
             <Link
               to="/rentals/new"
-              className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+              className="mt-2 sm:mt-0 w-full sm:w-auto bg-gray-800 hover:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 dark:focus:ring-offset-gray-900 text-center active:bg-gray-900 dark:active:bg-gray-500"
             >
               + Novo Aluguel
             </Link>
@@ -194,25 +196,25 @@ const RentalsPage: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="flex gap-4 items-center">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 sm:mt-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
             <div className="flex gap-2">
               <button
                 onClick={() => setViewMode('list')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${viewMode === 'list'
-                  ? 'bg-gray-800 text-white focus:ring-gray-500'
-                  : 'border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-400'
-                  }`}
+                className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${viewMode === 'list'
+                  ? 'bg-gray-800 dark:bg-gray-700 text-white focus:ring-gray-500 dark:focus:ring-gray-400'
+                  : 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:ring-gray-400 dark:focus:ring-gray-500'
+                  } active:scale-95`}
               >
                 Lista
               </button>
               <button
                 onClick={() => setViewMode('calendar')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${viewMode === 'calendar'
-                  ? 'bg-gray-800 text-white focus:ring-gray-500'
-                  : 'border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-400'
-                  }`}
+                className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${viewMode === 'calendar'
+                  ? 'bg-gray-800 dark:bg-gray-700 text-white focus:ring-gray-500 dark:focus:ring-gray-400'
+                  : 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:ring-gray-400 dark:focus:ring-gray-500'
+                  } active:scale-95`}
               >
                 Calendário
               </button>
@@ -220,7 +222,7 @@ const RentalsPage: React.FC = () => {
             <select
               value={filters.status || ''}
               onChange={(e) => handleFilterChange('status', e.target.value || undefined)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+              className="w-full sm:w-auto border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 dark:focus:border-gray-500"
             >
               <option value="">Todos os status</option>
               <option value="reserved">Reservado</option>
@@ -234,107 +236,112 @@ const RentalsPage: React.FC = () => {
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+      <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 mt-4 sm:mt-6 pb-6">
         {viewMode === 'calendar' ? (
           renderCalendarView()
         ) : (
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                    Número
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                    Cliente
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                    Itens
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                    Período
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                    Valor Total
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
-                    Ações
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {rentals.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
-                      Nenhum aluguel encontrado
-                    </td>
-                  </tr>
-                ) : (
-                  rentals.map((rental) => {
-                    const customer =
-                      typeof rental.customerId === 'object'
-                        ? rental.customerId
-                        : { name: 'Cliente' };
-                    return (
-                      <tr key={rental._id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">
-                            {rental.rentalNumber}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{customer.name}</div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="text-sm text-gray-500">
-                            {rental.items.length} item(ns)
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-600">
-                            {new Date(rental.dates.pickupScheduled).toLocaleDateString('pt-BR')} -{' '}
-                            {new Date(rental.dates.returnScheduled).toLocaleDateString('pt-BR')}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">
-                            R$ {rental.pricing.total.toFixed(2)}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span
-                            className={`px-3 py-1 inline-flex text-xs leading-5 font-medium rounded-full border ${getStatusColor(
-                              rental.status
-                            )}`}
-                          >
-                            {getStatusLabel(rental.status)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <Link
-                            to={`/rentals/${rental._id}`}
-                            className="text-gray-700 hover:text-gray-900 font-medium transition-colors"
-                          >
-                            Ver Detalhes
-                          </Link>
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            {/* Container com scroll horizontal para mobile */}
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <div className="inline-block min-w-full align-middle px-2 sm:px-0">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-700">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                        Número
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                        Cliente
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                        Itens
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                        Período
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                        Valor
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                        Status
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
+                        Ações
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    {rentals.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 sm:px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                          Nenhum aluguel encontrado
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                    ) : (
+                      rentals.map((rental) => {
+                        const customer =
+                          typeof rental.customerId === 'object'
+                            ? rental.customerId
+                            : { name: 'Cliente' };
+                        return (
+                          <tr key={rental._id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                {rental.rentalNumber}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-900 dark:text-white">{customer.name}</div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="text-sm text-gray-500 dark:text-gray-300">
+                                {rental.items.length} item(ns)
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-600 dark:text-gray-300">
+                                {new Date(rental.dates.pickupScheduled).toLocaleDateString('pt-BR')} -{' '}
+                                {new Date(rental.dates.returnScheduled).toLocaleDateString('pt-BR')}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                R$ {rental.pricing.total.toFixed(2)}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <span
+                                className={`px-3 py-1 inline-flex text-xs leading-5 font-medium rounded-full border ${getStatusColor(
+                                  rental.status
+                                )}`}
+                              >
+                                {getStatusLabel(rental.status)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
+                              <Link
+                                to={`/rentals/${rental._id}`}
+                                className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors"
+                              >
+                                Ver Detalhes
+                              </Link>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
 
         {/* Pagination */}
         {viewMode === 'list' && pagination && pagination.totalPages > 1 && (
-          <div className="mt-6 bg-white rounded-lg border border-gray-200 p-4">
-            <div className="flex justify-between items-center">
-              <div className="text-sm text-gray-600">
+          <div className="mt-4 sm:mt-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="text-sm text-gray-600 dark:text-gray-400 text-center sm:text-left">
                 Mostrando {((pagination.page - 1) * pagination.limit) + 1} a{' '}
                 {Math.min(pagination.page * pagination.limit, pagination.total)} de {pagination.total}{' '}
                 aluguéis
@@ -343,14 +350,14 @@ const RentalsPage: React.FC = () => {
                 <button
                   onClick={() => setFilters((prev) => ({ ...prev, page: prev.page! - 1 }))}
                   disabled={pagination.page === 1}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:bg-gray-100 dark:active:bg-gray-500"
                 >
                   Anterior
                 </button>
                 <button
                   onClick={() => setFilters((prev) => ({ ...prev, page: prev.page! + 1 }))}
                   disabled={pagination.page >= pagination.totalPages}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:bg-gray-100 dark:active:bg-gray-500"
                 >
                   Próxima
                 </button>
