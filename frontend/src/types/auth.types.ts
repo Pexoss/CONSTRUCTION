@@ -24,7 +24,7 @@ export interface LoginCredentials {
 
 export interface RegisterCompanyData {
   companyName: string;
-  cnpj: string;
+  cnpj?: string;
   email: string;
   phone?: string;
   code?: string;
@@ -56,7 +56,7 @@ export interface AuthResponse {
       _id: string;
       name: string;
       email: string;
-      cnpj: string;
+      cnpj?: string;
       code: string;
     };
     user: User;

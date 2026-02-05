@@ -4,7 +4,7 @@ import { UserRole } from '../../shared/constants/roles';
 export const registerCompanySchema = z.object({
   // Company data
   companyName: z.string().min(2, 'Company name must be at least 2 characters'),
-  cnpj: z.string().regex(/^\d{14}$/, 'CNPJ must have exactly 14 digits'),
+  cnpj: z.string().regex(/^\d{14}$/, 'CNPJ must have exactly 14 digits').optional(),
   email: z.string().email('Invalid email format'),
   phone: z.string().optional(),
   address: z

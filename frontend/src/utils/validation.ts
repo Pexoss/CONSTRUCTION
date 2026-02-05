@@ -8,7 +8,13 @@ export const loginSchema = z.object({
 
 export const registerCompanySchema = z.object({
   companyName: z.string().min(2, 'Nome da empresa deve ter pelo menos 2 caracteres'),
-  cnpj: z.string().regex(/^\d{14}$/, 'CNPJ deve ter exatamente 14 dígitos'),
+  cnpj: z
+    .string()
+    .optional()
+    .refine(
+      (value) => !value || /^\d{14}$/.test(value),
+      { message: 'CNPJ deve ter exatamente 14 dígitos' }
+    ),
   email: z.string().email('Email inválido'),
   phone: z.string().optional(),
   address: z

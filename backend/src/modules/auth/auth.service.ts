@@ -8,7 +8,7 @@ import mongoose from 'mongoose';
 
 export interface RegisterCompanyData {
   companyName: string;
-  cnpj: string;
+  cnpj?: string;
   email: string;
   phone?: string;
   address?: {
@@ -51,7 +51,7 @@ class AuthService {
 
     // Verifica se empresa já existe
     const existingCompany = await Company.findOne({
-      $or: [{ cnpj: data.cnpj.replace(/\D/g, '') }, { email: data.email }],
+      $or: [{ cnpj: data.cnpj?.replace(/\D/g, '') }, { email: data.email }],
     });
     if (existingCompany) throw new Error('Company with this CNPJ or email already exists');
 
@@ -62,7 +62,7 @@ class AuthService {
     // Cria empresa
     const company = await Company.create({
       name: data.companyName,
-      cnpj: data.cnpj.replace(/\D/g, ''),
+      cnpj: data.cnpj?.replace(/\D/g, ''),
       email: data.email,
       phone: data.phone,
       code,
