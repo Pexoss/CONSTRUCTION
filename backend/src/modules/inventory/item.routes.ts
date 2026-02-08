@@ -10,6 +10,7 @@ router.use(authMiddleware);
 router.use(tenantMiddleware);
 
 // Items routes
+router.get('/items/summary', itemController.getInformationsItensController.bind(itemController));
 router.post('/items', itemController.createItem.bind(itemController));
 router.get('/items', itemController.getItems.bind(itemController));
 router.get('/items/low-stock', itemController.getLowStockItems.bind(itemController));
@@ -19,8 +20,7 @@ router.delete('/items/:id', itemController.deleteItem.bind(itemController));
 router.post('/items/:id/adjust-quantity', itemController.adjustQuantity.bind(itemController));
 router.get('/items/:id/movements', itemController.getItemMovements.bind(itemController));
 router.post('/items/:id/calculate-depreciation', itemController.calculateDepreciation.bind(itemController));// Items routes
-router.get('/items/:id/operational-status',itemController.getItemOperationalStatus.bind(itemController));
-
+router.get('/items/:id/operational-status', itemController.getItemOperationalStatus.bind(itemController));
 
 
 // Categories routes

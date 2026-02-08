@@ -31,7 +31,7 @@ const CustomerSchema = new Schema<ICustomer>(
       birthDate: Date,
       additionalInfo: Schema.Types.Mixed, // Outros dados da API
     },
-    
+
     email: {
       type: String,
       lowercase: true,
@@ -42,9 +42,15 @@ const CustomerSchema = new Schema<ICustomer>(
       type: String,
       trim: true,
     },
-    
+
     // NOVO: Array de endereços (substitui o campo address único)
     addresses: [{
+      addressName: {
+        type: String,
+        required: function () {
+          return this.type === 'work';
+        },
+      },
       type: {
         type: String,
         enum: ['main', 'billing', 'work', 'other'],
@@ -75,7 +81,7 @@ const CustomerSchema = new Schema<ICustomer>(
       },
       notes: String,
     }],
-    
+
     // NOVO: Obras do cliente
     works: [{
       workId: {
@@ -107,7 +113,7 @@ const CustomerSchema = new Schema<ICustomer>(
       }],
       notes: String,
     }],
-    
+
     notes: {
       type: String,
       trim: true,

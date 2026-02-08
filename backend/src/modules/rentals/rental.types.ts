@@ -16,6 +16,11 @@ export interface IRentalService {
   notes?: string;
 }
 
+export type UpdateRentalStatusResult = | IRental | {
+  requiresApproval: true;
+  currentStatus: RentalStatus;
+};
+
 // NOVO: Interface para endereço da obra
 export interface IRentalWorkAddress {
   street: string;
@@ -68,7 +73,7 @@ export interface IRentalDates {
   pickupActual?: Date;
   returnScheduled: Date;
   returnActual?: Date;
-  
+
   // NOVO: Datas de fechamento periódico
   billingCycle?: BillingCycle;
   lastBillingDate?: Date;
@@ -95,27 +100,34 @@ export interface IRentalChecklist {
   completedBy?: mongoose.Types.ObjectId;
 }
 
+export interface UpdateRentalStatusResponse {
+  success: boolean;
+  message: string;
+  data: IRental;
+  requiresApproval?: boolean;
+}
+
 export interface IRental extends Document {
   companyId: mongoose.Types.ObjectId;
   rentalNumber?: string;
   customerId: mongoose.Types.ObjectId;
   items: IRentalItem[];
-  
+
   // NOVO: Serviços adicionais
   services?: IRentalService[];
-  
+
   // NOVO: Endereço da obra
   workAddress?: IRentalWorkAddress;
-  
+
   dates: IRentalDates;
   pricing: IRentalPricing;
-  
+
   // NOVO: Histórico de alterações
   changeHistory?: IRentalChangeHistory[];
-  
+
   // NOVO: Solicitações pendentes
   pendingApprovals?: IRentalPendingApproval[];
-  
+
   status: RentalStatus;
   notes?: string;
   checklistPickup?: IRentalChecklist;
@@ -124,7 +136,6 @@ export interface IRental extends Document {
   createdAt?: Date;
   updatedAt?: Date;
 }
-
 //Detalhes do item
 export interface RentalDetails {
   itemId: string;

@@ -3,7 +3,7 @@ import { z } from 'zod';
 // Schema para unidade individual
 const itemUnitSchema = z.object({
   unitId: z.string().min(1, { message: 'ID da unidade é obrigatório' }),
-  status: z.enum(['available', 'rented', 'maintenance', 'damaged']),
+  status: z.enum(['available', 'reserved', 'rented', 'maintenance', 'damaged']),
   location: z.string().optional(),
   notes: z.string().optional(),
 });
@@ -25,6 +25,7 @@ const itemSchemaBase = z.object({
   quantity: z.object({
     total: z.number().int().min(0),
     available: z.number().int().min(0).optional(),
+    reserved: z.number().int().min(0).optional(),
     rented: z.number().int().min(0).optional(),
     maintenance: z.number().int().min(0).optional(),
     damaged: z.number().int().min(0).optional(),

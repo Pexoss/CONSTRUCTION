@@ -2,8 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { Company } from '../../modules/companies/company.model';
 
 /**
- * Middleware to identify and validate tenant (company)
- * For now, uses X-Company-Id header. Future: subdomain-based identification
+ * Middleware para identificar e validar tenant (empresa)
  */
 export const tenantMiddleware = async (
   req: Request,
@@ -11,17 +10,10 @@ export const tenantMiddleware = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    // Priority 1: Header (for development/testing)
+    // Prioridade 1: Header X-Company-Id
     let companyId = req.headers['x-company-id'] as string;
 
-    // Priority 2: Subdomain (future implementation)
-    // const hostname = req.hostname;
-    // const subdomain = hostname.split('.')[0];
-    // if (subdomain && subdomain !== 'www' && subdomain !== 'api') {
-    //   companyId = subdomain;
-    // }
-
-    // Priority 3: From authenticated user (if already authenticated)
+    // Prioridade 2: do usuário autenticado
     if (!companyId && req.user?.companyId) {
       companyId = req.user.companyId.toString();
     }
@@ -34,9 +26,8 @@ export const tenantMiddleware = async (
       return;
     }
 
-    // Validate company exists and is active
     const company = await Company.findById(companyId);
-    
+
     if (!company) {
       res.status(401).json({
         success: false,
@@ -45,16 +36,22 @@ export const tenantMiddleware = async (
       return;
     }
 
+    // Permitir acesso se a assinatura estiver ativa
     if (company.subscription.status !== 'active') {
-      res.status(403).json({
-        success: false,
-        message: `Company subscription is ${company.subscription.status}`,
-      });
-      return;
+      // DEBUG: vamos permitir que usuários “viewer” continuem acessando suas próprias aprovações
+      if (req.user?.role !== 'viewer') {
+        res.status(403).json({
+          success: false,
+          message: `Company subscription is ${company.subscription.status}`,
+        });
+        return;
+      } else {
+      }
     }
 
-    // Inject companyId into request
+    // Injeta companyId no request
     req.companyId = companyId;
+
     next();
   } catch (error) {
     next(error);

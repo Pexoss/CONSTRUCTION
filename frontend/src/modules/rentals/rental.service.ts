@@ -7,6 +7,7 @@ import {
   UpdateRentalStatusData,
   ExtendRentalData,
   ChecklistData,
+  RentalStatusChangeApproval,
 } from '../../types/rental.types';
 
 export const rentalService = {
@@ -58,10 +59,15 @@ export const rentalService = {
   },
 
   extendRental: async (id: string, data: ExtendRentalData) => {
-    const response = await api.patch<{ success: boolean; message: string; data: Rental }>(
+    const response = await api.patch<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(
       `/rentals/${id}/extend`,
       data
     );
+
     return response.data;
   },
 
@@ -136,5 +142,32 @@ export const rentalService = {
     );
 
     return response.data.data;
-  }
+  },
+
+  getPendingStatusChange: async (rentalId: string) => {
+    const response = await api.get<{
+      success: boolean;
+      data: RentalStatusChangeApproval;
+    }>(`/rentals/${rentalId}/status-change-requests`);
+
+    return response.data.data;
+  },
+
+  rejectStatusChange: async (requestId: string) => {
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+    }>(`/rentals/status-change-request/${requestId}/reject`);
+
+    return response.data;
+  },
+
+  approveStatusChange: async (requestId: string) => {
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+    }>(`/rentals/status-change-request/${requestId}/approve`);
+
+    return response.data;
+  },
 };

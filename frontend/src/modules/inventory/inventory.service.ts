@@ -184,6 +184,15 @@ export const inventoryService = {
     }>(`/inventory/items/${itemId}/operational-status`);
 
     return response.data;
-  }
+  },
+  getInformationsItens: async () => {
+    const response = await api.get<{
+      totalItems: number;
+      inStock: number;
+      lowStock: number;
+      outOfStock: number;
+    }>('/inventory/items/summary');
 
+    return response.data;
+  },
 };

@@ -4,17 +4,24 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { rentalService } from './rental.service';
 import { customerService } from '../customers/customer.service';
 import { useItems } from '../../hooks/useInventory';
-import { CreateRentalData, RentalService, RentalWorkAddress } from '../../types/rental.types';
+import { CreateRentalData, RentalService, RentalTypeAPI, RentalTypeUI, RentalWorkAddress } from '../../types/rental.types';
 import { Item } from '../../types/inventory.types';
 import Layout from '../../components/Layout';
 import axios from 'axios';
 import { filterReferenceElements } from 'recharts/types/state/selectors/axisSelectors';
 
+export const rentalTypeMapper: Record<RentalTypeUI, RentalTypeAPI> = {
+  diario: 'daily',
+  semanal: 'weekly',
+  quinzenal: 'biweekly',
+  mensal: 'monthly',
+};
+
 interface SelectedItem {
   itemId: string;
   quantity: number;
   unitId?: string;
-  rentalType?: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+  rentalType?: RentalTypeUI;
   item: Item;
 }
 
@@ -30,6 +37,8 @@ const CreateRentalPage: React.FC = () => {
   const [notes, setNotes] = useState('');
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
+  const [rentalType, setRentalType] = useState<'diario' | 'semanal' | 'quinzenal' | 'mensal'>('diario');
+  const [serverError, setServerError] = useState<string | null>(null);
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
     queryFn: () => rentalService.getCategories(true),
@@ -51,28 +60,49 @@ const CreateRentalPage: React.FC = () => {
   });
 
 
-  const calculatePrice = (item: Item, quantity: number, startDate: Date, endDate: Date): number => {
+  // Calcula o preço de um item considerando o tipo de aluguel
+  const calculatePrice = (
+    item: Item,
+    quantity: number,
+    startDate: Date,
+    endDate: Date,
+    rentalType: 'diario' | 'semanal' | 'quinzenal' | 'mensal'
+  ) => {
+    if (!startDate || !endDate) return 0;
+
     const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-    if (days <= 0) return 0;
+    const weeks = Math.ceil(days / 7);
+    const biweeks = Math.ceil(days / 15);
+    const months = Math.ceil(days / 30);
 
-    let price = 0;
-    if (item.pricing.monthlyRate && days >= 30) {
-      const months = Math.floor(days / 30);
-      const remainingDays = days % 30;
-      price = months * item.pricing.monthlyRate + remainingDays * item.pricing.dailyRate;
-    } else if (item.pricing.weeklyRate && days >= 7) {
-      const weeks = Math.floor(days / 7);
-      const remainingDays = days % 7;
-      price = weeks * item.pricing.weeklyRate + remainingDays * item.pricing.dailyRate;
-    } else {
-      price = days * item.pricing.dailyRate;
+    let pricePerUnit = 0;
+
+    switch (rentalType) {
+      case 'diario':
+        pricePerUnit = item.pricing.dailyRate ?? 0;
+        return pricePerUnit * days * quantity;
+
+      case 'semanal':
+        pricePerUnit = item.pricing.weeklyRate ?? item.pricing.dailyRate ?? 0;
+        return pricePerUnit * weeks * quantity;
+
+      case 'quinzenal':
+        pricePerUnit = item.pricing.biweeklyRate ?? item.pricing.dailyRate ?? 0;
+        return pricePerUnit * biweeks * quantity;
+
+      case 'mensal':
+        pricePerUnit = item.pricing.monthlyRate ?? item.pricing.dailyRate ?? 0;
+        return pricePerUnit * months * quantity;
+
+      default:
+        return 0;
     }
-
-    return price * quantity;
   };
 
-  const calculateTotals = () => {
-    if (!pickupDate || !returnDate) return { equipmentSubtotal: 0, servicesSubtotal: 0, subtotal: 0, deposit: 0, total: 0 };
+  // Calcula o resumo completo do aluguel
+  const calculateTotals = (rentalType?: 'diario' | 'semanal' | 'quinzenal' | 'mensal') => {
+    if (!pickupDate || !returnDate)
+      return { equipmentSubtotal: 0, servicesSubtotal: 0, subtotal: 0, deposit: 0, total: 0 };
 
     const startDate = new Date(pickupDate);
     const endDate = new Date(returnDate);
@@ -82,9 +112,15 @@ const CreateRentalPage: React.FC = () => {
     let deposit = 0;
 
     selectedItems.forEach((selectedItem) => {
-      const itemPrice = calculatePrice(selectedItem.item, selectedItem.quantity, startDate, endDate);
+      const itemPrice = calculatePrice(
+        selectedItem.item,
+        selectedItem.quantity,
+        startDate,
+        endDate,
+        rentalType ?? 'diario'
+      );
       equipmentSubtotal += itemPrice;
-      deposit += (selectedItem.item.pricing.depositAmount || 0) * selectedItem.quantity;
+      deposit += (selectedItem.item.pricing.depositAmount ?? 0) * selectedItem.quantity;
     });
 
     services.forEach((service) => {
@@ -92,10 +128,12 @@ const CreateRentalPage: React.FC = () => {
     });
 
     const subtotal = equipmentSubtotal + servicesSubtotal;
-    const total = subtotal - discount;
+    const total = subtotal + deposit - discount;
 
     return { equipmentSubtotal, servicesSubtotal, subtotal, deposit, total };
   };
+
+
 
   const handleAddItem = (item: Item) => {
     if (item.trackingType === 'unit') {
@@ -192,12 +230,16 @@ const CreateRentalPage: React.FC = () => {
 
     const data: CreateRentalData = {
       customerId: selectedCustomer,
-      items: selectedItems.map((si) => ({
-        itemId: si.itemId,
-        unitId: si.item.trackingType === 'unit' ? si.unitId : undefined,
-        quantity: si.quantity,
-        rentalType: si.rentalType || 'daily',
-      })),
+      items: selectedItems.map((si) => {
+        const uiType = si.rentalType ?? rentalType; // fallback da tela
+
+        return {
+          itemId: si.itemId,
+          unitId: si.item.trackingType === 'unit' ? si.unitId : undefined,
+          quantity: si.quantity,
+          rentalType: rentalTypeMapper[uiType],
+        };
+      }),
 
       services: servicesToSend.length > 0 ? servicesToSend : undefined,
       workAddress: workAddress || undefined,
@@ -213,13 +255,16 @@ const CreateRentalPage: React.FC = () => {
 
     createMutation.mutate(data, {
       onSuccess: (res) => {
+        setServerError(null);
       },
       onError: (err: any) => {
+        const message = err.response?.data?.message || "Erro ao processar a requisição";
+        setServerError(message);
       },
     });
   };
 
-  const totals = calculateTotals();
+  const totals = calculateTotals(rentalType);
   const items = itemsData?.data || [];
   const customers = customersData?.data || [];
   const selectedCustomerData = customers.find(
@@ -227,6 +272,50 @@ const CreateRentalPage: React.FC = () => {
   ) ?? null;
 
   const customerAddresses = selectedCustomerData?.addresses ?? [];
+
+  const calculateMultiplier = () => {
+    switch (rentalType) {
+      case 'diario': return 1;
+      case 'semanal': return 7; // 1 semana = 7 dias
+      case 'quinzenal': return 15;
+      case 'mensal': return 30;
+      default: return 1;
+    }
+  };
+
+  const totalsWithRentalType = {
+    ...totals,
+    // apenas copia, sem multiplicar
+    subtotal: totals.subtotal,
+    total: totals.total,
+    equipmentSubtotal: totals.equipmentSubtotal,
+    servicesSubtotal: totals.servicesSubtotal,
+  };
+
+  const calculateReturnDate = (pickup: string, type: typeof rentalType) => {
+    if (!pickup) return '';
+    const pickupDateObj = new Date(pickup);
+
+    let daysToAdd = 1; // padrão diário
+    switch (type) {
+      case 'diario': daysToAdd = 1; break;
+      case 'semanal': daysToAdd = 7; break;
+      case 'quinzenal': daysToAdd = 15; break;
+      case 'mensal': daysToAdd = 30; break;
+    }
+
+    const returnDateObj = new Date(pickupDateObj);
+    returnDateObj.setDate(returnDateObj.getDate() + daysToAdd);
+
+    return returnDateObj.toISOString().split('T')[0];
+  };
+
+  useEffect(() => {
+    if (pickupDate) {
+      const newReturnDate = calculateReturnDate(pickupDate, rentalType);
+      setReturnDate(newReturnDate);
+    }
+  }, [pickupDate, rentalType]);
 
   useEffect(() => {
     if (customerAddresses.length === 1) {
@@ -553,9 +642,10 @@ const CreateRentalPage: React.FC = () => {
                                 {pickupDate && returnDate
                                   ? `R$ ${calculatePrice(
                                     selectedItem.item,
-                                    1,
+                                    selectedItem.quantity,
                                     new Date(pickupDate),
-                                    new Date(returnDate)
+                                    new Date(returnDate),
+                                    rentalType
                                   ).toFixed(2)}/unidade`
                                   : 'Defina as datas'}
                               </span>
@@ -761,7 +851,7 @@ const CreateRentalPage: React.FC = () => {
                       <h2 className="text-lg font-semibold text-gray-900">Endereço da Obra</h2>
                       <p className="text-sm text-gray-600 mt-1">Opcional - para entrega no local</p>
                     </div>
-                    {customerAddresses.length > 1 && (
+                    {customerAddresses.length > 0 && (
                       <div className="flex items-center gap-2">
                         <label className="text-sm text-gray-700">Usar endereço salvo:</label>
                         <select
@@ -773,13 +863,22 @@ const CreateRentalPage: React.FC = () => {
                             if (!addr) return;
 
                             setWorkAddress({
-                              workName: addr.workName || '',
+                              workName:
+                                addr.addressName ||
+                                (addr.type === 'main'
+                                  ? 'Endereço Principal'
+                                  : addr.type === 'billing'
+                                    ? 'Endereço de Cobrança'
+                                    : 'Outro Endereço'),
+
                               street: addr.street,
                               number: addr.number,
+                              complement: addr.complement,
                               neighborhood: addr.neighborhood,
                               city: addr.city,
                               state: addr.state,
                               zipCode: addr.zipCode,
+                              workId: addr._id,
                             });
                           }}
                         >
@@ -934,6 +1033,22 @@ const CreateRentalPage: React.FC = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Tipo de Aluguel *
+                    </label>
+                    <select
+                      value={rentalType}
+                      onChange={(e) => setRentalType(e.target.value as typeof rentalType)}
+                      className="w-full border border-gray-300 rounded-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-black"
+                    >
+                      <option value="diario">Diário</option>
+                      <option value="semanal">Semanal</option>
+                      <option value="quinzenal">Quinzenal</option>
+                      <option value="mensal">Mensal</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       Desconto (R$)
                     </label>
                     <input
@@ -941,9 +1056,19 @@ const CreateRentalPage: React.FC = () => {
                       min="0"
                       step="0.01"
                       value={discount}
-                      onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
-                      className="w-full border border-gray-300 rounded-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-black"
+                      onChange={(e) => {
+                        setDiscount(parseFloat(e.target.value) || 0);
+                        if (serverError) setServerError(null);
+                      }}
+                      className={`w-full border rounded-md px-4 py-3 focus:outline-none focus:ring-2 ${serverError ? 'border-red-500 focus:ring-red-500' : 'border-gray-300 focus:ring-black'
+                        }`}
                     />
+
+                    {serverError && (
+                      <span className="text-red-500 text-xs mt-1 font-semibold block">
+                        {serverError}
+                      </span>
+                    )}
                   </div>
 
                   <div>
@@ -987,7 +1112,7 @@ const CreateRentalPage: React.FC = () => {
                   )}
                   <div className="flex justify-between items-center pt-4 border-t border-gray-200">
                     <span className="text-lg font-bold text-gray-900">Total:</span>
-                    <span className="text-lg font-bold text-gray-900">R$ {totals.total.toFixed(2)}</span>
+                    <span className="text-lg font-bold text-gray-900">R${totalsWithRentalType.total.toFixed(2)}</span>
                   </div>
                 </div>
 

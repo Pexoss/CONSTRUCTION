@@ -118,6 +118,7 @@ export class CustomerController {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
+
       await customerService.deleteCustomer(companyId, customerId);
 
       res.json({
@@ -195,8 +196,8 @@ export class CustomerController {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
-      const addressIndex = parseInt(req.params.index);
-      const customer = await customerService.updateAddress(companyId, customerId, addressIndex, req.body);
+      const addressId = req.params.addressId; // antes era req.params.index
+      const customer = await customerService.updateAddressById(companyId, customerId, addressId, req.body);
 
       res.json({
         success: true,
@@ -209,23 +210,18 @@ export class CustomerController {
   }
 
   /**
-   * NOVO: Remover endereço do cliente
-   * DELETE /api/customers/:id/addresses/:index
+   * Remover endereço do cliente
    */
-  async removeAddress(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async removeAddressById(req: Request, res: Response) {
     try {
-      const companyId = req.companyId!;
-      const customerId = req.params.id;
-      const addressIndex = parseInt(req.params.index);
-      const customer = await customerService.removeAddress(companyId, customerId, addressIndex);
+      const { id: customerId, addressId } = req.params;
+      const companyId = req.companyId!; // ou como você pega o tenant
 
-      res.json({
-        success: true,
-        message: 'Address removed successfully',
-        data: customer,
-      });
-    } catch (error) {
-      next(error);
+      const customer = await customerService.removeAddressById(companyId, customerId, addressId);
+
+      res.json({ success: true, customer });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
     }
   }
 

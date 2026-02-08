@@ -7,6 +7,12 @@ import { inventoryService } from './inventory.service';
 
 const InventoryPage: React.FC = () => {
   const [categories, setCategories] = useState<{ _id: string; name: string }[]>([]);
+  const [inventorySummary, setInventorySummary] = useState<{
+    totalItems: number;
+    inStock: number;
+    lowStock: number;
+    outOfStock: number;
+  } | null>(null);
   const [filters, setFilters] = useState<ItemFilters>({
     page: 1,
     limit: 20,
@@ -30,6 +36,23 @@ const InventoryPage: React.FC = () => {
     fetchCategories();
   }, []);
 
+  useEffect(() => {
+    async function loadInventorySummary() {
+      try {
+        const data = await inventoryService.getInformationsItens();
+        setInventorySummary(data);
+        console.log(data)
+      } catch (error: any) {
+        // console.error('Erro ao buscar resumo do inventário');
+        // console.error('Mensagem:', error?.message);
+        // console.error('Status:', error?.response?.status);
+        // console.error('Data:', error?.response?.data);
+      }
+    }
+
+    loadInventorySummary();
+  }, []);
+
   // Atualiza filtros
   const handleFilterChange = (key: keyof ItemFilters, value: string | boolean | undefined) => {
     setFilters(prev => ({
@@ -48,7 +71,7 @@ const InventoryPage: React.FC = () => {
   const items = itemsData?.data || [];
   const pagination = itemsData?.pagination;
 
-  console.log(items)
+
   return (
     <Layout title="Inventário" backTo="/dashboard">
       {/* Header */}
@@ -71,24 +94,35 @@ const InventoryPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Status do Inventário (opcional - pode ser dinâmico) */}
+          {/* Status do Inventário*/}
           <div className="flex items-center space-x-4 mt-4">
             <div className="flex items-center space-x-1.5">
               <div className="h-2 w-2 rounded-full bg-green-500"></div>
               <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                <span className="font-bold text-gray-700 dark:text-gray-300">12</span> itens em estoque
+                <span className="font-bold text-gray-700 dark:text-gray-300">
+                  {inventorySummary?.inStock ?? 0}
+                </span>{' '}
+                itens em estoque
               </span>
             </div>
+
             <div className="flex items-center space-x-1.5">
               <div className="h-2 w-2 rounded-full bg-amber-500"></div>
               <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                <span className="font-bold text-gray-700 dark:text-gray-300">3</span> itens com estoque baixo
+                <span className="font-bold text-gray-700 dark:text-gray-300">
+                  {inventorySummary?.lowStock ?? 0}
+                </span>{' '}
+                itens com estoque baixo
               </span>
             </div>
+
             <div className="flex items-center space-x-1.5">
               <div className="h-2 w-2 rounded-full bg-red-500"></div>
               <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                <span className="font-bold text-gray-700 dark:text-gray-300">2</span> itens esgotados
+                <span className="font-bold text-gray-700 dark:text-gray-300">
+                  {inventorySummary?.outOfStock ?? 0}
+                </span>{' '}
+                itens esgotados
               </span>
             </div>
           </div>
@@ -235,133 +269,167 @@ const InventoryPage: React.FC = () => {
             <div className="p-8 text-center text-gray-500">Nenhum item encontrado</div>
           ) : (
             <ul className="divide-y divide-gray-200">
-              {items.map(item => (
-                <li key={item._id}>
-                  <Link to={`/inventory/items/${item._id}`} className="block hover:bg-gray-50 px-4 py-4 sm:px-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center flex-1 min-w-0">
-                        {/* Foto */}
-                        <div className="flex-shrink-0 mr-4">
-                          {item.photos && item.photos.length > 0 ? (
-                            <img className="h-14 w-14 rounded-md object-cover" src={item.photos[0]} alt={item.name} />
-                          ) : (
-                            <div className="h-14 w-14 rounded-md bg-gray-100 flex items-center justify-center">
-                              <span className="text-gray-400 text-xs">Sem foto</span>
-                            </div>
-                          )}
-                        </div>
+              {items.map(item => {
+                const available =
+                  item.trackingType === 'unit'
+                    ? item.quantity.total - item.quantity.maintenance
+                    : item.quantity.total;
 
-                        {/* Informações principais - lado esquerdo */}
-                        <div className="flex-1 min-w-0">
-                          {/* Linha 1: Nome e status */}
-                          <div className="flex items-center justify-between mb-1">
-                            <p className="text-base font-semibold text-gray-900 truncate">{item.name}</p>
+                const isOutOfStock = available === 0;
+                const isLowStock =
+                  !isOutOfStock &&
+                  item.lowStockThreshold !== undefined &&
+                  available <= item.lowStockThreshold;
 
-                            {/* Status de estoque */}
-                            {item.quantity.available === 0 ? (
-                              <span className="ml-2 flex-shrink-0 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                </svg>
-                                Esgotado
-                              </span>
-                            ) : item.lowStockThreshold && item.quantity.available <= item.lowStockThreshold ? (
-                              <span className="ml-2 flex-shrink-0 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                </svg>
-                                Estoque Baixo
-                              </span>
+                return (
+                  <li key={item._id}>
+                    <Link
+                      to={`/inventory/items/${item._id}`}
+                      className="block hover:bg-gray-50 px-4 py-4 sm:px-6"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center flex-1 min-w-0">
+                          {/* Foto */}
+                          <div className="flex-shrink-0 mr-4">
+                            {item.photos && item.photos.length > 0 ? (
+                              <img
+                                className="h-14 w-14 rounded-md object-cover"
+                                src={item.photos[0]}
+                                alt={item.name}
+                              />
                             ) : (
-                              <span className="ml-2 flex-shrink-0 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                </svg>
-                                Disponível
-                              </span>
+                              <div className="h-14 w-14 rounded-md bg-gray-100 flex items-center justify-center">
+                                <span className="text-gray-400 text-xs">Sem foto</span>
+                              </div>
                             )}
                           </div>
 
-                          {/* Linha 2: Códigos e categoria */}
-                          <div className="flex flex-wrap items-center gap-2 mb-2">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
-                              <span className="font-semibold mr-1">SKU:</span> {item.sku}
-                            </span>
-                            {item.customId && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-700">
-                                <span className="font-semibold mr-1">ID:</span> {item.customId}
-                              </span>
-                            )}
-                            {item.trackingType === 'unit' && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
-                                Unitário
-                              </span>
-                            )}
-                            {item.category && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-50 text-purple-700">
-                                <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                                </svg>
-                                {item.category}
-                              </span>
-                            )}
-                          </div>
+                          {/* Informações principais */}
+                          <div className="flex-1 min-w-0">
+                            {/* Linha 1: Nome + status */}
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-base font-semibold text-gray-900 truncate">
+                                {item.name}
+                              </p>
 
-                          {/* Linha 3: Detalhes do estoque */}
-                          <div className="flex items-center space-x-6 text-sm text-gray-600">
-                            <div className="flex items-center">
-                              <span className="font-medium text-gray-500 mr-1">
-                                {item.trackingType === 'unit' ? 'Unidades:' : 'Estoque:'}
-                              </span>
-                              <span className="font-semibold text-green-600">{item.quantity.available}</span>
-                              <span className="mx-1">disponíveis de</span>
-                              <span className="font-semibold text-gray-700">{item.quantity.total}</span>
+                              {isOutOfStock ? (
+                                <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                  Esgotado
+                                </span>
+                              ) : isLowStock ? (
+                                <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                  Estoque baixo
+                                </span>
+                              ) : (
+                                <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                  Disponível
+                                </span>
+                              )}
                             </div>
 
-                            {item.trackingType === 'unit' && item.quantity.maintenance > 0 && (
-                              <div className="flex items-center">
-                                <span className="font-medium text-gray-500 mr-1">Manutenção:</span>
-                                <span className="font-semibold text-amber-600">{item.quantity.maintenance}</span>
-                              </div>
-                            )}
+                            {/* Linha 2: Meta */}
+                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                                <strong>SKU:</strong>&nbsp;{item.sku}
+                              </span>
 
-                            {item.lowStockThreshold && (
+                              {item.customId && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-700">
+                                  <strong>ID:</strong>&nbsp;{item.customId}
+                                </span>
+                              )}
+
+                              {item.trackingType === 'unit' && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
+                                  Unitário
+                                </span>
+                              )}
+
+                              {item.category && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-50 text-purple-700">
+                                  {item.category}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Linha 3: Estoque */}
+                            <div className="flex items-center space-x-6 text-sm text-gray-600">
                               <div className="flex items-center">
-                                <span className="font-medium text-gray-500 mr-1">Alerta:</span>
-                                <span className="font-semibold text-amber-600">≤ {item.lowStockThreshold}</span>
+                                <span className="font-medium text-gray-500 mr-1">
+                                  {item.trackingType === 'unit' ? 'Unidades:' : 'Estoque:'}
+                                </span>
+                                <span className="font-semibold text-green-600">
+                                  {item.quantity.available}
+                                </span>
+                                <span className="mx-1">disponíveis de</span>
+                                <span className="font-semibold text-gray-700">
+                                  {item.quantity.total}
+                                </span>
                               </div>
-                            )}
+
+                              {item.trackingType === 'unit' &&
+                                item.quantity.maintenance > 0 && (
+                                  <div className="flex items-center">
+                                    <span className="font-medium text-gray-500 mr-1">
+                                      Manutenção:
+                                    </span>
+                                    <span className="font-semibold text-amber-600">
+                                      {item.quantity.maintenance}
+                                    </span>
+                                  </div>
+                                )}
+
+                              {item.trackingType !== 'unit' &&
+                                item.lowStockThreshold !== undefined &&
+                                item.lowStockThreshold > 0 && (
+                                  <div className="flex items-center">
+                                    <span className="font-medium text-gray-500 mr-1">
+                                      Alerta:
+                                    </span>
+                                    <span className="font-semibold text-amber-600">
+                                      ≤ {item.lowStockThreshold}
+                                    </span>
+                                  </div>
+                                )}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Informações à direita - Preço e ícone */}
-                      <div className="flex items-center space-x-6 ml-6 flex-shrink-0">
                         {/* Preço */}
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-indigo-700">
-                            R$ {item.pricing.dailyRate.toFixed(2)}
-                          </p>
-                          <p className="text-sm text-gray-500">por dia</p>
-
-                          {/* Preço semanal se disponível */}
-                          {item.pricing.weeklyRate && (
-                            <p className="text-sm text-gray-600 mt-1">
-                              <span className="font-medium">R$ {item.pricing.weeklyRate.toFixed(2)}</span>
-                              <span className="text-xs text-gray-500">/semana</span>
+                        <div className="flex items-center space-x-6 ml-6">
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-indigo-700">
+                              R$ {item.pricing.dailyRate.toFixed(2)}
                             </p>
-                          )}
-                        </div>
+                            <p className="text-sm text-gray-500">por dia</p>
 
-                        {/* Ícone de seta */}
-                        <svg className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                        </svg>
+                            {item.pricing.weeklyRate && (
+                              <p className="text-sm text-gray-600 mt-1">
+                                <strong>
+                                  R$ {item.pricing.weeklyRate.toFixed(2)}
+                                </strong>
+                                <span className="text-xs text-gray-500"> / semana</span>
+                              </p>
+                            )}
+                          </div>
+
+                          <svg
+                            className="h-5 w-5 text-gray-400"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </div>
                       </div>
-                    </div>
-                  </Link>
-                </li>
-              ))}
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
