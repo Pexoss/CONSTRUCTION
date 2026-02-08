@@ -4,7 +4,7 @@ import { RoleType } from '../constants/roles';
 
 export interface TokenPayload {
   userId: string;
-  companyId: string;
+  companyCode: string;
   role?: RoleType;
 }
 
@@ -13,11 +13,11 @@ export interface TokenPayload {
  */
 export const generateAccessToken = (
   userId: string,
-  companyId: string,
+  companyCode: string,
   role: RoleType
 ): string => {
   return jwt.sign(
-    { userId, companyId, role },
+    { userId, companyCode, role },
     env.JWT_SECRET,
     { expiresIn: env.JWT_ACCESS_EXPIRES_IN } as SignOptions
   );
@@ -26,13 +26,14 @@ export const generateAccessToken = (
 /**
  * Generates a refresh token (long-lived)
  */
-export const generateRefreshToken = (userId: string, companyId: string): string => {
+export const generateRefreshToken = (userId: string, companyCode: string): string => {
   return jwt.sign(
-    { userId, companyId, type: 'refresh' },
+    { userId, companyCode, type: 'refresh' },
     env.JWT_REFRESH_SECRET,
     { expiresIn: env.JWT_REFRESH_EXPIRES_IN } as SignOptions
   );
 };
+
 
 /**
  * Verifies an access token

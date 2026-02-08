@@ -4,8 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { ThemeProvider } from './contexts/ThemeContext';
+import RegisterChoicePage from 'modules/auth/RegisterChoicePage';
 import LoginPage from './modules/auth/LoginPage';
 import RegisterPage from './modules/auth/RegisterPage';
+import RegisterUser from './modules/auth/RegisterUser';
 import ProtectedRoute from './components/ProtectedRoute';
 import Dashboard from './modules/dashboard/Dashboard';
 import Skeleton from './components/Skeleton';
@@ -18,6 +20,7 @@ import CustomersPage from './modules/customers/CustomersPage';
 import CreateCustomerPage from './modules/customers/CreateCustomerPage';
 import EditCustomerPage from './modules/customers/EditCustomerPage';
 import ViewCustomerPage from './modules/customers/ViewCustomerPage';
+import CustomerAddressesPage from 'modules/customers/CustomerAddressesPage';
 import RentalsPage from './modules/rentals/RentalsPage';
 import CreateRentalPage from './modules/rentals/CreateRentalPage';
 import RentalDetailPage from './modules/rentals/RentalDetailPage';
@@ -48,8 +51,11 @@ function App() {
         <Router>
           <Suspense fallback={<Skeleton className="w-full h-screen" />}>
             <Routes>
+              <Route path="/" element={<RegisterChoicePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+              <Route path="/registerUser" element={<RegisterUser />} />
+
               <Route
                 path="/dashboard"
                 element={
@@ -128,6 +134,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <EditCustomerPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/customers/:id/addresses"
+                element={
+                  <ProtectedRoute>
+                    <CustomerAddressesPage />
                   </ProtectedRoute>
                 }
               />

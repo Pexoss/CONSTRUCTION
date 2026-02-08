@@ -3,6 +3,7 @@ export type UserRole = 'superadmin' | 'admin' | 'manager' | 'operator' | 'viewer
 export interface User {
   _id: string;
   companyId: string;
+  companyCode?: string;
   name: string;
   email: string;
   role: UserRole;
@@ -18,14 +19,15 @@ export interface AuthTokens {
 export interface LoginCredentials {
   email: string;
   password: string;
-  companyId: string;
+  companyCode: string;
 }
 
 export interface RegisterCompanyData {
   companyName: string;
-  cnpj: string;
+  cnpj?: string;
   email: string;
   phone?: string;
+  code?: string;
   address?: {
     street?: string;
     city?: string;
@@ -43,12 +45,20 @@ export interface RegisterUserData {
   email: string;
   password: string;
   role?: UserRole;
+  companyCode:string;
 }
 
 export interface AuthResponse {
   success: boolean;
   message: string;
   data: {
+    company: {
+      _id: string;
+      name: string;
+      email: string;
+      cnpj?: string;
+      code: string;
+    };
     user: User;
     tokens: AuthTokens;
   };

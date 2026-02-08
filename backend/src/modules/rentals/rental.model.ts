@@ -38,6 +38,9 @@ const RentalItemSchema = new Schema<IRentalItem>(
   { _id: false }
 );
 
+
+
+
 // NOVO: Schema para serviços adicionais
 const RentalServiceSchema = new Schema<IRentalService>(
   {
@@ -71,6 +74,7 @@ const RentalServiceSchema = new Schema<IRentalService>(
   },
   { _id: false }
 );
+
 
 // NOVO: Schema para endereço da obra
 const RentalWorkAddressSchema = new Schema<IRentalWorkAddress>(
@@ -365,6 +369,7 @@ const RentalSchema = new Schema<IRental>(
     timestamps: true,
   }
 );
+
 
 // Indexes
 RentalSchema.index({ companyId: 1, status: 1 });

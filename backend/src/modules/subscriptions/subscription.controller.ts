@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { subscriptionService } from './subscription.service';
 import { createPaymentSchema, markPaymentAsPaidSchema } from './subscription.validator';
+import { Company } from '../companies/company.model';
 
 export class SubscriptionController {
   /**
@@ -18,7 +19,7 @@ export class SubscriptionController {
         message: 'Payment created successfully',
         data: payment,
       });
-    } catch (error) {
+    } catch (error: any) {
       next(error);
     }
   }
@@ -60,32 +61,25 @@ export class SubscriptionController {
    * Mark payment as paid
    * PATCH /api/admin/subscriptions/payments/:id/paid
    */
-  async markPaymentAsPaid(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async markPaymentAsPaid(req: Request, res: Response, next: NextFunction) {
     try {
-      const companyId = req.query.companyId ? (req.query.companyId as string) : req.companyId!;
-      const paymentId = req.params.id;
+      const companyId = req.query.companyId || req.body.companyId;
+      const paymentId = req.params.paymentId;
       const validatedData = markPaymentAsPaidSchema.parse(req.body);
-      const payment = await subscriptionService.markPaymentAsPaid(companyId, paymentId, {
-        paidDate: validatedData.paidDate ? new Date(validatedData.paidDate) : undefined,
-        paymentMethod: validatedData.paymentMethod,
-        notes: validatedData.notes,
-      });
 
-      if (!payment) {
-        res.status(404).json({
-          success: false,
-          message: 'Payment not found',
-        });
-        return;
-      }
+      const result = await subscriptionService.markPaymentAsPaid(
+        companyId as string,
+        paymentId,
+        validatedData
+      );
 
-      res.json({
+      res.status(200).json({
         success: true,
-        message: 'Payment marked as paid successfully',
-        data: payment,
+        message: 'Payment marked as paid',
+        data: result,
       });
-    } catch (error) {
-      next(error);
+    } catch (err) {
+      next(err);
     }
   }
 
@@ -172,6 +166,33 @@ export class SubscriptionController {
       });
     } catch (error) {
       next(error);
+    }
+  }
+
+  async delete(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const company = await Company.findById(id);
+
+      if (!company) {
+        return res.status(404).json({
+          success: false,
+          message: 'Empresa não encontrada',
+        });
+      }
+
+      await Company.findByIdAndDelete(id);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Empresa excluída com sucesso',
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Erro ao excluir empresa',
+      });
     }
   }
 }

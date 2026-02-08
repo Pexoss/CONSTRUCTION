@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from './auth.service';
 import { registerCompanySchema, registerUserSchema, loginSchema, refreshTokenSchema } from './auth.validator';
+import { Company } from '../companies/company.model';
 
 export class AuthController {
   /**
@@ -28,9 +29,10 @@ export class AuthController {
    */
   async registerUser(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const companyId = req.companyId!;
       const validatedData = registerUserSchema.parse(req.body);
-      const user = await authService.registerUser(companyId, validatedData);
+
+      // Só passa o objeto validado
+      const user = await authService.registerUser(validatedData);
 
       res.status(201).json({
         success: true,
@@ -79,7 +81,6 @@ export class AuthController {
       next(error);
     }
   }
-
   /**
    * GET /api/auth/me
    * Get current authenticated user
@@ -87,11 +88,22 @@ export class AuthController {
   async getMe(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const user = req.user;
-      
+
       if (!user) {
         res.status(401).json({
           success: false,
           message: 'User not authenticated',
+        });
+        return;
+      }
+
+      // Busca a empresa do usuário
+      const company = await Company.findById(user.companyId);
+
+      if (!company) {
+        res.status(404).json({
+          success: false,
+          message: 'Company not found',
         });
         return;
       }
@@ -104,6 +116,7 @@ export class AuthController {
           email: user.email,
           role: user.role,
           companyId: user.companyId,
+          companyCode: company.code,
           isActive: user.isActive,
           lastLogin: user.lastLogin,
         },

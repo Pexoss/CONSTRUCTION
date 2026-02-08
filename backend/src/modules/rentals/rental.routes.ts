@@ -10,7 +10,7 @@ router.use(authMiddleware);
 router.use(tenantMiddleware);
 
 // NOVO: Dashboard de vencimentos
-router.get('/rentals/expiration-dashboard',rentalController.getExpirationDashboard.bind(rentalController));
+router.get('/rentals/expiration-dashboard', rentalController.getExpirationDashboard.bind(rentalController));
 
 // Rental routes
 router.post('/rentals', rentalController.createRental.bind(rentalController));
@@ -22,7 +22,6 @@ router.patch('/rentals/:id/extend', rentalController.extendRental.bind(rentalCon
 router.patch('/rentals/:id/checklist/pickup', rentalController.updatePickupChecklist.bind(rentalController));
 router.patch('/rentals/:id/checklist/return', rentalController.updateReturnChecklist.bind(rentalController));
 router.post('/rentals/check-overdue', rentalController.checkOverdueRentals.bind(rentalController));
-
 // NOVO: Sistema de aprovações
 router.get('/rentals/pending-approvals', rentalController.getPendingApprovals.bind(rentalController));
 router.post('/rentals/:id/request-approval', rentalController.requestApproval.bind(rentalController));

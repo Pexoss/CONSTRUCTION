@@ -62,7 +62,7 @@ const ItemSchema = new Schema<IItem>(
       },
       status: {
         type: String,
-        enum: ['available', 'rented', 'maintenance', 'damaged'],
+        enum: ['available','reserved','rented','maintenance','damaged',],
         required: true,
         default: 'available',
       },
@@ -212,10 +212,12 @@ ItemSchema.pre('save', function (next) {
     const rented = this.units.filter((u) => u.status === 'rented').length;
     const maintenance = this.units.filter((u) => u.status === 'maintenance').length;
     const damaged = this.units.filter((u) => u.status === 'damaged').length;
+    const reserved = this.units.filter((u) => u.status === 'reserved').length;
 
     this.quantity = {
       total,
       available,
+      reserved,
       rented,
       maintenance,
       damaged,

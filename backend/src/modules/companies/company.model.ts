@@ -10,18 +10,20 @@ const CompanySchema = new Schema<ICompany>(
     },
     cnpj: {
       type: String,
-      required: [true, 'CNPJ is required'],
+      required: false,
       unique: true,
+      sparse: true, 
       trim: true,
       validate: {
         validator: function (v: string) {
-          // Remove non-numeric characters
+          if (!v) return true; // aceita undefined / null
           const cleanCnpj = v.replace(/\D/g, '');
           return cleanCnpj.length === 14;
         },
         message: 'CNPJ must have 14 digits',
       },
     },
+
     email: {
       type: String,
       required: [true, 'Email is required'],
@@ -33,6 +35,13 @@ const CompanySchema = new Schema<ICompany>(
     phone: {
       type: String,
       trim: true,
+    },
+    code: {
+      type: String,
+      required: true,
+      unique: true,
+      uppercase: true,
+      index: true,
     },
     address: {
       street: String,

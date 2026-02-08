@@ -29,6 +29,7 @@ export interface Item {
   quantity: {
     total: number;
     available: number;
+    reserved: number;
     rented: number;
     maintenance: number;
     damaged: number;
@@ -111,7 +112,7 @@ export interface CreateItemData {
   sku: string;
   barcode?: string;
   customId?: string;
-  trackingType?: 'unit' | 'quantity';
+  trackingType: 'unit' | 'quantity';
   units?: ItemUnit[];
   photos?: string[];
   specifications?: Record<string, any>;
@@ -138,6 +139,21 @@ export interface CreateItemData {
   lowStockThreshold?: number;
   isActive?: boolean;
 }
+
+export type CreateItemInput = {
+  name: string;
+  trackingType: 'unit' | 'quantity';
+  units?: {
+    unitId: string;
+    status: 'available' | 'rented' | 'maintenance' | 'damaged';
+    location?: string;
+    notes?: string;
+  }[];
+  quantity: {
+    total: number;
+  };
+};
+
 
 export interface EditItemData {
   name?: string;

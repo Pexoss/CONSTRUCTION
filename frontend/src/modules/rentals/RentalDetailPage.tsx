@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { rentalService } from './rental.service';
 import { RentalStatus, ChecklistData } from '../../types/rental.types';
 import Layout from '../../components/Layout';
+import { SuccessToast } from '../../components/SuccessToast';
+import { useAuth } from 'hooks/useAuth';
 
 const RentalDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -14,6 +16,7 @@ const RentalDetailPage: React.FC = () => {
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [checklistType, setChecklistType] = useState<'pickup' | 'return'>('pickup');
   const [newStatus, setNewStatus] = useState<RentalStatus>('reserved');
+  const [serverError, setServerError] = useState<string | null>(null);
   const [newReturnDate, setNewReturnDate] = useState('');
   const [checklistData, setChecklistData] = useState<ChecklistData>({
     photos: [],
@@ -27,22 +30,54 @@ const RentalDetailPage: React.FC = () => {
     enabled: !!id,
   });
 
+  const { data: approvalData } = useQuery({
+    queryKey: ['rental-status-change', id],
+    queryFn: () => rentalService.getPendingStatusChange(id!),
+    enabled: !!id,
+  });
+
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+
   const updateStatusMutation = useMutation({
-    mutationFn: (status: RentalStatus) => rentalService.updateRentalStatus(id!, { status }),
-    onSuccess: () => {
+    mutationFn: (status: RentalStatus) =>
+      rentalService.updateRentalStatus(id!, { status }),
+
+    onSuccess: (response) => {
+      setShowStatusModal(false);
+      setServerError(null);
+
+      // Se a alteração precisa de aprovação, mostra o toast
+      if ('requiresApproval' in response) {
+        setShowSuccessToast(true);
+
+        // Fecha o toast automaticamente após 5s
+        setTimeout(() => setShowSuccessToast(false), 5000);
+        return;
+      }
+
+      // status alterado de verdade
       queryClient.invalidateQueries({ queryKey: ['rental', id] });
       queryClient.invalidateQueries({ queryKey: ['rentals'] });
-      setShowStatusModal(false);
-    },
+      queryClient.invalidateQueries({ queryKey: ['items'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    }
   });
 
   const extendMutation = useMutation({
     mutationFn: (newReturnDate: string) =>
       rentalService.extendRental(id!, { newReturnDate }),
+
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rental', id] });
       queryClient.invalidateQueries({ queryKey: ['rentals'] });
+      setServerError(null);
       setShowExtendModal(false);
+    },
+
+    onError: (err: any) => {
+      const message =
+        err.response?.data?.message || 'Erro ao estender período';
+      setServerError(message);
     },
   });
 
@@ -56,7 +91,12 @@ const RentalDetailPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rental', id] });
+      setServerError(null);
       setShowChecklistModal(false);
+    },
+    onError: (err: any) => {
+      const message = err.response?.data?.message || "Erro ao atualizar checklist";
+      setServerError(message);
     },
   });
 
@@ -103,10 +143,20 @@ const RentalDetailPage: React.FC = () => {
   }
 
   const rental = data.data;
+  const pendingRequest =
+    approvalData?.hasPending ? approvalData.request : null;
   const customer = typeof rental.customerId === 'object' ? rental.customerId : null;
 
   return (
-    <Layout title="Detalhes do Aluguel" backTo="/rentals">
+    <Layout title="Detalhes do Aluguel" backTo="/dashboard">
+      {showSuccessToast && (
+        <SuccessToast
+          onClose={() => setShowSuccessToast(false)}
+          message="Sua Solicitação Foi Enviada Com Sucesso!"
+          description="Os administradores vão cuidar disso."
+        />
+      )}
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Cabeçalho */}
         <div className="mb-6">
@@ -117,7 +167,6 @@ const RentalDetailPage: React.FC = () => {
             Voltar para Aluguéis
           </Link>
         </div>
-
         {/* Card Principal */}
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
           <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4 mb-6">
@@ -151,6 +200,11 @@ const RentalDetailPage: React.FC = () => {
                 >
                   Estender Período
                 </button>
+              )}
+              {serverError && (
+                <span className="text-red-500 text-xs mt-1 font-semibold block">
+                  {serverError}
+                </span>
               )}
             </div>
           </div>
@@ -380,6 +434,11 @@ const RentalDetailPage: React.FC = () => {
               <option value="completed">Finalizado</option>
               <option value="cancelled">Cancelado</option>
             </select>
+            {serverError && (
+              <span className="text-red-500 text-xs mt-1 mb-3 font-semibold block">
+                {serverError}
+              </span>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowStatusModal(false)}
@@ -418,7 +477,7 @@ const RentalDetailPage: React.FC = () => {
               </button>
               <button
                 onClick={() => extendMutation.mutate(newReturnDate)}
-                className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg"
               >
                 Estender
               </button>

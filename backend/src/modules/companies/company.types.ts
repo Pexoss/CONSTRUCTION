@@ -4,6 +4,7 @@ export interface ICompany {
   cnpj: string;
   email: string;
   phone?: string;
+  code?: string;
   address?: {
     street?: string;
     city?: string;

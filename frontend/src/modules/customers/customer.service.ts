@@ -22,12 +22,9 @@ export const customerService = {
     return response.data;
   },
 
-  createCustomer: async (data: CreateCustomerData) => {
-    const response = await api.post<{ success: boolean; message: string; data: Customer }>(
-      '/customers',
-      data
-    );
-    return response.data;
+  async createCustomer(data: CreateCustomerData): Promise<Customer> {
+    const response = await api.post('/customers', data);
+    return response.data.data;
   },
 
   updateCustomer: async (id: string, data: Partial<CreateCustomerData>) => {
@@ -51,13 +48,27 @@ export const customerService = {
     return response.data;
   },
 
+  /** Endereços */
   addAddress: async (customerId: string, addressData: CustomerAddress) => {
-    const response = await api.post<{
-      success: boolean;
-      message: string;
-      data: Customer;
-    }>(`/customers/${customerId}/addresses`, addressData);
+    const response = await api.post<{ success: boolean; message: string; data: Customer }>(
+      `/customers/${customerId}/addresses`,
+      addressData
+    );
+    return response.data.data; // cliente atualizado
+  },
 
-    return response.data.data; // retorna o cliente atualizado
+  updateAddress: async (customerId: string, addressId: string, addressData: CustomerAddress) => {
+    const response = await api.put<{ success: boolean; message: string; data: Customer }>(
+      `/customers/${customerId}/addresses/${addressId}`,
+      addressData
+    );
+    return response.data.data; // cliente atualizado
+  },
+
+  deleteAddress: async (customerId: string, addressId: string) => {
+    const response = await api.delete<{ success: boolean; customer: Customer }>(
+      `/customers/${customerId}/addresses/${addressId}`
+    );
+    return response.data.customer; // cliente atualizado
   }
 };
