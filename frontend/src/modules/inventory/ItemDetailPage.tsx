@@ -82,7 +82,6 @@ const ItemDetailPage: React.FC = () => {
   const handleCalculateDepreciation = () => {
     if (!id) return;
     calculateDepreciation.mutate(id);
-    console.log("ID do item", id)
   };
 
   if (isLoading) {

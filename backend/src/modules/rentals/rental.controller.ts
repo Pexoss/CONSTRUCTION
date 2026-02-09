@@ -116,7 +116,7 @@ export class RentalController {
         status,
         userId
       );
-      
+
       // se for solicitação de aprovação
       if (result.requiresApproval) {
         res.status(202).json(result);
@@ -127,6 +127,28 @@ export class RentalController {
       res.status(200).json(result);
     } catch (error) {
       next(error);
+    }
+  }
+
+  async getClosePreview(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const companyId = req.companyId;
+
+      const preview = await rentalService.getClosePreview(
+        id,
+        companyId!
+      );
+
+      return res.json({
+        success: true,
+        data: preview,
+      });
+    } catch (error: any) {
+      return res.status(404).json({
+        success: false,
+        message: error.message || 'Erro ao calcular fechamento',
+      });
     }
   }
 

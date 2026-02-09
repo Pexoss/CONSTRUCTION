@@ -6,6 +6,7 @@ import { RentalStatus, ChecklistData } from '../../types/rental.types';
 import Layout from '../../components/Layout';
 import { SuccessToast } from '../../components/SuccessToast';
 import { useAuth } from 'hooks/useAuth';
+import { toast } from 'react-toastify';
 
 const RentalDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -23,6 +24,20 @@ const RentalDetailPage: React.FC = () => {
     conditions: {},
     notes: '',
   });
+
+  const [modalFinalizarAluguel, setModalFinalizarAluguel] = useState(false);
+  const [newStatusAluguel, setNewStatusAluguel] = useState<RentalStatus | null>(null);
+
+  const [closePreview, setClosePreview] = useState<{
+    originalTotal: number;
+    recalculatedTotal: number;
+    usedDays: number;
+    contractedDays: number;
+    rentalType: string;
+  } | null>(null);
+
+  const [loadingPreview, setLoadingPreview] = useState(false);
+
 
   const { data, isLoading } = useQuery({
     queryKey: ['rental', id],
@@ -45,6 +60,8 @@ const RentalDetailPage: React.FC = () => {
     onSuccess: (response) => {
       setShowStatusModal(false);
       setServerError(null);
+      setModalFinalizarAluguel(false);
+      setClosePreview(null);
 
       // Se a alteração precisa de aprovação, mostra o toast
       if ('requiresApproval' in response) {
@@ -122,6 +139,45 @@ const RentalDetailPage: React.FC = () => {
     return labels[status];
   };
 
+  const handleAbrirFinalizacao = async (status: RentalStatus) => {
+    setNewStatusAluguel(status);
+    setModalFinalizarAluguel(true);
+    setLoadingPreview(true);
+    try {
+      const response = await rentalService.getClosePreview(id!);
+      // Garante que os campos estejam presentes
+      setClosePreview({
+        originalTotal: response.originalTotal,
+        recalculatedTotal: response.recalculatedTotal,
+        usedDays: response.usedDays,
+        contractedDays: response.contractedDays ?? 1,
+        rentalType: response.rentalType ?? 'daily',
+      });
+    } catch {
+      toast.error('Erro ao calcular valores do fechamento');
+      setModalFinalizarAluguel(false);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const handleSalvarStatus = () => {
+    if (newStatus === 'completed') {
+      setShowStatusModal(false);
+      handleAbrirFinalizacao('completed');
+      return;
+    }
+    updateStatusMutation.mutate(newStatus);
+    setShowStatusModal(false);
+  };
+
+  const confirmarFinalizacao = () => {
+    if (!newStatusAluguel) return;
+    updateStatusMutation.mutate(newStatusAluguel);
+    setModalFinalizarAluguel(false);
+    setNewStatusAluguel(null);
+  };
+
   if (isLoading) {
     return (
       <Layout title="Detalhes do Aluguel" backTo="/rentals">
@@ -181,15 +237,17 @@ const RentalDetailPage: React.FC = () => {
               </span>
             </div>
             <div className="flex gap-2">
+
               <button
                 onClick={() => {
+                  setNewStatus(rental.status as RentalStatus);
                   setShowStatusModal(true);
-                  setNewStatus(rental.status);
                 }}
-                className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400"
+                className="px-4 py-2 bg-gray-800 text-white rounded-lg"
               >
                 Alterar Status
               </button>
+
               {rental.status === 'active' && (
                 <button
                   onClick={() => {
@@ -447,12 +505,60 @@ const RentalDetailPage: React.FC = () => {
                 Cancelar
               </button>
               <button
-                onClick={() => updateStatusMutation.mutate(newStatus)}
+                onClick={handleSalvarStatus}
                 className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg text-sm font-medium transition-colors"
               >
                 Salvar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Modal de finalização do aluguel */}
+      {modalFinalizarAluguel && newStatusAluguel === 'completed' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-lg font-semibold">
+              Finalizar aluguel
+            </h2>
+
+            {loadingPreview ? (
+              <p className="mt-4">Calculando valores…</p>
+            ) : (
+              <>
+                <div className="mt-4 space-y-2 text-sm">
+                  <p>
+                    <strong>Dias utilizados:</strong> {closePreview?.usedDays}
+                  </p>
+
+                  <p>
+                    <strong>Valor original:</strong> R$
+                    {closePreview?.originalTotal.toFixed(2)}
+                  </p>
+
+                  <p className="text-green-600 font-medium">
+                    <strong>Valor final:</strong> R$
+                    {closePreview?.recalculatedTotal.toFixed(2)}
+                  </p>
+                </div>
+
+                <div className="mt-6 flex justify-end gap-2">
+                  <button
+                    onClick={() => setModalFinalizarAluguel(false)}
+                    className="px-4 py-2 border rounded-lg"
+                  >
+                    Cancelar
+                  </button>
+
+                  <button
+                    onClick={confirmarFinalizacao}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg"
+                  >
+                    Confirmar fechamento
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -517,6 +623,66 @@ const RentalDetailPage: React.FC = () => {
                 </button>
               </div>
             </div>
+          </div>
+
+        </div>
+      )}
+
+      {modalFinalizarAluguel && newStatusAluguel === 'completed' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-lg font-semibold">
+              Finalizar aluguel
+            </h2>
+
+            {loadingPreview ? (
+              <p className="mt-4">Calculando valores…</p>
+            ) : (
+              <>
+                <div className="mt-4 space-y-2 text-sm">
+                  <p>
+                    <strong>Contrato original:</strong> {(closePreview?.contractedDays ?? 1)} dias ({(() => {
+                      const type = closePreview?.rentalType ?? 'daily';
+                      if (type === 'weekly') return 'Semanal';
+                      if (type === 'biweekly') return 'Quinzenal';
+                      if (type === 'monthly') return 'Mensal';
+                      return 'Diária';
+                    })()})
+                  </p>
+                  <p>
+                    <strong>Dias utilizados:</strong> {closePreview?.usedDays ?? '-'}
+                  </p>
+                  <p>
+                    <strong>Valor original:</strong> R$
+                    {closePreview?.originalTotal?.toFixed ? closePreview.originalTotal.toFixed(2) : '-'}
+                  </p>
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    O valor original considera o período total contratado.<br />
+                    Como o aluguel foi finalizado antes do prazo, o valor foi recalculado proporcionalmente aos dias utilizados.
+                  </p>
+                  <p className="text-green-600 font-medium">
+                    <strong>Valor final:</strong> R$
+                    {closePreview?.recalculatedTotal?.toFixed ? closePreview.recalculatedTotal.toFixed(2) : '-'}
+                  </p>
+                </div>
+
+                <div className="mt-6 flex justify-end gap-2">
+                  <button
+                    onClick={() => setModalFinalizarAluguel(false)}
+                    className="px-4 py-2 border rounded-lg"
+                  >
+                    Cancelar
+                  </button>
+
+                  <button
+                    onClick={confirmarFinalizacao}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg"
+                  >
+                    Confirmar fechamento
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

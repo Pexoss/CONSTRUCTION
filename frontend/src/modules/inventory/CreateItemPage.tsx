@@ -160,7 +160,6 @@ const CreateItemPage: React.FC = () => {
       }
 
       const validatedData = createItemSchema.parse(dataToSend);
-      console.log(validatedData)
 
       createItem.mutate(validatedData as CreateItemData, {
         onSuccess: () => {
