@@ -79,9 +79,11 @@ api.interceptors.response.use(
       }
 
       try {
+        console.log('[AUTH] Tentando fazer refresh do token...');
         const response = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
         const { accessToken } = response.data.data; // garantindo que vem no data.data
         localStorage.setItem('accessToken', accessToken);
+        console.log('[AUTH] Token refresh bem-sucedido');
 
         // atualiza header da request original
         if (originalRequest.headers) {
@@ -93,6 +95,7 @@ api.interceptors.response.use(
 
         return api(originalRequest); // refaz requisição original
       } catch (refreshError) {
+        console.error('[AUTH] Erro ao fazer refresh:', refreshError);
         processQueue(refreshError as AxiosError, null);
         isRefreshing = false;
 

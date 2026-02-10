@@ -13,7 +13,16 @@ export const useAuth = () => {
     queryKey: ['me'],
     queryFn: () => authService.getMe(),
     enabled: isAuthenticated && !!localStorage.getItem('accessToken'),
-    retry: false,
+    retry: (failureCount, error: any) => {
+      // Não fazer retry em 401 (não autenticado)
+      if (error?.response?.status === 401) {
+        console.log('[AUTH] 401 Unauthorized - não fazendo retry');
+        return false;
+      }
+      // Fazer retry até 2 vezes em outros erros
+      return failureCount < 2;
+    },
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 
   // Handle user data when query succeeds
@@ -26,7 +35,15 @@ export const useAuth = () => {
   // Handle user query error
   useEffect(() => {
     if (userError) {
-      logout();
+      const isUnauthorized = (userError as any)?.response?.status === 401;
+      if (isUnauthorized) {
+        console.log('[AUTH] Usuário não autenticado, fazendo logout');
+        logout();
+      } else {
+        console.warn('[AUTH] Erro ao validar usuário:', userError);
+        // Não fazer logout em erros de rede ou servidor
+        // O retry automático do React Query tentará novamente
+      }
     }
   }, [userError, logout]);
 

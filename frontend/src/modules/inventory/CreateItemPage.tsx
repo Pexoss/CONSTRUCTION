@@ -186,33 +186,35 @@ const CreateItemPage: React.FC = () => {
   const subcategories = subcategoriesData?.data || [];
 
   return (
-    <Layout title="Novo Item" backTo="/inventory/items">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
+  <Layout title="Novo Item" backTo="/inventory/items">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="mb-6">
           <Link
             to="/inventory/items"
-            className="text-sm text-gray-500 hover:text-gray-700 inline-flex items-center"
+            className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 inline-flex items-center"
           >
             ← Voltar para o Inventário
           </Link>
         </div>
 
         <div className="mb-8">
-          <h1 className="text-2xl font-semibold text-gray-900">Novo Item</h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Novo Item</h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
             Cadastre um novo item no inventário
           </p>
         </div>
 
-        <div className="bg-white rounded-lg border border-gray-200">
-          <form onSubmit={handleSubmit} className="divide-y divide-gray-200">
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+          <form onSubmit={handleSubmit} className="divide-y divide-gray-200 dark:divide-gray-700">
 
             {/* Informações Básicas */}
             <div className="p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Informações Básicas</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Informações Básicas</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Nome *
                   </label>
                   <input
@@ -222,13 +224,13 @@ const CreateItemPage: React.FC = () => {
                     required
                     value={formData.name}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
-                  {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
+                  {errors.name && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.name}</p>}
                 </div>
 
                 <div>
-                  <label htmlFor="sku" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="sku" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     SKU *
                   </label>
                   <input
@@ -238,13 +240,13 @@ const CreateItemPage: React.FC = () => {
                     required
                     value={formData.sku}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
-                  {errors.sku && <p className="mt-1 text-sm text-red-600">{errors.sku}</p>}
+                  {errors.sku && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.sku}</p>}
                 </div>
 
                 <div>
-                  <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="category" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Categoria *
                   </label>
                   <select
@@ -253,7 +255,7 @@ const CreateItemPage: React.FC = () => {
                     required
                     value={formData.category}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   >
                     <option value="">Selecione uma categoria</option>
                     {categories.map((cat) => (
@@ -262,11 +264,11 @@ const CreateItemPage: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                  {errors.category && <p className="mt-1 text-sm text-red-600">{errors.category}</p>}
+                  {errors.category && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.category}</p>}
                 </div>
 
                 <div>
-                  <label htmlFor="subcategory" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="subcategory" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Subcategoria
                   </label>
                   <select
@@ -275,7 +277,7 @@ const CreateItemPage: React.FC = () => {
                     value={formData.subcategory}
                     onChange={handleChange}
                     disabled={!selectedCategoryId}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm disabled:bg-gray-50 disabled:text-gray-500"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-400 text-sm disabled:opacity-50"
                   >
                     <option value="">Selecione uma subcategoria</option>
                     {subcategories.map((sub) => (
@@ -287,7 +289,7 @@ const CreateItemPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label htmlFor="customId" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="customId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     ID Customizado
                   </label>
                   <input
@@ -297,12 +299,12 @@ const CreateItemPage: React.FC = () => {
                     value={formData.customId}
                     onChange={handleChange}
                     placeholder="Ex: betoneira-13"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="barcode" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="barcode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Código de Barras
                   </label>
                   <input
@@ -311,12 +313,12 @@ const CreateItemPage: React.FC = () => {
                     type="text"
                     value={formData.barcode}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
                 </div>
 
                 <div className="md:col-span-2">
-                  <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Descrição
                   </label>
                   <textarea
@@ -325,7 +327,7 @@ const CreateItemPage: React.FC = () => {
                     rows={3}
                     value={formData.description}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
                 </div>
               </div>
@@ -333,7 +335,7 @@ const CreateItemPage: React.FC = () => {
 
             {/* Tipo de Controle */}
             <div className="p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Tipo de Controle de Estoque</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Tipo de Controle de Estoque</h2>
               <div className="space-y-4">
                 <div className="flex items-start">
                   <input
@@ -345,11 +347,11 @@ const CreateItemPage: React.FC = () => {
                       setFormData((prev) => ({ ...prev, trackingType: e.target.value as 'quantity' | 'unit' }));
                       setUnits([]);
                     }}
-                    className="mt-1 mr-3 h-4 w-4 text-gray-700 focus:ring-gray-400"
+                    className="mt-1 mr-3 h-4 w-4 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-gray-500"
                   />
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Quantitativo</label>
-                    <p className="text-sm text-gray-500 mt-1">Ex: 30 escoramentos, 50 tábuas</p>
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Quantitativo</label>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Ex: 30 escoramentos, 50 tábuas</p>
                   </div>
                 </div>
 
@@ -362,11 +364,11 @@ const CreateItemPage: React.FC = () => {
                     onChange={(e) => {
                       setFormData((prev) => ({ ...prev, trackingType: e.target.value as 'quantity' | 'unit' }));
                     }}
-                    className="mt-1 mr-3 h-4 w-4 text-gray-700 focus:ring-gray-400"
+                    className="mt-1 mr-3 h-4 w-4 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-gray-500"
                   />
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Unitário com ID</label>
-                    <p className="text-sm text-gray-500 mt-1">Ex: Furadeira F421, Betoneira B013</p>
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Unitário com ID</label>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Ex: Furadeira F421, Betoneira B013</p>
                   </div>
                 </div>
               </div>
@@ -376,30 +378,33 @@ const CreateItemPage: React.FC = () => {
             {formData.trackingType === 'unit' && (
               <div className="p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold text-gray-900">Unidades Individuais</h2>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Unidades Individuais</h2>
                   <button
                     type="button"
                     onClick={() => {
                       setUnits([...units, { unitId: '', status: 'available' }]);
                     }}
-                    className="px-3 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
-                    + Adicionar Unidade
+                    <svg className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Adicionar Unidade
                   </button>
                 </div>
 
                 {errors.units && (
-                  <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg">
-                    <p className="text-sm text-red-700">{errors.units}</p>
+                  <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800/30 rounded-lg">
+                    <p className="text-sm text-red-700 dark:text-red-300">{errors.units}</p>
                   </div>
                 )}
 
                 <div className="space-y-4">
                   {units.map((unit, index) => (
-                    <div key={index} className="p-4 border border-gray-200 rounded-lg bg-gray-50">
+                    <div key={index} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900/50">
                       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                             ID da Unidade *
                           </label>
                           <input
@@ -411,12 +416,12 @@ const CreateItemPage: React.FC = () => {
                               setUnits(newUnits);
                             }}
                             placeholder="Ex: F421, B013"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                             Status
                           </label>
                           <select
@@ -426,7 +431,7 @@ const CreateItemPage: React.FC = () => {
                               newUnits[index].status = e.target.value as 'available' | 'rented' | 'maintenance' | 'damaged';
                               setUnits(newUnits);
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                           >
                             <option value="available">Disponível</option>
                             <option value="rented">Alugado</option>
@@ -436,7 +441,7 @@ const CreateItemPage: React.FC = () => {
                         </div>
 
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                             Localização
                           </label>
                           <input
@@ -447,7 +452,7 @@ const CreateItemPage: React.FC = () => {
                               newUnits[index].location = e.target.value;
                               setUnits(newUnits);
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                           />
                         </div>
 
@@ -458,8 +463,11 @@ const CreateItemPage: React.FC = () => {
                               const newUnits = units.filter((_, i) => i !== index);
                               setUnits(newUnits);
                             }}
-                            className="w-full px-3 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                            className="w-full inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                           >
+                            <svg className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
                             Remover
                           </button>
                         </div>
@@ -473,10 +481,10 @@ const CreateItemPage: React.FC = () => {
             {/* Quantidades (para tipo quantitativo) */}
             {formData.trackingType === 'quantity' && (
               <div className="p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Quantidades</h2>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quantidades</h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   <div>
-                    <label htmlFor="quantity.total" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="quantity.total" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Total *
                     </label>
                     <input
@@ -487,13 +495,13 @@ const CreateItemPage: React.FC = () => {
                       required
                       value={formData.quantity.total}
                       onChange={handleChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     />
-                    {errors.quantity && <p className="mt-1 text-sm text-red-600">{errors.quantity}</p>}
+                    {errors.quantity && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.quantity}</p>}
                   </div>
 
                   <div>
-                    <label htmlFor="quantity.available" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="quantity.available" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Disponível
                     </label>
                     <input
@@ -503,12 +511,12 @@ const CreateItemPage: React.FC = () => {
                       min="0"
                       value={formData.quantity.available}
                       onChange={handleChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     />
                   </div>
 
                   <div>
-                    <label htmlFor="lowStockThreshold" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="lowStockThreshold" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Alerta de Estoque Baixo
                     </label>
                     <input
@@ -518,7 +526,7 @@ const CreateItemPage: React.FC = () => {
                       min="0"
                       value={formData.lowStockThreshold}
                       onChange={handleChange}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     />
                   </div>
                 </div>
@@ -548,19 +556,19 @@ const CreateItemPage: React.FC = () => {
                       }));
                     }
                   }}
-                  className="h-4 w-4 rounded border-gray-300 text-gray-700 focus:ring-gray-400"
+                  className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-gray-500"
                 />
-                <label className="text-sm font-medium text-gray-700">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Este item possui depreciação
                 </label>
               </div>
 
               {formData.depreciation && (
-                <div className="mt-4 border-t border-gray-200 pt-4">
-                  <h3 className="text-lg font-medium text-gray-900 mb-4">Depreciação</h3>
+                <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Depreciação</h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                     <div>
-                      <label htmlFor="initialValue" className="block text-sm font-medium text-gray-700 mb-1">
+                      <label htmlFor="initialValue" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Valor Inicial *
                       </label>
                       <input
@@ -578,12 +586,12 @@ const CreateItemPage: React.FC = () => {
                             },
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
                     </div>
 
                     <div>
-                      <label htmlFor="purchaseDate" className="block text-sm font-medium text-gray-700 mb-1">
+                      <label htmlFor="purchaseDate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Data da Compra *
                       </label>
                       <input
@@ -600,12 +608,12 @@ const CreateItemPage: React.FC = () => {
                             },
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
                     </div>
 
                     <div>
-                      <label htmlFor="depreciationRate" className="block text-sm font-medium text-gray-700 mb-1">
+                      <label htmlFor="depreciationRate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Taxa de Depreciação (%) *
                       </label>
                       <input
@@ -623,7 +631,7 @@ const CreateItemPage: React.FC = () => {
                             },
                           }))
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
                     </div>
                   </div>
@@ -633,10 +641,10 @@ const CreateItemPage: React.FC = () => {
 
             {/* Preços */}
             <div className="p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Preços</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Preços</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
-                  <label htmlFor="pricing.dailyRate" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="pricing.dailyRate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Taxa Diária (R$) *
                   </label>
                   <input
@@ -648,12 +656,12 @@ const CreateItemPage: React.FC = () => {
                     required
                     value={formData.pricing.dailyRate}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="pricing.weeklyRate" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="pricing.weeklyRate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Taxa Semanal (R$)
                   </label>
                   <input
@@ -664,12 +672,12 @@ const CreateItemPage: React.FC = () => {
                     min="0"
                     value={formData.pricing.weeklyRate || ''}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="pricing.biweeklyRate" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="pricing.biweeklyRate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Taxa Quinzenal (R$)
                   </label>
                   <input
@@ -680,12 +688,12 @@ const CreateItemPage: React.FC = () => {
                     min="0"
                     value={formData.pricing.biweeklyRate || ''}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="pricing.monthlyRate" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="pricing.monthlyRate" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Taxa Mensal (R$)
                   </label>
                   <input
@@ -696,12 +704,12 @@ const CreateItemPage: React.FC = () => {
                     min="0"
                     value={formData.pricing.monthlyRate || ''}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="pricing.depositAmount" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="pricing.depositAmount" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Valor de Depósito (R$)
                   </label>
                   <input
@@ -712,7 +720,7 @@ const CreateItemPage: React.FC = () => {
                     min="0"
                     value={formData.pricing.depositAmount || ''}
                     onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
                 </div>
               </div>
@@ -720,7 +728,7 @@ const CreateItemPage: React.FC = () => {
 
             {/* Localização */}
             <div className="p-6">
-              <label htmlFor="location" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="location" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Localização
               </label>
               <input
@@ -730,36 +738,36 @@ const CreateItemPage: React.FC = () => {
                 value={formData.location}
                 onChange={handleChange}
                 placeholder="Ex: Galpão A - Prateleira 3"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm"
+                className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
               />
             </div>
 
             {/* Erro Geral */}
             {errors.submit && (
-              <div className="p-6 bg-red-50 border-y border-red-100">
+              <div className="p-6 bg-red-50 dark:bg-red-900/20 border-y border-red-100 dark:border-red-800/30">
                 <div className="flex items-center">
-                  <svg className="h-5 w-5 text-red-600 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                  <svg className="h-5 w-5 text-red-600 dark:text-red-400 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
                   </svg>
-                  <p className="text-sm font-medium text-red-700">{errors.submit}</p>
+                  <p className="text-sm font-medium text-red-700 dark:text-red-300">{errors.submit}</p>
                 </div>
               </div>
             )}
 
             {/* Botões */}
-            <div className="p-6 bg-gray-50 rounded-b-lg">
+            <div className="p-6 bg-gray-50 dark:bg-gray-900/50 rounded-b-lg">
               <div className="flex justify-end space-x-3">
                 <button
                   type="button"
                   onClick={() => navigate('/inventory/items')}
-                  className="px-4 py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-colors"
+                  className="inline-flex items-center justify-center px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={createItem.isPending}
-                  className="px-4 py-2.5 border border-transparent rounded-lg text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="inline-flex items-center justify-center px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {createItem.isPending ? (
                     <span className="flex items-center">
@@ -778,8 +786,9 @@ const CreateItemPage: React.FC = () => {
           </form>
         </div>
       </div>
-    </Layout>
-  );
+    </div>
+  </Layout>
+);
 };
 
 export default CreateItemPage;
