@@ -428,24 +428,32 @@ class RentalService {
       Math.ceil(diffMs / (1000 * 60 * 60 * 24))
     );
 
-    const billingCycle = rental.dates.billingCycle;
-
-    let recalculatedEquipmentSubtotal =
-      rental.pricing.equipmentSubtotal;
-
-    if (billingCycle === 'weekly') {
-      const dailyRate =
-        rental.pricing.equipmentSubtotal / 7;
-
-      recalculatedEquipmentSubtotal =
-        dailyRate * usedDays;
+    // Recalcular o subtotal dos equipamentos baseado nos dias utilizados
+    let recalculatedEquipmentSubtotal = 0;
+    for (const item of rental.items) {
+      const { unitPrice, rentalType, quantity } = item;
+      let proportional = 0;
+      
+      if (rentalType === 'weekly') {
+        proportional = (unitPrice / 7) * usedDays;
+      } else if (rentalType === 'biweekly') {
+        proportional = (unitPrice / 15) * usedDays;
+      } else if (rentalType === 'monthly') {
+        proportional = (unitPrice / 30) * usedDays;
+      } else {
+        // daily - sem divisão necessária
+        proportional = unitPrice * usedDays;
+      }
+      
+      recalculatedEquipmentSubtotal += proportional * quantity;
     }
 
     const recalculatedTotal =
       recalculatedEquipmentSubtotal +
-      rental.pricing.servicesSubtotal -
-      rental.pricing.discount +
-      rental.pricing.lateFee;
+      (rental.pricing.servicesSubtotal || 0) +
+      (rental.pricing.deposit || 0) -
+      (rental.pricing.discount || 0) +
+      (rental.pricing.lateFee || 0);
 
     return {
       usedDays,

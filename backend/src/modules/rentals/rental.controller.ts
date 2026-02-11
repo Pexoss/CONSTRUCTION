@@ -130,7 +130,7 @@ export class RentalController {
     }
   }
 
-  async getClosePreview(req: Request, res: Response) {
+  async getClosePreview(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const companyId = req.companyId;
@@ -140,15 +140,12 @@ export class RentalController {
         companyId!
       );
 
-      return res.json({
+      res.json({
         success: true,
         data: preview,
       });
-    } catch (error: any) {
-      return res.status(404).json({
-        success: false,
-        message: error.message || 'Erro ao calcular fechamento',
-      });
+    } catch (error) {
+      next(error);
     }
   }
 
