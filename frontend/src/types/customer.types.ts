@@ -52,8 +52,9 @@ export interface Customer {
 }
 
 export interface CreateCustomerData {
-  name: string;
+  name?: string;
   cpfCnpj: string;
+  validateDocument?: boolean;
   email?: string;
   phone?: string;
   notes?: string;

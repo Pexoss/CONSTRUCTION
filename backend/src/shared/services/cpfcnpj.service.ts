@@ -12,11 +12,28 @@ interface CpfCnpjApiResponse {
   [key: string]: unknown;
 }
 
+interface CpfCnpjBalanceResponse {
+  pacote?: Array<{
+    id?: number;
+    nome?: string;
+    saldo?: number;
+  }>;
+  saldo?: number;
+  [key: string]: unknown;
+}
+
 export interface CpfCnpjLookupResult {
   documentType: DocumentType;
   cpfCnpj: string;
   name: string;
   raw: CpfCnpjApiResponse;
+}
+
+export interface CpfCnpjBalanceResult {
+  documentType: DocumentType;
+  packageId: string;
+  balance: number;
+  raw: CpfCnpjBalanceResponse;
 }
 
 class CpfCnpjService {
@@ -89,6 +106,55 @@ class CpfCnpjService {
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         const error = new Error('CPF/CNPJ API request timed out') as AppError;
+        error.statusCode = 504;
+        throw error;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async getBalanceByDocument(documentInput: string): Promise<CpfCnpjBalanceResult> {
+    const cpfCnpj = this.normalizeDocument(documentInput);
+    const documentType = this.getDocumentType(cpfCnpj);
+    const packageId = this.getPackageId(documentType);
+
+    const url = `${this.baseUrl}/${this.token}/saldo/${packageId}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const error = new Error(`CPF/CNPJ balance request failed with status ${response.status}`) as AppError;
+        error.statusCode = 502;
+        throw error;
+      }
+
+      const data = (await response.json()) as CpfCnpjBalanceResponse;
+      const balance = data?.pacote?.[0]?.saldo ?? data?.saldo;
+
+      if (typeof balance !== 'number') {
+        const error = new Error('CPF/CNPJ API did not return balance') as AppError;
+        error.statusCode = 502;
+        throw error;
+      }
+
+      return {
+        documentType,
+        packageId,
+        balance,
+        raw: data,
+      };
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        const error = new Error('CPF/CNPJ balance request timed out') as AppError;
         error.statusCode = 504;
         throw error;
       }

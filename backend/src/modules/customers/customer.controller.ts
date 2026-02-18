@@ -329,6 +329,36 @@ export class CustomerController {
       next(error);
     }
   }
+
+  /**
+   * NOVO: Consultar saldo do pacote CPF/CNPJ
+   * GET /api/customers/validate-document/balance?cpfCnpj=...
+   */
+  async getDocumentBalance(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const cpfCnpj = String(req.query.cpfCnpj || '');
+      if (!cpfCnpj) {
+        res.status(400).json({
+          success: false,
+          message: 'cpfCnpj is required',
+        });
+        return;
+      }
+
+      const result = await cpfCnpjService.getBalanceByDocument(cpfCnpj);
+
+      res.json({
+        success: true,
+        data: {
+          documentType: result.documentType,
+          packageId: result.packageId,
+          balance: result.balance,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const customerController = new CustomerController();

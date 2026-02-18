@@ -10,6 +10,7 @@ const CreateCustomerPage: React.FC = () => {
   const [formData, setFormData] = useState<CreateCustomerData>({
     name: "",
     cpfCnpj: "",
+    validateDocument: false,
     email: "",
     phone: "",
     notes: "",
@@ -19,6 +20,12 @@ const CreateCustomerPage: React.FC = () => {
   const [createdCustomerId, setCreatedCustomerId] = useState<string | null>(
     null,
   );
+  const [balanceInfo, setBalanceInfo] = useState<{
+    balance: number;
+    documentType: "cpf" | "cnpj";
+  } | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
 
   const createMutation = useMutation({
     mutationFn: (data: CreateCustomerData) =>
@@ -43,20 +50,80 @@ const CreateCustomerPage: React.FC = () => {
     console.log("📝 Submit acionado");
     console.log("📦 FormData atual:", formData);
 
-    createMutation.mutate(formData);
+    const payload: CreateCustomerData = { ...formData };
+    if (payload.validateDocument) {
+      delete payload.name;
+    } else if (payload.name) {
+      payload.name = payload.name.trim();
+    }
+
+    createMutation.mutate(payload);
   };
+
+  React.useEffect(() => {
+    const cpfCnpjDigits = formData.cpfCnpj.replace(/\D/g, "");
+    const shouldCheckBalance =
+      formData.validateDocument &&
+      (cpfCnpjDigits.length === 11 || cpfCnpjDigits.length === 14);
+
+    if (!shouldCheckBalance) {
+      setBalanceInfo(null);
+      setBalanceError(null);
+      setBalanceLoading(false);
+      return;
+    }
+
+    setBalanceLoading(true);
+    setBalanceError(null);
+
+    const timeoutId = setTimeout(() => {
+      customerService
+        .getCpfCnpjBalance(cpfCnpjDigits)
+        .then((data) => {
+          setBalanceInfo({
+            balance: data.balance,
+            documentType: data.documentType,
+          });
+        })
+        .catch((error: any) => {
+          const message =
+            error?.response?.data?.message || "Não foi possível consultar o saldo";
+          setBalanceError(message);
+          setBalanceInfo(null);
+        })
+        .finally(() => {
+          setBalanceLoading(false);
+        });
+    }, 400);
+
+    return () => clearTimeout(timeoutId);
+  }, [formData.cpfCnpj, formData.validateDocument]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
-    const { name, value } = e.target;
+    const { name, value, type } = e.target;
+    const nextValue =
+      type === "checkbox"
+        ? (e.target as HTMLInputElement).checked
+        : value;
 
-    console.log(`✏️ Campo alterado: ${name}`, value);
+    console.log(`✏️ Campo alterado: ${name}`, nextValue);
 
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData((prev) => {
+      if (name === "validateDocument" && nextValue === true) {
+        return {
+          ...prev,
+          validateDocument: true,
+          name: "",
+        };
+      }
+
+      return {
+        ...prev,
+        [name]: nextValue,
+      };
+    });
   };
 
   return (
@@ -136,18 +203,24 @@ const CreateCustomerPage: React.FC = () => {
                   htmlFor="name"
                   className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                 >
-                  Nome *
+                  Nome {formData.validateDocument ? "" : "*"}
                 </label>
                 <input
                   type="text"
                   id="name"
                   name="name"
-                  required
+                  required={!formData.validateDocument}
                   value={formData.name}
                   onChange={handleChange}
                   placeholder="Ex: João da Silva"
+                  disabled={formData.validateDocument}
                   className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                 />
+                {formData.validateDocument && (
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    Nome será preenchido automaticamente pela validação do CPF/CNPJ.
+                  </p>
+                )}
               </div>
 
               {/* CPF/CNPJ */}
@@ -168,6 +241,32 @@ const CreateCustomerPage: React.FC = () => {
                   placeholder="000.000.000-00"
                   className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                 />
+                <label className="mt-3 inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    name="validateDocument"
+                    checked={!!formData.validateDocument}
+                    onChange={handleChange}
+                    className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-500"
+                  />
+                  Validar CPF/CNPJ pela API e preencher o nome automaticamente
+                </label>
+                {formData.validateDocument && (
+                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    {balanceLoading && <span>Consultando saldo...</span>}
+                    {!balanceLoading && balanceInfo && (
+                      <span>
+                        Saldo disponível ({balanceInfo.documentType.toUpperCase()}):{" "}
+                        {balanceInfo.balance}
+                      </span>
+                    )}
+                    {!balanceLoading && balanceError && (
+                      <span className="text-red-600 dark:text-red-400">
+                        {balanceError}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Email e Telefone */}

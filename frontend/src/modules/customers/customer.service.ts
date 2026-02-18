@@ -27,6 +27,14 @@ export const customerService = {
     return response.data.data;
   },
 
+  getCpfCnpjBalance: async (cpfCnpj: string) => {
+    const response = await api.get<{
+      success: boolean;
+      data: { documentType: 'cpf' | 'cnpj'; packageId: string; balance: number };
+    }>(`/customers/validate-document/balance?cpfCnpj=${encodeURIComponent(cpfCnpj)}`);
+    return response.data.data;
+  },
+
   updateCustomer: async (id: string, data: Partial<CreateCustomerData>) => {
     const response = await api.put<{ success: boolean; message: string; data: Customer }>(
       `/customers/${id}`,
