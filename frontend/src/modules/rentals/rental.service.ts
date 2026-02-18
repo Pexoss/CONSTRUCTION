@@ -26,7 +26,23 @@ export const rentalService = {
       data: Rental[];
       pagination: { total: number; page: number; limit: number; totalPages: number };
     }>(`/rentals?${params.toString()}`);
+
     return response.data;
+  },
+
+  getClosePreview: async (id: string) => {
+    const response = await api.get<{
+      success: boolean;
+      data: {
+        originalTotal: number;
+        recalculatedTotal: number;
+        usedDays: number;
+        contractedDays: number;
+        rentalType: string;
+      };
+    }>(`/rentals/${id}/close-preview`);
+
+    return response.data.data;
   },
 
   getRentalById: async (id: string) => {

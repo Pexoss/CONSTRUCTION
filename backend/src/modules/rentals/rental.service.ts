@@ -2,13 +2,14 @@ import { Rental } from './rental.model';
 import { Item } from '../inventory/item.model';
 import { ItemMovement } from '../inventory/itemMovement.model';
 import { IRental, RentalStatus, IRentalItem, IRentalPricing, IRentalService, IRentalWorkAddress, IRentalChangeHistory, IRentalPendingApproval, RentalType, RentalDetails, UpdateRentalStatusResponse } from './rental.types';
-import mongoose from 'mongoose';
+import mongoose, { Error } from 'mongoose';
 import { ICustomer } from '../customers/customer.types';
 import { Customer } from '../customers/customer.model';
 import { RoleType } from '@/shared/constants/roles';
 import { canApplyDiscount, canUpdateRentalStatus } from '../../helpers/UserPermission';
 import { notificationService } from '../notification/notification.service'
 import { User } from '../users/user.model';
+import { NOTFOUND } from 'dns';
 class RentalService {
   /**
    * Calculate rental price based on period and rates
@@ -198,18 +199,34 @@ class RentalService {
     const discount = data.pricing?.discount || 0;
 
     const lateFee = 0;
+
+    const pickupDate = new Date(data.dates.pickupScheduled);
+    const returnDate = new Date(data.dates.returnScheduled);
+
+    const diffTime = returnDate.getTime() - pickupDate.getTime();
+
+    const contractedDays = Math.max(
+      1,
+      Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    );
+
     const pricing: IRentalPricing = {
       equipmentSubtotal,
+      originalEquipmentSubtotal: equipmentSubtotal,
+      contractedDays,
       servicesSubtotal,
+
       subtotal: totalSubtotal,
       deposit: totalDeposit,
       discount,
       discountReason: data.pricing?.discountReason,
-      discountApprovedBy: data.pricing?.discountApprovedBy ? new mongoose.Types.ObjectId(data.pricing.discountApprovedBy) : undefined,
+      discountApprovedBy: data.pricing?.discountApprovedBy
+        ? new mongoose.Types.ObjectId(data.pricing.discountApprovedBy)
+        : undefined,
       lateFee,
       total: totalSubtotal + totalDeposit - discount + lateFee,
+      usedDays: 0,
     };
-
     // NOVO: Preparar endereço da obra se fornecido
     let workAddress: IRentalWorkAddress | undefined;
     if (data.workAddress) {
@@ -266,6 +283,68 @@ class RentalService {
     }
 
     return rental;
+  }
+
+  async getClosePreview(rentalId: string, companyId: string) {
+    const rental = await Rental.findOne({
+      _id: rentalId,
+      companyId,
+    }).lean();
+
+    if (!rental) {
+      throw new Error('Aluguel não encontrado');
+    }
+
+    const startDate = rental.dates.pickupActual ?? rental.dates.pickupScheduled;
+    const endDate = rental.dates.returnActual ?? new Date();
+    const diffInMs = endDate.getTime() - startDate.getTime();
+    const usedDays = Math.max(1, Math.ceil(diffInMs / (1000 * 60 * 60 * 24)));
+
+    // Dias contratados e tipo de contrato
+    let contractedDays = rental.pricing.contractedDays;
+    if (!contractedDays) {
+      // fallback: calcula diferença entre datas agendadas
+      const scheduledStart = rental.dates.pickupScheduled;
+      const scheduledEnd = rental.dates.returnScheduled;
+      const diff = new Date(scheduledEnd).getTime() - new Date(scheduledStart).getTime();
+      contractedDays = Math.max(1, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+    }
+    // Tipo de contrato: pega do primeiro item ou do ciclo de faturamento
+    const rentalType = rental.dates.billingCycle || rental.items[0]?.rentalType || 'daily';
+
+    const originalTotal = rental.pricing.total;
+
+    // Calcular valor proporcional de cada item
+    let recalculatedEquipment = 0;
+    for (const item of rental.items) {
+      const { unitPrice, rentalType, quantity } = item;
+      let proportional = 0;
+      if (rentalType === 'weekly') {
+        proportional = (unitPrice / 7) * usedDays;
+      } else if (rentalType === 'biweekly') {
+        proportional = (unitPrice / 15) * usedDays;
+      } else if (rentalType === 'monthly') {
+        proportional = (unitPrice / 30) * usedDays;
+      } else {
+        proportional = (unitPrice / 1) * usedDays; // diária
+      }
+      recalculatedEquipment += proportional * quantity;
+    }
+
+    const recalculatedTotal =
+      recalculatedEquipment +
+      (rental.pricing.servicesSubtotal || 0) +
+      (rental.pricing.deposit || 0) -
+      (rental.pricing.discount || 0) +
+      (rental.pricing.lateFee || 0);
+
+    return {
+      originalTotal,
+      recalculatedTotal,
+      usedDays,
+      contractedDays,
+      rentalType,
+    };
   }
 
   /**
@@ -335,6 +414,53 @@ class RentalService {
       .populate('createdBy', 'name email')
       .populate('checklistPickup.completedBy', 'name email')
       .populate('checklistReturn.completedBy', 'name email');
+  }
+
+  private calculateFinalPricing(rental: any) {
+    const pickupDate =
+      rental.dates.pickupActual || rental.dates.pickupScheduled;
+
+    const returnDate = new Date();
+
+    const diffMs = returnDate.getTime() - pickupDate.getTime();
+    const usedDays = Math.max(
+      1,
+      Math.ceil(diffMs / (1000 * 60 * 60 * 24))
+    );
+
+    // Recalcular o subtotal dos equipamentos baseado nos dias utilizados
+    let recalculatedEquipmentSubtotal = 0;
+    for (const item of rental.items) {
+      const { unitPrice, rentalType, quantity } = item;
+      let proportional = 0;
+      
+      if (rentalType === 'weekly') {
+        proportional = (unitPrice / 7) * usedDays;
+      } else if (rentalType === 'biweekly') {
+        proportional = (unitPrice / 15) * usedDays;
+      } else if (rentalType === 'monthly') {
+        proportional = (unitPrice / 30) * usedDays;
+      } else {
+        // daily - sem divisão necessária
+        proportional = unitPrice * usedDays;
+      }
+      
+      recalculatedEquipmentSubtotal += proportional * quantity;
+    }
+
+    const recalculatedTotal =
+      recalculatedEquipmentSubtotal +
+      (rental.pricing.servicesSubtotal || 0) +
+      (rental.pricing.deposit || 0) -
+      (rental.pricing.discount || 0) +
+      (rental.pricing.lateFee || 0);
+
+    return {
+      usedDays,
+      recalculatedEquipmentSubtotal,
+      recalculatedTotal,
+      returnDate
+    };
   }
 
   /**
@@ -415,7 +541,22 @@ class RentalService {
       (oldStatus === 'active' || oldStatus === 'overdue') &&
       status === 'completed'
     ) {
-      rental.dates.returnActual = new Date();
+      const {
+        usedDays,
+        recalculatedEquipmentSubtotal,
+        recalculatedTotal,
+        returnDate
+      } = this.calculateFinalPricing(rental);
+
+      rental.dates.returnActual = returnDate;
+
+      // guarda histórico financeiro
+      rental.pricing.originalEquipmentSubtotal = rental.pricing.equipmentSubtotal;
+      rental.pricing.equipmentSubtotal = Number(recalculatedEquipmentSubtotal.toFixed(2));
+      rental.pricing.subtotal = Number((rental.pricing.equipmentSubtotal + rental.pricing.servicesSubtotal).toFixed(2));
+      rental.pricing.total = Number((rental.pricing.subtotal + rental.pricing.deposit - rental.pricing.discount + rental.pricing.lateFee).toFixed(2));
+
+      rental.pricing.usedDays = usedDays;
 
       for (const item of rental.items) {
         await this.updateItemQuantityForRental(
@@ -457,7 +598,6 @@ class RentalService {
       data: rental
     };
   }
-
 
   /**
    * Extend rental period

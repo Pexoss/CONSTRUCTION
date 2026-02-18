@@ -6,8 +6,9 @@ import rateLimit from 'express-rate-limit';
 import compression from 'compression';
 import mongoSanitize from 'express-mongo-sanitize';
 import { env } from './config/env';
-import { connectDatabase, closeDatabase } from './config/database';
+import { connectDatabase, closeDatabase, isDatabaseConnected } from './config/database';
 import { errorMiddleware } from './shared/middleware/error.middleware';
+import { databaseCheckMiddleware } from './shared/middleware/database-check.middleware';
 import authRoutes from './modules/auth/auth.routes';
 import inventoryRoutes from './modules/inventory/item.routes';
 import customerRoutes from './modules/customers/customer.routes';
@@ -75,10 +76,38 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Health check
 app.get('/health', (req, res) => {
+  const isDbConnected = isDatabaseConnected();
+  
   res.json({
     success: true,
     message: 'Server is running',
     timestamp: new Date().toISOString(),
+    database: {
+      connected: isDbConnected,
+      status: isDbConnected ? 'connected' : 'disconnected',
+    },
+  });
+});
+
+// Detailed health check for monitoring
+app.get('/health/detailed', (req, res) => {
+  const isDbConnected = isDatabaseConnected();
+  
+  res.status(isDbConnected ? 200 : 503).json({
+    success: isDbConnected,
+    message: isDbConnected ? 'Server and database are healthy' : 'Database connection lost',
+    timestamp: new Date().toISOString(),
+    database: {
+      connected: isDbConnected,
+      status: isDbConnected ? 'connected' : 'disconnected',
+    },
+    uptime: process.uptime(),
+    memory: {
+      heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+      external: Math.round(process.memoryUsage().external / 1024 / 1024),
+      rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    },
   });
 });
 

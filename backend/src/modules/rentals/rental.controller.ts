@@ -116,7 +116,7 @@ export class RentalController {
         status,
         userId
       );
-      
+
       // se for solicitação de aprovação
       if (result.requiresApproval) {
         res.status(202).json(result);
@@ -125,6 +125,25 @@ export class RentalController {
 
       // sucesso normal
       res.status(200).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getClosePreview(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      const companyId = req.companyId;
+
+      const preview = await rentalService.getClosePreview(
+        id,
+        companyId!
+      );
+
+      res.json({
+        success: true,
+        data: preview,
+      });
     } catch (error) {
       next(error);
     }

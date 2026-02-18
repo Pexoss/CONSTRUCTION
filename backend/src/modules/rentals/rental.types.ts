@@ -81,14 +81,17 @@ export interface IRentalDates {
 }
 
 export interface IRentalPricing {
-  equipmentSubtotal: number; // NOVO: subtotal apenas dos equipamentos
-  servicesSubtotal: number; // NOVO: subtotal dos serviços
+  equipmentSubtotal: number;
+  originalEquipmentSubtotal: number;
+  servicesSubtotal: number;
+  contractedDays: number;
   subtotal: number;
   deposit: number;
   discount: number;
-  discountReason?: string; // NOVO: justificativa do desconto
-  discountApprovedBy?: mongoose.Types.ObjectId; // NOVO: quem aprovou
+  discountReason?: string;
+  discountApprovedBy?: mongoose.Types.ObjectId;
   lateFee: number;
+  usedDays: number;
   total: number;
 }
 
@@ -124,7 +127,6 @@ export interface IRental extends Document {
 
   // NOVO: Histórico de alterações
   changeHistory?: IRentalChangeHistory[];
-
   // NOVO: Solicitações pendentes
   pendingApprovals?: IRentalPendingApproval[];
 
