@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { customerService } from './customer.service';
-import { createCustomerSchema, updateCustomerSchema } from './customer.validator';
+import { createCustomerSchema, updateCustomerSchema, validateCustomerDocumentSchema } from './customer.validator';
+import { cpfCnpjService } from '../../shared/services/cpfcnpj.service';
 
 export class CustomerController {
   /**
@@ -301,6 +302,28 @@ export class CustomerController {
         success: true,
         message: 'Validated data updated successfully',
         data: customer,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Validar CPF/CNPJ e retornar nome
+   * POST /api/customers/validate-document
+   */
+  async validateDocument(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { cpfCnpj } = validateCustomerDocumentSchema.parse(req.body);
+      const result = await cpfCnpjService.lookupName(cpfCnpj);
+
+      res.json({
+        success: true,
+        data: {
+          cpfCnpj: result.cpfCnpj,
+          documentType: result.documentType,
+          name: result.name,
+        },
       });
     } catch (error) {
       next(error);

@@ -1,24 +1,39 @@
 import { Customer } from './customer.model';
 import { ICustomer } from './customer.types';
 import mongoose from 'mongoose';
+import { cpfCnpjService } from '../../shared/services/cpfcnpj.service';
 
 class CustomerService {
   /**
    * Create a new customer
    */
   async createCustomer(companyId: string, data: any): Promise<ICustomer> {
+    const { validateDocument, ...customerData } = data;
+
     // Check if CPF/CNPJ already exists for this company
     const existingCustomer = await Customer.findOne({
       companyId,
-      cpfCnpj: data.cpfCnpj,
+      cpfCnpj: customerData.cpfCnpj,
     });
 
     if (existingCustomer) {
       throw new Error('Customer with this CPF/CNPJ already exists');
     }
 
+    if (validateDocument) {
+      const lookup = await cpfCnpjService.lookupName(customerData.cpfCnpj);
+
+      customerData.name = lookup.name;
+      customerData.validated = {
+        isValidated: true,
+        validatedAt: new Date(),
+        cpfName: lookup.name,
+        additionalInfo: lookup.raw,
+      };
+    }
+
     const customer = await Customer.create({
-      ...data,
+      ...customerData,
       companyId,
     });
 

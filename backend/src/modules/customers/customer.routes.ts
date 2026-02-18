@@ -29,5 +29,6 @@ router.delete('/customers/:id/works/:workId', customerController.removeWork.bind
 
 // NOVO: Validação
 router.post('/customers/:id/validate', customerController.updateValidatedData.bind(customerController));
+router.post('/customers/validate-document', customerController.validateDocument.bind(customerController));
 
 export default router;

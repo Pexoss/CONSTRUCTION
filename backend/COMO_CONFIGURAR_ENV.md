@@ -32,6 +32,13 @@ CORS_ORIGIN=http://localhost:3001
 # Rate Limiting
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=100
+
+# CPF.CNPJ API
+CPFCNPJ_API_BASE_URL=https://api.cpfcnpj.com.br
+CPFCNPJ_API_TOKEN=SEU_TOKEN_AQUI
+CPFCNPJ_CPF_PACKAGE_ID=1
+CPFCNPJ_CNPJ_PACKAGE_ID=4
+CPFCNPJ_TIMEOUT_MS=60000
 ```
 
 3. **Altere os valores conforme necessário:**
@@ -39,6 +46,9 @@ RATE_LIMIT_MAX_REQUESTS=100
    - `JWT_SECRET`: Uma string aleatória de pelo menos 32 caracteres
    - `JWT_REFRESH_SECRET`: Outra string aleatória de pelo menos 32 caracteres
    - `CORS_ORIGIN`: URL do seu frontend (padrão: http://localhost:3001)
+   - `CPFCNPJ_API_TOKEN`: Token gerado no painel do CPF.CNPJ
+   - `CPFCNPJ_CPF_PACKAGE_ID`: Pacote de CPF (A = 1, B = 7)
+   - `CPFCNPJ_CNPJ_PACKAGE_ID`: Pacote de CNPJ (A = 4, B = 5)
 
 4. **Salve o arquivo**
 
