@@ -68,6 +68,18 @@ const CompanySchema = new Schema<ICompany>(
       type: Schema.Types.Mixed,
       default: {},
     },
+    cpfCnpjToken: {
+      type: String,
+      trim: true,
+    },
+    cpfCnpjCpfPackageId: {
+      type: String,
+      trim: true,
+    },
+    cpfCnpjCnpjPackageId: {
+      type: String,
+      trim: true,
+    },
   },
   {
     timestamps: true,

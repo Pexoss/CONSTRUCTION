@@ -17,6 +17,10 @@ const AdminPage: React.FC = () => {
 
   const [selectedCompany, setSelectedCompany] = useState<string>("");
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [cpfCnpjToken, setCpfCnpjToken] = useState("");
+  const [cpfPackageId, setCpfPackageId] = useState("");
+  const [cnpjPackageId, setCnpjPackageId] = useState("");
+  const [tokenTouched, setTokenTouched] = useState(false);
 
   const [paymentData, setPaymentData] = useState<PaymentFormData>({
     companyId: "",
@@ -51,6 +55,14 @@ const AdminPage: React.FC = () => {
     enabled: !!selectedCompany,
   });
 
+  const { data: cpfCnpjSettings } = useQuery({
+    queryKey: ["company-cpfcnpj-settings", selectedCompany],
+    queryFn: async () => {
+      return subscriptionService.getCompanyCpfCnpjSettings(selectedCompany);
+    },
+    enabled: !!selectedCompany,
+  });
+
   const { data: upcomingPayments } = useQuery({
     queryKey: ["upcoming-payments"],
     queryFn: async () => {
@@ -70,6 +82,39 @@ const AdminPage: React.FC = () => {
     },
     onError: (err) => {
       return err;
+    },
+  });
+
+  const updateTokenMutation = useMutation({
+    mutationFn: async ({
+      companyId,
+      token,
+      cpfPackageId,
+      cnpjPackageId,
+    }: {
+      companyId: string;
+      token: string;
+      cpfPackageId: string;
+      cnpjPackageId: string;
+    }) => {
+      return subscriptionService.updateCompanyCpfCnpjToken(companyId, {
+        ...(tokenTouched ? { token } : {}),
+        cpfPackageId,
+        cnpjPackageId,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-companies"] });
+      setCpfCnpjToken("");
+      setTokenTouched(false);
+      alert("Token atualizado com sucesso!");
+    },
+    onError: (err: any) => {
+      alert(
+        err.response?.data?.message ||
+          err.message ||
+          "Erro ao atualizar token",
+      );
     },
   });
 
@@ -114,6 +159,20 @@ const AdminPage: React.FC = () => {
     }
   }, [selectedCompany]);
 
+  useEffect(() => {
+    if (selectedCompany) {
+      setCpfCnpjToken("");
+      setTokenTouched(false);
+    }
+  }, [selectedCompany]);
+
+  useEffect(() => {
+    if (cpfCnpjSettings) {
+      setCpfPackageId(cpfCnpjSettings.cpfPackageId || "");
+      setCnpjPackageId(cpfCnpjSettings.cnpjPackageId || "");
+    }
+  }, [cpfCnpjSettings]);
+
   // reset ao fechar modal
   useEffect(() => {
     if (!showPaymentModal) {
@@ -129,6 +188,9 @@ const AdminPage: React.FC = () => {
   const companies = companiesData?.data || [];
   const payments = paymentsData?.data || [];
   const metrics = metricsData?.data;
+  const selectedCompanyData = companies.find(
+    (company) => company._id === selectedCompany,
+  );
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
@@ -368,6 +430,64 @@ const AdminPage: React.FC = () => {
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
               {selectedCompany && metrics ? (
                 <>
+                    <div className="mb-6 border-b border-gray-200 dark:border-gray-700 pb-4">
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                        Token CPF.CNPJ
+                      </h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                        Status:{" "}
+                        {selectedCompanyData?.cpfCnpjTokenConfigured
+                          ? "Configurado"
+                          : "Não configurado"}
+                      </p>
+                      <div className="flex gap-2 mb-3">
+                        <input
+                          type="text"
+                          value={cpfCnpjToken}
+                          onChange={(e) => {
+                            setCpfCnpjToken(e.target.value);
+                            setTokenTouched(true);
+                          }}
+                          placeholder="Cole o token da empresa"
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selectedCompany) return;
+                            updateTokenMutation.mutate({
+                              companyId: selectedCompany,
+                              token: cpfCnpjToken,
+                              cpfPackageId,
+                              cnpjPackageId,
+                            });
+                          }}
+                          disabled={updateTokenMutation.isPending}
+                          className="px-3 py-2 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-xs font-medium"
+                        >
+                          Salvar
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={cpfPackageId}
+                          onChange={(e) => setCpfPackageId(e.target.value)}
+                          placeholder="Pacote CPF (ID)"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        />
+                        <input
+                          type="text"
+                          value={cnpjPackageId}
+                          onChange={(e) => setCnpjPackageId(e.target.value)}
+                          placeholder="Pacote CNPJ (ID)"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        />
+                      </div>
+                      <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                        Para remover, salve com o campo vazio.
+                      </p>
+                    </div>
                   <div className="flex items-center gap-3 mb-4">
                     <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
                       <svg

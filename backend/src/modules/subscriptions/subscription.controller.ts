@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { subscriptionService } from './subscription.service';
 import { createPaymentSchema, markPaymentAsPaidSchema } from './subscription.validator';
 import { Company } from '../companies/company.model';
+import { env } from '../../config/env';
+import { updateCompanyCpfCnpjSettingsSchema } from '../companies/company.validator';
 
 export class SubscriptionController {
   /**
@@ -193,6 +195,107 @@ export class SubscriptionController {
         success: false,
         message: 'Erro ao excluir empresa',
       });
+    }
+  }
+
+  /**
+   * Update CPF/CNPJ token for a company (super admin only)
+   * PATCH /api/admin/companies/:id/cpfcnpj-token
+   */
+  async updateCompanyCpfCnpjToken(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.params.id;
+      const { token, cpfPackageId, cnpjPackageId } = updateCompanyCpfCnpjSettingsSchema.parse(req.body);
+
+      const update: any = {};
+      const unset: any = {};
+
+      if (token !== undefined) {
+        const trimmed = token.trim();
+        if (trimmed) {
+          update.cpfCnpjToken = trimmed;
+        } else {
+          unset.cpfCnpjToken = '';
+        }
+      }
+
+      if (cpfPackageId !== undefined) {
+        const trimmed = cpfPackageId.trim();
+        if (trimmed) {
+          update.cpfCnpjCpfPackageId = trimmed;
+        } else {
+          unset.cpfCnpjCpfPackageId = '';
+        }
+      }
+
+      if (cnpjPackageId !== undefined) {
+        const trimmed = cnpjPackageId.trim();
+        if (trimmed) {
+          update.cpfCnpjCnpjPackageId = trimmed;
+        } else {
+          unset.cpfCnpjCnpjPackageId = '';
+        }
+      }
+
+      const updateQuery: any = {};
+      if (Object.keys(update).length > 0) updateQuery.$set = update;
+      if (Object.keys(unset).length > 0) updateQuery.$unset = unset;
+
+      const company = await Company.findByIdAndUpdate(companyId, updateQuery, { new: true }).select(
+        'cpfCnpjToken cpfCnpjCpfPackageId cpfCnpjCnpjPackageId'
+      );
+
+      if (!company) {
+        res.status(404).json({
+          success: false,
+          message: 'Empresa não encontrada',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: 'Token atualizado com sucesso',
+        data: {
+          configured: !!company.cpfCnpjToken,
+          cpfPackageId: company.cpfCnpjCpfPackageId || env.CPFCNPJ_CPF_PACKAGE_ID,
+          cnpjPackageId: company.cpfCnpjCnpjPackageId || env.CPFCNPJ_CNPJ_PACKAGE_ID,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get CPF/CNPJ settings for a company (super admin only)
+   * GET /api/admin/companies/:id/cpfcnpj-settings
+   */
+  async getCompanyCpfCnpjSettings(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.params.id;
+      const company = await Company.findById(companyId).select(
+        'cpfCnpjToken cpfCnpjCpfPackageId cpfCnpjCnpjPackageId'
+      );
+
+      if (!company) {
+        res.status(404).json({
+          success: false,
+          message: 'Empresa não encontrada',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          tokenConfigured: !!company.cpfCnpjToken,
+          cpfPackageId: company.cpfCnpjCpfPackageId || env.CPFCNPJ_CPF_PACKAGE_ID,
+          cnpjPackageId: company.cpfCnpjCnpjPackageId || env.CPFCNPJ_CNPJ_PACKAGE_ID,
+        },
+      });
+    } catch (error) {
+      next(error);
     }
   }
 }

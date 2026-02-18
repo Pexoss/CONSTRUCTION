@@ -109,4 +109,24 @@ export const subscriptionService = {
     return response.data;
   },
 
+  updateCompanyCpfCnpjToken: async (
+    companyId: string,
+    payload: { token?: string; cpfPackageId?: string; cnpjPackageId?: string }
+  ) => {
+    const response = await api.patch<{
+      success: boolean;
+      message: string;
+      data: { configured: boolean; cpfPackageId?: string; cnpjPackageId?: string };
+    }>(`/admin/companies/${companyId}/cpfcnpj-token`, payload);
+    return response.data;
+  },
+
+  getCompanyCpfCnpjSettings: async (companyId: string) => {
+    const response = await api.get<{
+      success: boolean;
+      data: { tokenConfigured: boolean; cpfPackageId: string; cnpjPackageId: string };
+    }>(`/admin/companies/${companyId}/cpfcnpj-settings`);
+    return response.data.data;
+  },
+
 };

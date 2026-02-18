@@ -42,6 +42,7 @@ export interface Company {
   cnpj: string;
   email: string;
   phone?: string;
+  cpfCnpjTokenConfigured?: boolean;
   subscription: {
     plan: SubscriptionPlan;
     status: 'active' | 'suspended' | 'cancelled';

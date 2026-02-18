@@ -18,6 +18,9 @@ export interface ICompany {
     paymentDueDate?: Date;
     lastPaymentDate?: Date;
   };
+  cpfCnpjToken?: string;
+  cpfCnpjCpfPackageId?: string;
+  cpfCnpjCnpjPackageId?: string;
   settings?: Record<string, any>;
   createdAt?: Date;
   updatedAt?: Date;

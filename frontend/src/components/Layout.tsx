@@ -89,6 +89,14 @@ const Layout: React.FC<LayoutProps> = ({
             {/* Desktop navigation items */}
             <div className="hidden md:flex items-center space-x-4 lg:space-x-6">
               <ThemeToggle />
+              {(user?.role === "admin" || user?.role === "superadmin") && (
+                <Link
+                  to="/company/settings"
+                  className="text-sm text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                >
+                  Configurações
+                </Link>
+              )}
               
               {/* Notifications for admin */}
               {(user?.role === "admin" || user?.role === "superadmin") && (
@@ -194,6 +202,15 @@ const Layout: React.FC<LayoutProps> = ({
                   <ChevronLeft size={20} className="mr-2" />
                   {backLabel}
                 </button>
+              )}
+
+              {(user?.role === "admin" || user?.role === "superadmin") && (
+                <Link
+                  to="/company/settings"
+                  className="flex items-center w-full p-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
+                >
+                  Configurações da Empresa
+                </Link>
               )}
 
               {/* Logout button in mobile menu */}

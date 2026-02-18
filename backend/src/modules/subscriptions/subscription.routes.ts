@@ -19,6 +19,8 @@ router.get('/admin/companies/:id/metrics', subscriptionController.getCompanyMetr
 router.post('/admin/subscriptions/check-overdue', subscriptionController.checkOverduePayments.bind(subscriptionController));
 router.get('/admin/subscriptions/upcoming', subscriptionController.getUpcomingPayments.bind(subscriptionController));
 router.delete('/admin/companies/:id',subscriptionController.delete.bind(subscriptionController));
+router.patch('/admin/companies/:id/cpfcnpj-token', subscriptionController.updateCompanyCpfCnpjToken.bind(subscriptionController));
+router.get('/admin/companies/:id/cpfcnpj-settings', subscriptionController.getCompanyCpfCnpjSettings.bind(subscriptionController));
 // Company routes (tenant middleware required)
 router.use(tenantMiddleware);
 router.get('/subscriptions/payments', subscriptionController.getCompanyPayments.bind(subscriptionController));

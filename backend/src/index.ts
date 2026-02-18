@@ -20,6 +20,7 @@ import subscriptionRoutes from './modules/subscriptions/subscription.routes';
 import reportRoutes from './modules/reports/report.routes';
 import billingRoutes from './modules/billings/billing.routes';
 import notificationRoutes from './modules/notification/notification.routes';
+import companyRoutes from './modules/companies/company.routes';
 
 const app: Express = express();
 
@@ -123,6 +124,7 @@ app.use('/api', subscriptionRoutes);
 app.use('/api', reportRoutes);
 app.use('/api/billings', billingRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/company', companyRoutes);
 
 // 404 handler
 app.use((req, res) => {

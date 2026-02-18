@@ -150,7 +150,17 @@ class SubscriptionService {
       Company.countDocuments(query),
     ]);
 
-    return { companies, total, page, limit };
+    const companiesWithFlags = companies.map((company) => {
+      const obj = company.toObject();
+      const configured = !!company.cpfCnpjToken;
+      delete (obj as any).cpfCnpjToken;
+      return {
+        ...obj,
+        cpfCnpjTokenConfigured: configured,
+      };
+    });
+
+    return { companies: companiesWithFlags, total, page, limit };
   }
 
   /**

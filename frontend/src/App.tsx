@@ -33,6 +33,7 @@ import FinancialDashboardPage from './modules/transactions/FinancialDashboardPag
 import InvoicesPage from './modules/invoices/InvoicesPage';
 import ReportsPage from './modules/reports/ReportsPage';
 import AdminPage from './modules/subscriptions/AdminPage';
+import CompanySettingsPage from './modules/company/CompanySettingsPage';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -238,6 +239,14 @@ function App() {
                 element={
                   <ProtectedRoute requiredRoles={['superadmin']}>
                     <AdminPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/company/settings"
+                element={
+                  <ProtectedRoute requiredRoles={['admin', 'superadmin']}>
+                    <CompanySettingsPage />
                   </ProtectedRoute>
                 }
               />

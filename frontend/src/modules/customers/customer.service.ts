@@ -35,6 +35,14 @@ export const customerService = {
     return response.data.data;
   },
 
+  getCpfCnpjConfig: async () => {
+    const response = await api.get<{
+      success: boolean;
+      data: { enabled: boolean; cpfPackageId?: string; cnpjPackageId?: string };
+    }>('/customers/validate-document/config');
+    return response.data.data;
+  },
+
   updateCustomer: async (id: string, data: Partial<CreateCustomerData>) => {
     const response = await api.put<{ success: boolean; message: string; data: Customer }>(
       `/customers/${id}`,

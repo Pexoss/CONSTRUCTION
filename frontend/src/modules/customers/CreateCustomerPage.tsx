@@ -26,6 +26,10 @@ const CreateCustomerPage: React.FC = () => {
   } | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
+  const [cpfCnpjEnabled, setCpfCnpjEnabled] = useState(false);
+  const [cpfCnpjConfigLoading, setCpfCnpjConfigLoading] = useState(true);
+  const [cpfPackageId, setCpfPackageId] = useState<string | null>(null);
+  const [cnpjPackageId, setCnpjPackageId] = useState<string | null>(null);
 
   const createMutation = useMutation({
     mutationFn: (data: CreateCustomerData) =>
@@ -61,8 +65,47 @@ const CreateCustomerPage: React.FC = () => {
   };
 
   React.useEffect(() => {
+    let isMounted = true;
+    setCpfCnpjConfigLoading(true);
+    customerService
+      .getCpfCnpjConfig()
+      .then((data) => {
+        if (!isMounted) return;
+        const enabled = !!data.enabled;
+        setCpfCnpjEnabled(enabled);
+        setCpfPackageId(data.cpfPackageId || null);
+        setCnpjPackageId(data.cnpjPackageId || null);
+        if (!enabled) {
+          setFormData((prev) => ({
+            ...prev,
+            validateDocument: false,
+          }));
+        }
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setCpfCnpjEnabled(false);
+        setCpfPackageId(null);
+        setCnpjPackageId(null);
+        setFormData((prev) => ({
+          ...prev,
+          validateDocument: false,
+        }));
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setCpfCnpjConfigLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
     const cpfCnpjDigits = formData.cpfCnpj.replace(/\D/g, "");
     const shouldCheckBalance =
+      cpfCnpjEnabled &&
       formData.validateDocument &&
       (cpfCnpjDigits.length === 11 || cpfCnpjDigits.length === 14);
 
@@ -112,10 +155,20 @@ const CreateCustomerPage: React.FC = () => {
 
     setFormData((prev) => {
       if (name === "validateDocument" && nextValue === true) {
+        if (!cpfCnpjEnabled) {
+          return prev;
+        }
         return {
           ...prev,
           validateDocument: true,
           name: "",
+        };
+      }
+
+      if (name === "validateDocument" && nextValue === false) {
+        return {
+          ...prev,
+          validateDocument: false,
         };
       }
 
@@ -247,10 +300,16 @@ const CreateCustomerPage: React.FC = () => {
                     name="validateDocument"
                     checked={!!formData.validateDocument}
                     onChange={handleChange}
+                    disabled={!cpfCnpjEnabled || cpfCnpjConfigLoading}
                     className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-500"
                   />
                   Validar CPF/CNPJ pela API e preencher o nome automaticamente
                 </label>
+                {!cpfCnpjConfigLoading && !cpfCnpjEnabled && (
+                  <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                    Sua empresa ainda não configurou o token do CPF.CNPJ.
+                  </p>
+                )}
                 {formData.validateDocument && (
                   <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                     {balanceLoading && <span>Consultando saldo...</span>}
@@ -264,6 +323,12 @@ const CreateCustomerPage: React.FC = () => {
                       <span className="text-red-600 dark:text-red-400">
                         {balanceError}
                       </span>
+                    )}
+                    {!balanceLoading && !balanceError && (
+                      <div className="mt-1">
+                        Pacote CPF: {cpfPackageId || "-"} • Pacote CNPJ:{" "}
+                        {cnpjPackageId || "-"}
+                      </div>
                     )}
                   </div>
                 )}

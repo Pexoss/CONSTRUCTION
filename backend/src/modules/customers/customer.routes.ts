@@ -31,5 +31,6 @@ router.delete('/customers/:id/works/:workId', customerController.removeWork.bind
 router.post('/customers/:id/validate', customerController.updateValidatedData.bind(customerController));
 router.post('/customers/validate-document', customerController.validateDocument.bind(customerController));
 router.get('/customers/validate-document/balance', customerController.getDocumentBalance.bind(customerController));
+router.get('/customers/validate-document/config', customerController.getDocumentConfig.bind(customerController));
 
 export default router;

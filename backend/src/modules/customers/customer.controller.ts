@@ -2,8 +2,23 @@ import { Request, Response, NextFunction } from 'express';
 import { customerService } from './customer.service';
 import { createCustomerSchema, updateCustomerSchema, validateCustomerDocumentSchema } from './customer.validator';
 import { cpfCnpjService } from '../../shared/services/cpfcnpj.service';
+import { Company } from '../companies/company.model';
 
 export class CustomerController {
+  private async getCompanyCpfCnpjConfig(companyId: string): Promise<{
+    token: string | null;
+    cpfPackageId?: string;
+    cnpjPackageId?: string;
+  }> {
+    const company = await Company.findById(companyId).select(
+      'cpfCnpjToken cpfCnpjCpfPackageId cpfCnpjCnpjPackageId'
+    );
+    return {
+      token: company?.cpfCnpjToken?.trim() || null,
+      cpfPackageId: company?.cpfCnpjCpfPackageId?.trim(),
+      cnpjPackageId: company?.cpfCnpjCnpjPackageId?.trim(),
+    };
+  }
   /**
    * Create a new customer
    * POST /api/customers
@@ -314,8 +329,21 @@ export class CustomerController {
    */
   async validateDocument(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      const companyId = req.companyId!;
+      const config = await this.getCompanyCpfCnpjConfig(companyId);
+      if (!config.token) {
+        res.status(403).json({
+          success: false,
+          message: 'CPF/CNPJ token is not configured for this company',
+        });
+        return;
+      }
+
       const { cpfCnpj } = validateCustomerDocumentSchema.parse(req.body);
-      const result = await cpfCnpjService.lookupName(cpfCnpj);
+      const result = await cpfCnpjService.lookupName(cpfCnpj, config.token, {
+        cpfPackageId: config.cpfPackageId,
+        cnpjPackageId: config.cnpjPackageId,
+      });
 
       res.json({
         success: true,
@@ -336,6 +364,16 @@ export class CustomerController {
    */
   async getDocumentBalance(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      const companyId = req.companyId!;
+      const config = await this.getCompanyCpfCnpjConfig(companyId);
+      if (!config.token) {
+        res.status(403).json({
+          success: false,
+          message: 'CPF/CNPJ token is not configured for this company',
+        });
+        return;
+      }
+
       const cpfCnpj = String(req.query.cpfCnpj || '');
       if (!cpfCnpj) {
         res.status(400).json({
@@ -345,7 +383,10 @@ export class CustomerController {
         return;
       }
 
-      const result = await cpfCnpjService.getBalanceByDocument(cpfCnpj);
+      const result = await cpfCnpjService.getBalanceByDocument(cpfCnpj, config.token, {
+        cpfPackageId: config.cpfPackageId,
+        cnpjPackageId: config.cnpjPackageId,
+      });
 
       res.json({
         success: true,
@@ -353,6 +394,28 @@ export class CustomerController {
           documentType: result.documentType,
           packageId: result.packageId,
           balance: result.balance,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Verifica se token CPF/CNPJ está configurado
+   * GET /api/customers/validate-document/config
+   */
+  async getDocumentConfig(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const config = await this.getCompanyCpfCnpjConfig(companyId);
+
+      res.json({
+        success: true,
+        data: {
+          enabled: !!config.token,
+          cpfPackageId: config.cpfPackageId,
+          cnpjPackageId: config.cnpjPackageId,
         },
       });
     } catch (error) {

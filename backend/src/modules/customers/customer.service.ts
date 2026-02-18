@@ -2,6 +2,8 @@ import { Customer } from './customer.model';
 import { ICustomer } from './customer.types';
 import mongoose from 'mongoose';
 import { cpfCnpjService } from '../../shared/services/cpfcnpj.service';
+import { Company } from '../companies/company.model';
+import { AppError } from '../../shared/middleware/error.middleware';
 
 class CustomerService {
   /**
@@ -21,7 +23,20 @@ class CustomerService {
     }
 
     if (validateDocument) {
-      const lookup = await cpfCnpjService.lookupName(customerData.cpfCnpj);
+      const company = await Company.findById(companyId).select(
+        'cpfCnpjToken cpfCnpjCpfPackageId cpfCnpjCnpjPackageId'
+      );
+      const token = company?.cpfCnpjToken?.trim();
+      if (!token) {
+        const error = new Error('CPF/CNPJ token is not configured for this company') as AppError;
+        error.statusCode = 403;
+        throw error;
+      }
+
+      const lookup = await cpfCnpjService.lookupName(customerData.cpfCnpj, token, {
+        cpfPackageId: company?.cpfCnpjCpfPackageId?.trim(),
+        cnpjPackageId: company?.cpfCnpjCnpjPackageId?.trim(),
+      });
 
       customerData.name = lookup.name;
       customerData.validated = {

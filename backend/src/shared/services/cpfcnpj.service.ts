@@ -22,6 +22,11 @@ interface CpfCnpjBalanceResponse {
   [key: string]: unknown;
 }
 
+interface CpfCnpjPackageOverrides {
+  cpfPackageId?: string;
+  cnpjPackageId?: string;
+}
+
 export interface CpfCnpjLookupResult {
   documentType: DocumentType;
   cpfCnpj: string;
@@ -38,7 +43,6 @@ export interface CpfCnpjBalanceResult {
 
 class CpfCnpjService {
   private readonly baseUrl = env.CPFCNPJ_API_BASE_URL.replace(/\/$/, '');
-  private readonly token = env.CPFCNPJ_API_TOKEN;
   private readonly cpfPackageId = env.CPFCNPJ_CPF_PACKAGE_ID;
   private readonly cnpjPackageId = env.CPFCNPJ_CNPJ_PACKAGE_ID;
   private readonly timeoutMs = parseInt(env.CPFCNPJ_TIMEOUT_MS);
@@ -56,16 +60,24 @@ class CpfCnpjService {
     throw error;
   }
 
-  private getPackageId(documentType: DocumentType): string {
-    return documentType === 'cpf' ? this.cpfPackageId : this.cnpjPackageId;
+  private getPackageId(documentType: DocumentType, overrides?: CpfCnpjPackageOverrides): string {
+    const fallback = documentType === 'cpf' ? this.cpfPackageId : this.cnpjPackageId;
+    if (!overrides) return fallback;
+    if (documentType === 'cpf' && overrides.cpfPackageId) return overrides.cpfPackageId;
+    if (documentType === 'cnpj' && overrides.cnpjPackageId) return overrides.cnpjPackageId;
+    return fallback;
   }
 
-  async lookupName(documentInput: string): Promise<CpfCnpjLookupResult> {
+  async lookupName(
+    documentInput: string,
+    token: string,
+    overrides?: CpfCnpjPackageOverrides
+  ): Promise<CpfCnpjLookupResult> {
     const cpfCnpj = this.normalizeDocument(documentInput);
     const documentType = this.getDocumentType(cpfCnpj);
-    const packageId = this.getPackageId(documentType);
+    const packageId = this.getPackageId(documentType, overrides);
 
-    const url = `${this.baseUrl}/${this.token}/${packageId}/${cpfCnpj}`;
+    const url = `${this.baseUrl}/${token}/${packageId}/${cpfCnpj}`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -115,12 +127,16 @@ class CpfCnpjService {
     }
   }
 
-  async getBalanceByDocument(documentInput: string): Promise<CpfCnpjBalanceResult> {
+  async getBalanceByDocument(
+    documentInput: string,
+    token: string,
+    overrides?: CpfCnpjPackageOverrides
+  ): Promise<CpfCnpjBalanceResult> {
     const cpfCnpj = this.normalizeDocument(documentInput);
     const documentType = this.getDocumentType(cpfCnpj);
-    const packageId = this.getPackageId(documentType);
+    const packageId = this.getPackageId(documentType, overrides);
 
-    const url = `${this.baseUrl}/${this.token}/saldo/${packageId}`;
+    const url = `${this.baseUrl}/${token}/saldo/${packageId}`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
