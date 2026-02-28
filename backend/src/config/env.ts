@@ -17,6 +17,10 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:3000,http://localhost:3001'),
   RATE_LIMIT_WINDOW_MS: z.string().default('900000'),
   RATE_LIMIT_MAX_REQUESTS: z.string().default('100'),
+  CPFCNPJ_API_BASE_URL: z.string().min(1, 'CPFCNPJ_API_BASE_URL is required'),
+  CPFCNPJ_CPF_PACKAGE_ID: z.string().min(1, 'CPFCNPJ_CPF_PACKAGE_ID is required'),
+  CPFCNPJ_CNPJ_PACKAGE_ID: z.string().min(1, 'CPFCNPJ_CNPJ_PACKAGE_ID is required'),
+  CPFCNPJ_TIMEOUT_MS: z.string().default('60000'),
 });
 
 const parseEnv = () => {
