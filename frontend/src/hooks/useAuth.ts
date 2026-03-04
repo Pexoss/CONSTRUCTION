@@ -1,25 +1,33 @@
-import { useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '../store/auth.store';
-import { authService } from '../modules/auth/auth.service';
-import { LoginCredentials, RegisterCompanyData } from '../types/auth.types';
+import { useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuthStore } from "../store/auth.store";
+import { authService } from "../modules/auth/auth.service";
+import { LoginCredentials, RegisterCompanyData } from "../types/auth.types";
 
 export const useAuth = () => {
   const { user, isAuthenticated, login, logout, setUser } = useAuthStore();
   const queryClient = useQueryClient();
 
   // Get current user
-  const { data: currentUser, isLoading: isLoadingUser, error: userError } = useQuery({
-    queryKey: ['me'],
+  const {
+    data: currentUser,
+    isLoading: isLoadingUser,
+    error: userError,
+  } = useQuery({
+    queryKey: ["me"],
     queryFn: () => authService.getMe(),
-    enabled: isAuthenticated && !!localStorage.getItem('accessToken'),
+    enabled: isAuthenticated && !!localStorage.getItem("accessToken"),
+    staleTime: 5 * 60 * 1000, // 5 minutos
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     retry: (failureCount, error: any) => {
-      // Não fazer retry em 401 (não autenticado)
-      if (error?.response?.status === 401) {
-        console.log('[AUTH] 401 Unauthorized - não fazendo retry');
+      const status = error?.response?.status;
+
+      if (status === 401 || status === 429) {
         return false;
       }
-      // Fazer retry até 2 vezes em outros erros
+
       return failureCount < 2;
     },
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
@@ -37,10 +45,10 @@ export const useAuth = () => {
     if (userError) {
       const isUnauthorized = (userError as any)?.response?.status === 401;
       if (isUnauthorized) {
-        console.log('[AUTH] Usuário não autenticado, fazendo logout');
+        console.log("[AUTH] Usuário não autenticado, fazendo logout");
         logout();
       } else {
-        console.warn('[AUTH] Erro ao validar usuário:', userError);
+        console.warn("[AUTH] Erro ao validar usuário:", userError);
         // Não fazer logout em erros de rede ou servidor
         // O retry automático do React Query tentará novamente
       }
@@ -49,26 +57,28 @@ export const useAuth = () => {
 
   // Login mutation
   const loginMutation = useMutation({
-    mutationFn: (credentials: LoginCredentials) => authService.login(credentials),
+    mutationFn: (credentials: LoginCredentials) =>
+      authService.login(credentials),
     onSuccess: (data) => {
       login(data.data.user, data.data.tokens);
-      queryClient.invalidateQueries({ queryKey: ['me'] });
+      queryClient.invalidateQueries({ queryKey: ["me"] });
     },
     onError: (error: any) => {
       // Error will be available in loginError
-      console.error('Login error:', error);
+      console.error("Login error:", error);
     },
   });
 
   // Register company mutation
   const registerCompanyMutation = useMutation({
-    mutationFn: (data: RegisterCompanyData) => authService.registerCompany(data),
+    mutationFn: (data: RegisterCompanyData) =>
+      authService.registerCompany(data),
     onSuccess: (data) => {
       login(data.data.user, data.data.tokens);
-      queryClient.invalidateQueries({ queryKey: ['me'] });
+      queryClient.invalidateQueries({ queryKey: ["me"] });
     },
     onError: (error: any) => {
-      console.error('Registration error:', error);
+      console.error("Registration error:", error);
     },
   });
 

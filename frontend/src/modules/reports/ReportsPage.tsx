@@ -184,7 +184,7 @@ const ReportsPage: React.FC = () => {
 
           {/* Inventory Report */}
           {reportType === "inventory" &&inventoryReport?.data &&
-            (
+            (console.log("Inventory Report Data:", inventoryReport.data),
             (
               <div className="space-y-6">
                 {/* Summary Cards */}
