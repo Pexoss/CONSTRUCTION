@@ -1,6 +1,6 @@
-import { Request, Response, NextFunction } from 'express';
-import { ZodError } from 'zod';
-import mongoose from 'mongoose';
+import { Request, Response, NextFunction } from "express";
+import { ZodError } from "zod";
+import mongoose from "mongoose";
 
 export interface AppError extends Error {
   statusCode?: number;
@@ -11,61 +11,89 @@ export const errorMiddleware = (
   err: AppError,
   req: Request,
   res: Response,
-  next: NextFunction
-): void => {
+  next: NextFunction,
+) => {
+
+  // 🔎 LOG GERAL DO ERRO
+  console.error("========== ERROR START ==========");
+  console.error("Route:", req.method, req.originalUrl);
+  console.error("Body:", req.body);
+  console.error("Params:", req.params);
+  console.error("Query:", req.query);
+  console.error("Error Name:", err.name);
+  console.error("Error Message:", err.message);
+  console.error("Stack:", err.stack);
+  console.error("=================================");
+
   // Zod validation errors
   if (err instanceof ZodError) {
-    res.status(400).json({
+
+    console.error("ZOD ERROR DETAILS:");
+    console.error(err.errors);
+
+    return res.status(400).json({
       success: false,
-      message: 'Validation error',
+      message: "Verifique se todos os campos obrigatórios estão preenchidos corretamente.",
       errors: err.errors.map((e) => ({
-        path: e.path.join('.'),
+        path: e.path.join("."),
         message: e.message,
       })),
     });
-    return;
   }
 
-  // Mongoose validation errors
+  // mongoose validation errors
   if (err instanceof mongoose.Error.ValidationError) {
+
+    console.error("MONGOOSE VALIDATION ERROR:");
+    console.error(err.errors);
+
     const errors = Object.values(err.errors).map((e) => ({
       path: e.path,
       message: e.message,
     }));
-    res.status(400).json({
+
+    return res.status(400).json({
       success: false,
-      message: 'Validation error',
+      message: "Erro de validação no banco de dados.",
       errors,
     });
-    return;
   }
 
   // Mongoose duplicate key error
-  if (err.code === 11000) {
+  if ((err as any).code === 11000) {
+
+    console.error("MONGOOSE DUPLICATE KEY ERROR:");
+    console.error(err);
+
     const field = Object.keys((err as any).keyPattern)[0];
-    res.status(400).json({
+
+    return res.status(400).json({
       success: false,
-      message: `${field} already exists`,
+      message: `${field} já está em uso.`,
     });
-    return;
   }
 
   // JWT errors
-  if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
-    res.status(401).json({
+  if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {
+
+    console.error("JWT ERROR:");
+    console.error(err);
+
+    return res.status(401).json({
       success: false,
-      message: 'Invalid or expired token',
+      message: "Token inválido ou expirado.",
     });
-    return;
   }
 
   // Default error
   const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal server error';
 
-  res.status(statusCode).json({
+  console.error("UNHANDLED ERROR:");
+  console.error(err);
+
+  return res.status(statusCode).json({
     success: false,
-    message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+    message: err.message || "Erro interno do servidor.",
+    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
   });
 };

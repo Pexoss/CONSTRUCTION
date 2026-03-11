@@ -10,6 +10,9 @@ router.use(authMiddleware);
 router.use(tenantMiddleware);
 
 // Report routes
+
+router.get('/reports/inventory', reportController.getInventoryReport.bind(reportController));
+router.get('/reports/inventory/most-rented', reportController.getMostRentedInventory.bind(reportController));
 router.get('/reports/rentals', reportController.getRentalsReport.bind(reportController));
 router.get('/reports/financial', reportController.getFinancialReport.bind(reportController));
 router.get('/reports/most-rented-items', reportController.getMostRentedItems.bind(reportController));
@@ -18,5 +21,6 @@ router.get('/reports/top-customers', reportController.getTopCustomers.bind(repor
 router.get('/reports/maintenance', reportController.getMaintenanceReport.bind(reportController));
 router.get('/reports/rentals/export', reportController.exportRentalsReport.bind(reportController));
 router.get('/reports/financial/export', reportController.exportFinancialReport.bind(reportController));
-
+router.get('/reports/inventory/export', reportController.exportInventoryReport.bind(reportController));
+router.get('/reports/maintenance/export', reportController.exportMaintenanceReport.bind(reportController));
 export default router;

@@ -247,6 +247,16 @@ const CreateRentalPage: React.FC = () => {
       return;
     }
 
+    if (totals.total <= 0) {
+      alert("O valor total do aluguel deve ser maior que zero.");
+      return;
+    }
+
+    if (new Date(returnDate) <= new Date(pickupDate)) {
+      alert("A data de devolução deve ser maior que a data de retirada.");
+      return;
+    }
+
     //format dates
     const formatDateToISO = (dateStr: string) => {
       const d = new Date(dateStr);
@@ -1325,7 +1335,14 @@ const CreateRentalPage: React.FC = () => {
                         step="0.01"
                         value={discount}
                         onChange={(e) => {
-                          setDiscount(parseFloat(e.target.value) || 0);
+                          const value = e.target.value;
+
+                          if (value === "") {
+                            setDiscount(0);
+                          } else {
+                            setDiscount(Number(value));
+                          }
+
                           if (serverError) setServerError(null);
                         }}
                         className={`w-full px-4 py-3 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm ${
