@@ -6,6 +6,9 @@ import {
   updateRentalStatusSchema,
   extendRentalSchema,
   updateChecklistSchema,
+  requestApprovalSchema,
+  approvalActionSchema,
+  rejectApprovalSchema,
 } from './rental.validator';
 import { Rental } from './rental.model';
 import { Customer } from '../customers/customer.model';
@@ -297,15 +300,7 @@ export class RentalController {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
-      const { requestType, requestDetails, notes } = req.body;
-
-      if (!requestType || !requestDetails) {
-        res.status(400).json({
-          success: false,
-          message: 'requestType and requestDetails are required',
-        });
-        return;
-      }
+      const { requestType, requestDetails, notes } = requestApprovalSchema.parse(req.body);
 
       const rental = await rentalService.requestApproval(companyId, rentalId, requestType, requestDetails, userId, notes);
 
@@ -327,11 +322,11 @@ export class RentalController {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
-      const approvalIndex = parseInt(req.params.approvalIndex);
+      const approvalId = req.params.approvalId;
       const userId = req.user!._id.toString();
-      const { notes } = req.body;
+      const { notes } = approvalActionSchema.parse(req.body);
 
-      const rental = await rentalService.approveRequest(companyId, rentalId, approvalIndex, userId, notes);
+      const rental = await rentalService.approveRequest(companyId, rentalId, approvalId, userId, notes);
 
       res.json({
         success: true,
@@ -351,19 +346,11 @@ export class RentalController {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
-      const approvalIndex = parseInt(req.params.approvalIndex);
+      const approvalId = req.params.approvalId;
       const userId = req.user!._id.toString();
-      const { notes } = req.body;
+      const { notes } = rejectApprovalSchema.parse(req.body);
 
-      if (!notes) {
-        res.status(400).json({
-          success: false,
-          message: 'Notes are required for rejection',
-        });
-        return;
-      }
-
-      const rental = await rentalService.rejectRequest(companyId, rentalId, approvalIndex, userId, notes);
+      const rental = await rentalService.rejectRequest(companyId, rentalId, approvalId, userId, notes);
 
       res.json({
         success: true,
@@ -488,6 +475,33 @@ export class RentalController {
       res.json({
         success: true,
         data: dashboard,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Histórico de alterações do aluguel
+   * GET /api/rentals/:id/change-history
+   */
+  async getChangeHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentalId = req.params.id;
+      const rental = await Rental.findOne({ _id: rentalId, companyId }).select('changeHistory');
+
+      if (!rental) {
+        res.status(404).json({
+          success: false,
+          message: 'Rental not found',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: rental.changeHistory || [],
       });
     } catch (error) {
       next(error);

@@ -27,8 +27,9 @@ router.post('/rentals/check-overdue', rentalController.checkOverdueRentals.bind(
 // NOVO: Sistema de aprovações
 router.get('/rentals/pending-approvals', rentalController.getPendingApprovals.bind(rentalController));
 router.post('/rentals/:id/request-approval', rentalController.requestApproval.bind(rentalController));
-router.post('/rentals/:id/approve/:approvalIndex', rentalController.approveRequest.bind(rentalController));
-router.post('/rentals/:id/reject/:approvalIndex', rentalController.rejectRequest.bind(rentalController));
+router.post('/rentals/:id/approve/:approvalId', rentalController.approveRequest.bind(rentalController));
+router.post('/rentals/:id/reject/:approvalId', rentalController.rejectRequest.bind(rentalController));
+router.get('/rentals/:id/change-history', rentalController.getChangeHistory.bind(rentalController));
 router.post('/rentals/:id/discount', rentalController.applyDiscount.bind(rentalController));
 router.post('/rentals/:id/change-rental-type', rentalController.changeRentalType.bind(rentalController));
 

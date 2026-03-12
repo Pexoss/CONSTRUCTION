@@ -75,3 +75,17 @@ export const updateChecklistSchema = z.object({
   conditions: z.record(z.any()).optional(),
   notes: z.string().optional(),
 });
+
+export const requestApprovalSchema = z.object({
+  requestType: z.string().min(1, 'requestType is required'),
+  requestDetails: z.record(z.any()),
+  notes: z.string().optional(),
+});
+
+export const approvalActionSchema = z.object({
+  notes: z.string().optional(),
+});
+
+export const rejectApprovalSchema = z.object({
+  notes: z.string().min(1, 'Notes are required for rejection'),
+});

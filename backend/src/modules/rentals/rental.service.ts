@@ -463,6 +463,126 @@ class RentalService {
     };
   }
 
+  private async recalcPricingForRental(rental: IRental, companyId: string): Promise<void> {
+    let equipmentSubtotal = 0;
+    let totalDeposit = 0;
+
+    for (const item of rental.items) {
+      const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
+      if (!inventoryItem) {
+        throw new Error(`Item ${item.itemId} not found`);
+      }
+
+      const price = this.calculateRentalPrice(
+        inventoryItem.pricing.dailyRate,
+        inventoryItem.pricing.weeklyRate,
+        inventoryItem.pricing.biweeklyRate,
+        inventoryItem.pricing.monthlyRate,
+        rental.dates.pickupScheduled,
+        rental.dates.returnScheduled,
+        item.rentalType
+      );
+
+      const subtotal = price * item.quantity;
+      item.unitPrice = price;
+      item.subtotal = subtotal;
+
+      equipmentSubtotal += subtotal;
+      totalDeposit += (inventoryItem.pricing.depositAmount || 0) * item.quantity;
+    }
+
+    rental.pricing.equipmentSubtotal = Number(equipmentSubtotal.toFixed(2));
+    rental.pricing.deposit = Number(totalDeposit.toFixed(2));
+    rental.pricing.subtotal = Number((equipmentSubtotal + rental.pricing.servicesSubtotal).toFixed(2));
+    rental.pricing.total = Number(
+      (rental.pricing.subtotal + rental.pricing.deposit - rental.pricing.discount + rental.pricing.lateFee).toFixed(2)
+    );
+  }
+
+  private async applyStatusChangeDirect(
+    rental: IRental,
+    oldStatus: RentalStatus,
+    newStatus: RentalStatus,
+    companyId: string,
+    userId: string
+  ): Promise<void> {
+    rental.status = newStatus;
+
+    /**
+     * RESERVED → ACTIVE
+     */
+    if (oldStatus === 'reserved' && newStatus === 'active') {
+      rental.dates.pickupActual = new Date();
+
+      for (const item of rental.items) {
+        await this.updateItemQuantityForRental(
+          companyId,
+          item.itemId,
+          item.quantity,
+          'activate',
+          userId,
+          rental._id,
+          item.unitId,
+          rental.customerId.toString()
+        );
+      }
+    }
+
+    /**
+     * ACTIVE / OVERDUE → COMPLETED
+     */
+    if (
+      (oldStatus === 'active' || oldStatus === 'overdue') &&
+      newStatus === 'completed'
+    ) {
+      const {
+        usedDays,
+        recalculatedEquipmentSubtotal,
+        returnDate
+      } = this.calculateFinalPricing(rental);
+
+      rental.dates.returnActual = returnDate;
+
+      // guarda histórico financeiro
+      rental.pricing.originalEquipmentSubtotal = rental.pricing.equipmentSubtotal;
+      rental.pricing.equipmentSubtotal = Number(recalculatedEquipmentSubtotal.toFixed(2));
+      rental.pricing.subtotal = Number((rental.pricing.equipmentSubtotal + rental.pricing.servicesSubtotal).toFixed(2));
+      rental.pricing.total = Number((rental.pricing.subtotal + rental.pricing.deposit - rental.pricing.discount + rental.pricing.lateFee).toFixed(2));
+      rental.pricing.usedDays = usedDays;
+
+      for (const item of rental.items) {
+        await this.updateItemQuantityForRental(
+          companyId,
+          item.itemId,
+          item.quantity,
+          'return',
+          userId,
+          rental._id,
+          item.unitId,
+          rental.customerId.toString()
+        );
+      }
+    }
+
+    /**
+     * RESERVED → CANCELLED
+     */
+    if (oldStatus === 'reserved' && newStatus === 'cancelled') {
+      for (const item of rental.items) {
+        await this.updateItemQuantityForRental(
+          companyId,
+          item.itemId,
+          item.quantity,
+          'cancel',
+          userId,
+          rental._id,
+          item.unitId,
+          rental.customerId.toString()
+        );
+      }
+    }
+  }
+
   /**
    * Update rental status
    */
@@ -485,6 +605,20 @@ class RentalService {
 
     // funcionário → cria solicitação
     if (!canUpdateRentalStatus(user.role as RoleType)) {
+      await this.requestApproval(
+        companyId,
+        rentalId,
+        'status_change',
+        {
+          previousStatus: rental.status,
+          newStatus: status,
+          previousValue: rental.status,
+          newValue: status,
+        },
+        userId,
+        `Solicitação de alteração de status para ${status}`
+      );
+
       await notificationService.notifyStatusChangeRequest({
         title: "Solicitação de alteração de status",
         message: `O funcionário ${user.name} solicitou alterar o status do aluguel para ${status}`,
@@ -512,83 +646,15 @@ class RentalService {
       };
     }
 
-    rental.status = status;
+    await this.applyStatusChangeDirect(rental, oldStatus, status, companyId, userId);
 
-    /**
-     * RESERVED → ACTIVE
-     */
-    if (oldStatus === 'reserved' && status === 'active') {
-      rental.dates.pickupActual = new Date();
-
-      for (const item of rental.items) {
-        await this.updateItemQuantityForRental(
-          companyId,
-          item.itemId,
-          item.quantity,
-          'activate',
-          userId,
-          rental._id,
-          item.unitId,
-          rental.customerId.toString()
-        );
-      }
-    }
-
-    /**
-     * ACTIVE / OVERDUE → COMPLETED
-     */
-    if (
-      (oldStatus === 'active' || oldStatus === 'overdue') &&
-      status === 'completed'
-    ) {
-      const {
-        usedDays,
-        recalculatedEquipmentSubtotal,
-        recalculatedTotal,
-        returnDate
-      } = this.calculateFinalPricing(rental);
-
-      rental.dates.returnActual = returnDate;
-
-      // guarda histórico financeiro
-      rental.pricing.originalEquipmentSubtotal = rental.pricing.equipmentSubtotal;
-      rental.pricing.equipmentSubtotal = Number(recalculatedEquipmentSubtotal.toFixed(2));
-      rental.pricing.subtotal = Number((rental.pricing.equipmentSubtotal + rental.pricing.servicesSubtotal).toFixed(2));
-      rental.pricing.total = Number((rental.pricing.subtotal + rental.pricing.deposit - rental.pricing.discount + rental.pricing.lateFee).toFixed(2));
-
-      rental.pricing.usedDays = usedDays;
-
-      for (const item of rental.items) {
-        await this.updateItemQuantityForRental(
-          companyId,
-          item.itemId,
-          item.quantity,
-          'return',
-          userId,
-          rental._id,
-          item.unitId,
-          rental.customerId.toString()
-        );
-      }
-    }
-
-    /**
-     * RESERVED → CANCELLED
-     */
-    if (oldStatus === 'reserved' && status === 'cancelled') {
-      for (const item of rental.items) {
-        await this.updateItemQuantityForRental(
-          companyId,
-          item.itemId,
-          item.quantity,
-          'cancel',
-          userId,
-          rental._id,
-          item.unitId,
-          rental.customerId.toString()
-        );
-      }
-    }
+    await this.addChangeHistory(
+      rental,
+      'status_change',
+      oldStatus,
+      status,
+      userId
+    );
 
     await rental.save();
 
@@ -1027,7 +1093,7 @@ class RentalService {
   async approveRequest(
     companyId: string,
     rentalId: string,
-    approvalIndex: number,
+    approvalId: string,
     userId: string,
     notes?: string
   ): Promise<IRental | null> {
@@ -1037,11 +1103,17 @@ class RentalService {
       throw new Error('Rental not found');
     }
 
-    if (!rental.pendingApprovals || approvalIndex < 0 || approvalIndex >= rental.pendingApprovals.length) {
+    if (!rental.pendingApprovals || rental.pendingApprovals.length === 0) {
       throw new Error('Approval request not found');
     }
 
-    const approval = rental.pendingApprovals[approvalIndex];
+    const approval = rental.pendingApprovals.find(
+      (item) => item._id?.toString() === approvalId
+    );
+    if (!approval) {
+      throw new Error('Approval request not found');
+    }
+
     if (approval.status !== 'pending') {
       throw new Error('Approval request is not pending');
     }
@@ -1075,7 +1147,7 @@ class RentalService {
   async rejectRequest(
     companyId: string,
     rentalId: string,
-    approvalIndex: number,
+    approvalId: string,
     userId: string,
     notes: string
   ): Promise<IRental | null> {
@@ -1085,11 +1157,17 @@ class RentalService {
       throw new Error('Rental not found');
     }
 
-    if (!rental.pendingApprovals || approvalIndex < 0 || approvalIndex >= rental.pendingApprovals.length) {
+    if (!rental.pendingApprovals || rental.pendingApprovals.length === 0) {
       throw new Error('Approval request not found');
     }
 
-    const approval = rental.pendingApprovals[approvalIndex];
+    const approval = rental.pendingApprovals.find(
+      (item) => item._id?.toString() === approvalId
+    );
+    if (!approval) {
+      throw new Error('Approval request not found');
+    }
+
     if (approval.status !== 'pending') {
       throw new Error('Approval request is not pending');
     }
@@ -1117,9 +1195,18 @@ class RentalService {
             const item = rental.items.find((i) => i.itemId.toString() === itemChange.itemId);
             if (item) {
               item.rentalType = itemChange.newRentalType;
-              // Recalcular preço
-              // (seria necessário buscar o item do inventário para recalcular)
             }
+          }
+          await this.recalcPricingForRental(rental, rental.companyId.toString());
+        }
+        if (requestDetails.itemIndex !== undefined || requestDetails.itemId) {
+          const item =
+            requestDetails.itemIndex !== undefined
+              ? rental.items[requestDetails.itemIndex]
+              : rental.items.find((i) => i.itemId.toString() === requestDetails.itemId);
+          if (item && requestDetails.newRentalType) {
+            item.rentalType = requestDetails.newRentalType;
+            await this.recalcPricingForRental(rental, rental.companyId.toString());
           }
         }
         break;
@@ -1136,7 +1223,7 @@ class RentalService {
         // Estender período
         if (requestDetails.newReturnDate) {
           rental.dates.returnScheduled = new Date(requestDetails.newReturnDate);
-          // Recalcular preços seria necessário aqui
+          await this.recalcPricingForRental(rental, rental.companyId.toString());
         }
         break;
 
@@ -1149,6 +1236,18 @@ class RentalService {
         rental.pricing.servicesSubtotal += requestDetails.service.subtotal;
         rental.pricing.subtotal = rental.pricing.equipmentSubtotal + rental.pricing.servicesSubtotal;
         rental.pricing.total = rental.pricing.subtotal - rental.pricing.discount + rental.pricing.lateFee;
+        break;
+
+      case 'status_change':
+        if (requestDetails.newStatus) {
+          await this.applyStatusChangeDirect(
+            rental,
+            rental.status,
+            requestDetails.newStatus,
+            rental.companyId.toString(),
+            userId
+          );
+        }
         break;
 
       default:

@@ -48,11 +48,7 @@ const RentalDetailPage: React.FC = () => {
     enabled: !!id,
   });
 
-  const { data: approvalData } = useQuery({
-    queryKey: ["rental-status-change", id],
-    queryFn: () => rentalService.getPendingStatusChange(id!),
-    enabled: !!id,
-  });
+  const { user } = useAuth();
 
   const [showSuccessToast, setShowSuccessToast] = useState(false);
 
@@ -117,6 +113,24 @@ const RentalDetailPage: React.FC = () => {
       const message =
         err.response?.data?.message || "Erro ao atualizar checklist";
       setServerError(message);
+    },
+  });
+
+  const approveApprovalMutation = useMutation({
+    mutationFn: ({ approvalId, notes }: { approvalId: string; notes?: string }) =>
+      rentalService.approveApproval(id!, approvalId, notes),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
+    },
+  });
+
+  const rejectApprovalMutation = useMutation({
+    mutationFn: ({ approvalId, notes }: { approvalId: string; notes: string }) =>
+      rentalService.rejectApproval(id!, approvalId, notes),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
     },
   });
 
@@ -202,9 +216,11 @@ const RentalDetailPage: React.FC = () => {
   }
 
   const rental = data.data;
-  const pendingRequest = approvalData?.hasPending ? approvalData.request : null;
   const customer =
     typeof rental.customerId === "object" ? rental.customerId : null;
+  const pendingApprovals =
+    rental.pendingApprovals?.filter((approval) => approval.status === "pending") || [];
+  const changeHistory = rental.changeHistory || [];
 
   return (
     <Layout title="Detalhes do Aluguel" backTo="/dashboard">
@@ -570,6 +586,74 @@ const RentalDetailPage: React.FC = () => {
 
             {/* Sidebar */}
             <div className="space-y-6">
+              {pendingApprovals.length > 0 && (user?.role === "admin" || user?.role === "superadmin") && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                  <div className="flex items-center mb-4">
+                    <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
+                      <svg
+                        className="w-5 h-5 text-gray-700 dark:text-gray-300"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M12 6v6l4 2"
+                        />
+                      </svg>
+                    </div>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Aprovações pendentes
+                    </h2>
+                  </div>
+                  <div className="space-y-3">
+                    {pendingApprovals.map((approval) => (
+                      <div
+                        key={approval._id}
+                        className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-900/50"
+                      >
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">
+                          {approval.requestType}
+                        </div>
+                        <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                          {new Date(approval.requestDate).toLocaleString("pt-BR")}
+                        </div>
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            onClick={() => {
+                              const notes =
+                                window.prompt("Observações para aprovação (opcional):") ||
+                                undefined;
+                              approveApprovalMutation.mutate({
+                                approvalId: approval._id,
+                                notes,
+                              });
+                            }}
+                            className="px-3 py-2 text-xs bg-green-600 hover:bg-green-700 text-white rounded-md"
+                          >
+                            Aprovar
+                          </button>
+                          <button
+                            onClick={() => {
+                              const notes = window.prompt("Informe o motivo da rejeição:");
+                              if (!notes) return;
+                              rejectApprovalMutation.mutate({
+                                approvalId: approval._id,
+                                notes,
+                              });
+                            }}
+                            className="px-3 py-2 text-xs bg-red-600 hover:bg-red-700 text-white rounded-md"
+                          >
+                            Rejeitar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {/* Valores */}
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
                 <div className="flex items-center mb-4">
@@ -752,6 +836,53 @@ const RentalDetailPage: React.FC = () => {
                   <p className="text-sm text-gray-600 dark:text-gray-400">
                     {rental.notes}
                   </p>
+                </div>
+              )}
+              {changeHistory.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                  <div className="flex items-center mb-4">
+                    <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
+                      <svg
+                        className="w-5 h-5 text-gray-700 dark:text-gray-300"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M12 6v6l4 2"
+                        />
+                      </svg>
+                    </div>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Histórico de alterações
+                    </h2>
+                  </div>
+                  <div className="space-y-3 text-sm">
+                    {changeHistory.map((history, index) => (
+                      <div
+                        key={`${history.date}-${index}`}
+                        className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-900/50"
+                      >
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {new Date(history.date).toLocaleString("pt-BR")}
+                        </div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">
+                          {history.changeType}
+                        </div>
+                        <div className="text-xs text-gray-600 dark:text-gray-400">
+                          {history.previousValue} → {history.newValue}
+                        </div>
+                        {history.reason && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {history.reason}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

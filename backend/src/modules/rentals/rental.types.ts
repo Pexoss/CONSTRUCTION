@@ -47,6 +47,7 @@ export interface IRentalChangeHistory {
 
 // NOVO: Interface para aprovações pendentes
 export interface IRentalPendingApproval {
+  _id?: mongoose.Types.ObjectId;
   requestedBy: mongoose.Types.ObjectId;
   requestDate: Date;
   requestType: string; // 'rental_type_change', 'discount', etc.

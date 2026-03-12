@@ -25,6 +25,7 @@ import RentalsPage from './modules/rentals/RentalsPage';
 import CreateRentalPage from './modules/rentals/CreateRentalPage';
 import RentalDetailPage from './modules/rentals/RentalDetailPage';
 import ExpirationDashboardPage from './modules/rentals/ExpirationDashboardPage';
+import RentalApprovalsPage from './modules/rentals/RentalApprovalsPage';
 import MaintenancesPage from './modules/maintenance/MaintenancesPage';
 import CreateMaintenancePage from './modules/maintenance/CreateMaintenancePage';
 import EditMaintenancePage from './modules/maintenance/EditMaintenancePage';
@@ -175,6 +176,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <ExpirationDashboardPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/rentals/approvals"
+                element={
+                  <ProtectedRoute requiredRoles={['admin', 'superadmin']}>
+                    <RentalApprovalsPage />
                   </ProtectedRoute>
                 }
               />
