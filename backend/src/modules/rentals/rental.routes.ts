@@ -16,12 +16,14 @@ router.get('/rentals/expiration-dashboard', rentalController.getExpirationDashbo
 router.post('/rentals', rentalController.createRental.bind(rentalController));
 router.get('/rentals', rentalController.getRentals.bind(rentalController));
 router.get('/rentals/:id', rentalController.getRentalById.bind(rentalController));
+router.get('/rentals/:id/pdf', rentalController.generateRentalPDF.bind(rentalController));
 router.put('/rentals/:id', rentalController.updateRental.bind(rentalController));
 router.patch('/rentals/:id/status', rentalController.updateRentalStatus.bind(rentalController));
 router.patch('/rentals/:id/extend', rentalController.extendRental.bind(rentalController));
 router.patch('/rentals/:id/checklist/pickup', rentalController.updatePickupChecklist.bind(rentalController));
 router.patch('/rentals/:id/checklist/return', rentalController.updateReturnChecklist.bind(rentalController));
 router.get('/rentals/:id/close-preview', rentalController.getClosePreview.bind(rentalController));
+router.post('/rentals/:id/process-billing', rentalController.processBillingCycles.bind(rentalController));
 
 router.post('/rentals/check-overdue', rentalController.checkOverdueRentals.bind(rentalController));
 // NOVO: Sistema de aprovações

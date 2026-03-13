@@ -60,10 +60,45 @@ export const updateRentalSchema = z.object({
       discount: z.number().min(0).optional(),
     })
     .optional(),
+  dates: z
+    .object({
+      pickupScheduled: z.string().datetime().or(z.date()).optional(),
+      returnScheduled: z.string().datetime().or(z.date()).optional(),
+    })
+    .optional(),
+  workAddress: z
+    .object({
+      street: z.string(),
+      number: z.string().optional(),
+      complement: z.string().optional(),
+      neighborhood: z.string().optional(),
+      city: z.string(),
+      state: z.string(),
+      zipCode: z.string(),
+      workName: z.string(),
+      workId: z.string().optional(),
+    })
+    .optional(),
 });
 
 export const updateRentalStatusSchema = z.object({
   status: z.enum(['reserved', 'active', 'overdue', 'completed', 'cancelled']),
+  adjustments: z
+    .object({
+      returnDate: z.string().datetime().or(z.date()).optional(),
+      rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
+      pricingOverride: z
+        .object({
+          equipmentSubtotal: z.number().min(0).optional(),
+          servicesSubtotal: z.number().min(0).optional(),
+          discount: z.number().min(0).optional(),
+          lateFee: z.number().min(0).optional(),
+          total: z.number().min(0).optional(),
+        })
+        .optional(),
+      notes: z.string().optional(),
+    })
+    .optional(),
 });
 
 export const extendRentalSchema = z.object({

@@ -11,6 +11,8 @@ const formatRequestLabel = (type: string) => {
     discount: 'Desconto',
     extension: 'Extensão de período',
     service_addition: 'Adição de serviço',
+    close_adjustment: 'Fechamento com ajustes',
+    rental_update: 'Edição de aluguel',
   };
   return map[type] || type;
 };
@@ -64,6 +66,37 @@ const renderRequestDetails = (type: string, details: Record<string, any>) => {
           <div>Quantidade: {details.service?.quantity ?? 1}</div>
           <div>Preço: {formatCurrency(details.service?.price)}</div>
           <div>Subtotal: {formatCurrency(details.service?.subtotal)}</div>
+        </div>
+      );
+    case 'close_adjustment':
+      return (
+        <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+          <div>Novo status: {details.newStatus || details.newValue || '-'}</div>
+          <div>Data de devolução: {formatDate(details.adjustments?.returnDate)}</div>
+          <div>Tipo de aluguel: {details.adjustments?.rentalType || '-'}</div>
+          <div>
+            Subtotal equipamentos: {formatCurrency(details.adjustments?.pricingOverride?.equipmentSubtotal)}
+          </div>
+          <div>
+            Subtotal serviços: {formatCurrency(details.adjustments?.pricingOverride?.servicesSubtotal)}
+          </div>
+          <div>Desconto: {formatCurrency(details.adjustments?.pricingOverride?.discount)}</div>
+          <div>Multa: {formatCurrency(details.adjustments?.pricingOverride?.lateFee)}</div>
+          <div>Total: {formatCurrency(details.adjustments?.pricingOverride?.total)}</div>
+          <div>Observações: {details.adjustments?.notes || '-'}</div>
+        </div>
+      );
+    case 'rental_update':
+      return (
+        <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
+          <div>Notas: {details.previousNotes || '-'} → {details.newNotes || '-'}</div>
+          <div>Desconto: {formatCurrency(details.previousDiscount)} → {formatCurrency(details.newDiscount)}</div>
+          <div>
+            Retirada: {formatDate(details.previousPickupScheduled)} → {formatDate(details.newPickupScheduled)}
+          </div>
+          <div>
+            Devolução: {formatDate(details.previousReturnScheduled)} → {formatDate(details.newReturnScheduled)}
+          </div>
         </div>
       );
     default:
@@ -175,6 +208,8 @@ const RentalApprovalsPage: React.FC = () => {
             <option value="discount">Desconto</option>
             <option value="extension">Extensão</option>
             <option value="service_addition">Adição de serviço</option>
+            <option value="close_adjustment">Fechamento com ajustes</option>
+            <option value="rental_update">Edição de aluguel</option>
           </select>
           <select
             value={pageSize}

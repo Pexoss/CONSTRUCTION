@@ -39,6 +39,8 @@ const CreateRentalPage: React.FC = () => {
   const [workAddress, setWorkAddress] = useState<RentalWorkAddress | null>(
     null,
   );
+  const [saveWorkAddress, setSaveWorkAddress] = useState(false);
+  const [selectedWorkAddressId, setSelectedWorkAddressId] = useState<string>("");
   const [pickupDate, setPickupDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [discount, setDiscount] = useState(0);
@@ -66,7 +68,24 @@ const CreateRentalPage: React.FC = () => {
   const { data: itemsData } = useItems({ isActive: true, limit: 100 });
   const createMutation = useMutation({
     mutationFn: (data: CreateRentalData) => rentalService.createRental(data),
-    onSuccess: () => {
+    onSuccess: async (response) => {
+      if (response?.data?._id) {
+        try {
+          const blob = await rentalService.generateRentalPDF(response.data._id);
+          const url = window.URL.createObjectURL(
+            new Blob([blob], { type: "application/pdf" })
+          );
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `locacao-${response.data._id}.pdf`;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          window.URL.revokeObjectURL(url);
+        } catch {
+          // Mantém o fluxo mesmo se o PDF falhar
+        }
+      }
       navigate("/rentals");
     },
   });
@@ -237,13 +256,20 @@ const CreateRentalPage: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (
-      !selectedCustomer ||
-      selectedItems.length === 0 ||
-      !pickupDate ||
-      !returnDate
-    ) {
-      alert("Preencha todos os campos obrigatórios");
+    const missingFields: string[] = [];
+    if (!selectedCustomer) missingFields.push("cliente");
+    if (!pickupDate) missingFields.push("data de retirada");
+    if (!returnDate) missingFields.push("data de devolução");
+    if (selectedItems.length === 0) {
+      if ((itemsData?.data || []).length === 0) {
+        alert("Nenhum item disponível no inventário para alugar.");
+        return;
+      }
+      missingFields.push("itens do aluguel");
+    }
+
+    if (missingFields.length > 0) {
+      alert(`Preencha os campos obrigatórios: ${missingFields.join(", ")}.`);
       return;
     }
 
@@ -255,6 +281,14 @@ const CreateRentalPage: React.FC = () => {
     if (new Date(returnDate) <= new Date(pickupDate)) {
       alert("A data de devolução deve ser maior que a data de retirada.");
       return;
+    }
+
+    const today = new Date().toISOString().split("T")[0];
+    if (pickupDate < today || returnDate < today) {
+      const shouldContinue = window.confirm(
+        "Você informou uma data anterior a hoje. Tem certeza de que deseja continuar?"
+      );
+      if (!shouldContinue) return;
     }
 
     //format dates
@@ -304,8 +338,39 @@ const CreateRentalPage: React.FC = () => {
     };
 
     createMutation.mutate(data, {
-      onSuccess: (res) => {
+      onSuccess: async (res) => {
         setServerError(null);
+
+        if (saveWorkAddress && selectedCustomer && workAddress && !workAddress.workId) {
+          const missing = [];
+          if (!workAddress.workName?.trim()) missing.push("nome da obra");
+          if (!workAddress.street?.trim()) missing.push("rua");
+          if (!workAddress.city?.trim()) missing.push("cidade");
+          if (!workAddress.state?.trim()) missing.push("estado");
+          if (!workAddress.zipCode?.trim()) missing.push("CEP");
+          if (missing.length > 0) {
+            alert(`Preencha o endereço da obra: ${missing.join(", ")}.`);
+            return;
+          }
+          try {
+            await customerService.addAddress(selectedCustomer, {
+              addressName: workAddress.workName || "Obra",
+              type: "work",
+              workName: workAddress.workName,
+              street: workAddress.street,
+              number: workAddress.number,
+              complement: workAddress.complement,
+              neighborhood: workAddress.neighborhood,
+              city: workAddress.city,
+              state: workAddress.state,
+              zipCode: workAddress.zipCode,
+              country: "Brasil",
+              isDefault: false,
+            });
+          } catch {
+            alert("Não foi possível salvar o endereço do cliente.");
+          }
+        }
       },
       onError: (err: any) => {
         const message =
@@ -392,6 +457,7 @@ const CreateRentalPage: React.FC = () => {
         state: addr.state,
         zipCode: addr.zipCode,
       });
+      setSelectedWorkAddressId(addr._id || "");
     }
   }, [customerAddresses]);
 
@@ -1098,10 +1164,10 @@ const CreateRentalPage: React.FC = () => {
                           </label>
                           <select
                             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            defaultValue=""
+                            value={selectedWorkAddressId}
                             onChange={(e) => {
-                              const index = Number(e.target.value);
-                              const addr = customerAddresses[index];
+                              const selectedId = e.target.value;
+                              const addr = customerAddresses.find((a) => a._id === selectedId);
                               if (!addr) return;
 
                               setWorkAddress({
@@ -1121,11 +1187,13 @@ const CreateRentalPage: React.FC = () => {
                                 zipCode: addr.zipCode,
                                 workId: addr._id,
                               });
+                              setSelectedWorkAddressId(addr._id || "");
+                              setSaveWorkAddress(false);
                             }}
                           >
                             <option value="">Selecione um endereço</option>
                             {customerAddresses.map((address, index) => (
-                              <option key={index} value={index}>
+                              <option key={index} value={address._id || index}>
                                 {address.type === "work"
                                   ? address.workName || `Obra ${index + 1}`
                                   : address.type === "main"
@@ -1265,6 +1333,17 @@ const CreateRentalPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+                
+                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={saveWorkAddress}
+                        onChange={(e) => setSaveWorkAddress(e.target.checked)}
+                        className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-500"
+                      />
+                      Salvar este endereço para próximos aluguéis
+                    </label>
+
               </div>
             </div>
 

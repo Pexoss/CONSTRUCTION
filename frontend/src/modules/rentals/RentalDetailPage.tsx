@@ -1,8 +1,11 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
-import { RentalStatus, ChecklistData } from "../../types/rental.types";
+import { RentalStatus, ChecklistData, RentalWorkAddress } from "../../types/rental.types";
+import { billingService } from "../billings/billing.service";
+import { Billing } from "../../types/billing.types";
+import { customerService } from "../customers/customer.service";
 import Layout from "../../components/Layout";
 import { SuccessToast } from "../../components/SuccessToast";
 import { useAuth } from "hooks/useAuth";
@@ -15,6 +18,7 @@ const RentalDetailPage: React.FC = () => {
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [showExtendModal, setShowExtendModal] = useState(false);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [checklistType, setChecklistType] = useState<"pickup" | "return">(
     "pickup",
   );
@@ -41,6 +45,35 @@ const RentalDetailPage: React.FC = () => {
   } | null>(null);
 
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [closeForm, setCloseForm] = useState({
+    returnDate: "",
+    rentalType: "daily",
+    equipmentSubtotal: "",
+    servicesSubtotal: "",
+    discount: "",
+    lateFee: "",
+    total: "",
+    notes: "",
+  });
+  const [editForm, setEditForm] = useState({
+    notes: "",
+    discount: "",
+    pickupDate: "",
+    returnDate: "",
+    workAddress: {
+      street: "",
+      number: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
+      zipCode: "",
+      workName: "",
+      workId: "",
+    } as RentalWorkAddress,
+  });
+  const [saveWorkAddress, setSaveWorkAddress] = useState(false);
+  const [selectedWorkAddressId, setSelectedWorkAddressId] = useState<string>("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["rental", id],
@@ -49,12 +82,33 @@ const RentalDetailPage: React.FC = () => {
   });
 
   const { user } = useAuth();
+  const isAdminUser = ["admin", "superadmin"].includes(user?.role || "");
 
   const [showSuccessToast, setShowSuccessToast] = useState(false);
 
+  const processBillingMutation = useMutation({
+    mutationFn: () => billingService.processRentalBilling(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rental-billings", id] });
+    },
+  });
+
+  const { data: billingsData, isLoading: billingsLoading } = useQuery({
+    queryKey: ["rental-billings", id],
+    queryFn: () => billingService.getBillings({ rentalId: id!, limit: 200 }),
+    enabled: !!id,
+  });
+
+  useEffect(() => {
+    if (!id || !data?.data) return;
+    if (["active", "overdue"].includes(data.data.status)) {
+      processBillingMutation.mutate();
+    }
+  }, [id, data?.data?.status, processBillingMutation]);
+
   const updateStatusMutation = useMutation({
-    mutationFn: (status: RentalStatus) =>
-      rentalService.updateRentalStatus(id!, { status }),
+    mutationFn: (data: { status: RentalStatus; adjustments?: any }) =>
+      rentalService.updateRentalStatus(id!, data),
 
     onSuccess: (response) => {
       setShowStatusModal(false);
@@ -116,6 +170,52 @@ const RentalDetailPage: React.FC = () => {
     },
   });
 
+  const updateRentalMutation = useMutation({
+    mutationFn: (payload: {
+      notes?: string;
+      pricing?: { discount?: number };
+      dates?: { pickupScheduled?: string; returnScheduled?: string };
+      workAddress?: RentalWorkAddress;
+    }) => rentalService.updateRental(id!, payload),
+    onSuccess: async (response) => {
+      setShowEditModal(false);
+      setServerError(null);
+
+      if (saveWorkAddress && customer?._id && !selectedWorkAddressId) {
+        try {
+          await customerService.addAddress(customer._id, {
+            addressName: editForm.workAddress.workName || "Obra",
+            type: "work",
+            workName: editForm.workAddress.workName,
+            street: editForm.workAddress.street,
+            number: editForm.workAddress.number,
+            complement: editForm.workAddress.complement,
+            neighborhood: editForm.workAddress.neighborhood,
+            city: editForm.workAddress.city,
+            state: editForm.workAddress.state,
+            zipCode: editForm.workAddress.zipCode,
+            country: "Brasil",
+            isDefault: false,
+          });
+        } catch {
+          toast.error("Não foi possível salvar o endereço do cliente");
+        }
+      }
+
+      if ("requiresApproval" in response && response.requiresApproval) {
+        toast.success("Solicitação enviada para aprovação");
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
+    },
+    onError: (err: any) => {
+      const message =
+        err.response?.data?.message || "Erro ao atualizar aluguel";
+      setServerError(message);
+    },
+  });
+
   const approveApprovalMutation = useMutation({
     mutationFn: ({ approvalId, notes }: { approvalId: string; notes?: string }) =>
       rentalService.approveApproval(id!, approvalId, notes),
@@ -156,6 +256,54 @@ const RentalDetailPage: React.FC = () => {
     return labels[status];
   };
 
+  const formatCurrency = (value?: number) => {
+    if (value === undefined || Number.isNaN(value)) return "-";
+    return new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    }).format(value);
+  };
+
+  const formatDate = (value?: string) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString("pt-BR");
+  };
+
+  const handleDownloadBillingPDF = async (billingId: string) => {
+    try {
+      const blob = await billingService.generateBillingPDF(billingId);
+      const url = window.URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `fechamento-${billingId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Erro ao gerar PDF do fechamento");
+    }
+  };
+
+  const handleDownloadRentalPDF = async () => {
+    if (!id) return;
+    try {
+      const blob = await rentalService.generateRentalPDF(id);
+      const url = window.URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `locacao-${id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Erro ao gerar PDF da locação");
+    }
+  };
+
   const handleAbrirFinalizacao = async (status: RentalStatus) => {
     setNewStatusAluguel(status);
     setModalFinalizarAluguel(true);
@@ -169,6 +317,20 @@ const RentalDetailPage: React.FC = () => {
         usedDays: response.usedDays,
         contractedDays: response.contractedDays ?? 1,
         rentalType: response.rentalType ?? "daily",
+      });
+      const today = new Date().toISOString().split("T")[0];
+      setCloseForm({
+        returnDate: today,
+        rentalType: response.rentalType ?? "daily",
+        equipmentSubtotal: rental?.pricing?.equipmentSubtotal?.toFixed(2) ?? "",
+        servicesSubtotal: rental?.pricing?.servicesSubtotal?.toFixed(2) ?? "",
+        discount: rental?.pricing?.discount?.toFixed(2) ?? "",
+        lateFee: rental?.pricing?.lateFee?.toFixed(2) ?? "",
+        total:
+          response?.recalculatedTotal?.toFixed?.(2) ??
+          rental?.pricing?.total?.toFixed?.(2) ??
+          "",
+        notes: "",
       });
     } catch {
       toast.error("Erro ao calcular valores do fechamento");
@@ -184,13 +346,36 @@ const RentalDetailPage: React.FC = () => {
       handleAbrirFinalizacao("completed");
       return;
     }
-    updateStatusMutation.mutate(newStatus);
+    updateStatusMutation.mutate({ status: newStatus });
     setShowStatusModal(false);
   };
 
   const confirmarFinalizacao = () => {
     if (!newStatusAluguel) return;
-    updateStatusMutation.mutate(newStatusAluguel);
+    const toNumberOrUndefined = (value: string) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
+    const payload = {
+      status: newStatusAluguel,
+      adjustments: {
+        returnDate: closeForm.returnDate
+          ? new Date(closeForm.returnDate).toISOString()
+          : undefined,
+        rentalType: closeForm.rentalType || undefined,
+        pricingOverride: {
+          equipmentSubtotal: toNumberOrUndefined(closeForm.equipmentSubtotal),
+          servicesSubtotal: toNumberOrUndefined(closeForm.servicesSubtotal),
+          discount: toNumberOrUndefined(closeForm.discount),
+          lateFee: toNumberOrUndefined(closeForm.lateFee),
+          total: toNumberOrUndefined(closeForm.total),
+        },
+        notes: closeForm.notes || undefined,
+      },
+    };
+
+    updateStatusMutation.mutate(payload);
     setModalFinalizarAluguel(false);
     setNewStatusAluguel(null);
   };
@@ -218,6 +403,15 @@ const RentalDetailPage: React.FC = () => {
   const rental = data.data;
   const customer =
     typeof rental.customerId === "object" ? rental.customerId : null;
+  const customerAddresses = customer?.addresses ?? [];
+
+  const billings = (billingsData?.data?.billings || []) as Billing[];
+  const totalPaid = billings
+    .filter((billing) => billing.status === "paid")
+    .reduce((sum, billing) => sum + (billing.calculation?.total || 0), 0);
+  const totalOpen = billings
+    .filter((billing) => !["paid", "cancelled"].includes(billing.status))
+    .reduce((sum, billing) => sum + (billing.calculation?.total || 0), 0);
   const pendingApprovals =
     rental.pendingApprovals?.filter((approval) => approval.status === "pending") || [];
   const changeHistory = rental.changeHistory || [];
@@ -273,6 +467,71 @@ const RentalDetailPage: React.FC = () => {
                 </span>
               </div>
               <div className="flex gap-2">
+                <button
+                  onClick={handleDownloadRentalPDF}
+                  className="inline-flex items-center justify-center px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                >
+                  <svg
+                    className="w-4 h-4 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 16.5v-9m0 9 3-3m-3 3-3-3M6 19.5h12"
+                    />
+                  </svg>
+                  Baixar PDF
+                </button>
+                <button
+                  onClick={() => {
+                    const workAddress = rental.workAddress || ({} as RentalWorkAddress);
+                    setEditForm({
+                      notes: rental.notes || "",
+                      discount: rental.pricing.discount?.toFixed(2) || "",
+                      pickupDate: rental.dates.pickupScheduled.split("T")[0],
+                      returnDate: rental.dates.returnScheduled.split("T")[0],
+                      workAddress: {
+                        street: workAddress.street || "",
+                        number: workAddress.number || "",
+                        complement: workAddress.complement || "",
+                        neighborhood: workAddress.neighborhood || "",
+                        city: workAddress.city || "",
+                        state: workAddress.state || "",
+                        zipCode: workAddress.zipCode || "",
+                        workName: workAddress.workName || "",
+                        workId: workAddress.workId || "",
+                      },
+                    });
+                    setSelectedWorkAddressId(workAddress.workId || "");
+                    setSaveWorkAddress(false);
+                    setShowEditModal(true);
+                  }}
+                  className="inline-flex items-center justify-center px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                >
+                  <svg
+                    className="w-4 h-4 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M19.5 7.125 16.862 4.487"
+                    />
+                  </svg>
+                  Editar informações
+                </button>
                 <button
                   onClick={() => {
                     setNewStatus(rental.status as RentalStatus);
@@ -838,6 +1097,96 @@ const RentalDetailPage: React.FC = () => {
                   </p>
                 </div>
               )}
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                <div className="flex items-center mb-4">
+                  <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
+                    <svg
+                      className="w-5 h-5 text-gray-700 dark:text-gray-300"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 6v6l4 2M6 6h.01M6 12h.01M6 18h.01M18 6h.01M18 12h.01M18 18h.01"
+                      />
+                    </svg>
+                  </div>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Fechamentos e cobranças
+                  </h2>
+                </div>
+                <div className="flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400 mb-4">
+                  <span>
+                    Períodos cobrados:{" "}
+                    <strong className="text-gray-900 dark:text-white">
+                      {billings.length}
+                    </strong>
+                  </span>
+                  <span>
+                    Pago:{" "}
+                    <strong className="text-gray-900 dark:text-white">
+                      {formatCurrency(totalPaid)}
+                    </strong>
+                  </span>
+                  <span>
+                    Em aberto:{" "}
+                    <strong className="text-gray-900 dark:text-white">
+                      {formatCurrency(totalOpen)}
+                    </strong>
+                  </span>
+                </div>
+                {billingsLoading ? (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    Carregando fechamentos...
+                  </div>
+                ) : billings.length === 0 ? (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    Nenhum fechamento registrado.
+                  </div>
+                ) : (
+                  <div className="space-y-3 text-sm">
+                    {billings.map((billing) => (
+                      <div
+                        key={billing._id}
+                        className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-900/50"
+                      >
+                        <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                          <span>
+                            {formatDate(billing.periodStart)} →{" "}
+                            {formatDate(billing.periodEnd)}
+                          </span>
+                          <span>
+                            {billing.status === "paid"
+                              ? "Pago"
+                              : billing.status === "approved"
+                                ? "Aprovado"
+                                : billing.status === "pending_approval"
+                                  ? "Pendente"
+                                  : billing.status === "cancelled"
+                                    ? "Cancelado"
+                                    : "Rascunho"}
+                          </span>
+                        </div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-white mt-1">
+                          {formatCurrency(billing.calculation?.total)}
+                        </div>
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadBillingPDF(billing._id)}
+                            className="text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                          >
+                            Baixar PDF
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               {changeHistory.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
                   <div className="flex items-center mb-4">
@@ -883,6 +1232,7 @@ const RentalDetailPage: React.FC = () => {
                       </div>
                     ))}
                   </div>
+
                 </div>
               )}
             </div>
@@ -1006,6 +1356,387 @@ const RentalDetailPage: React.FC = () => {
           </div>
         )}
 
+        {showEditModal && (
+          <div className="fixed inset-0 bg-gray-500/75 dark:bg-gray-900/75 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl p-6 max-w-md w-full">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                Editar aluguel
+              </h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Desconto (R$)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editForm.discount}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, discount: e.target.value })
+                    }
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Data de retirada
+                    </label>
+                    <input
+                      type="date"
+                      value={editForm.pickupDate}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, pickupDate: e.target.value })
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Data de devolução
+                    </label>
+                    <input
+                      type="date"
+                      value={editForm.returnDate}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, returnDate: e.target.value })
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Endereço da obra
+                  </h3>
+                  {customerAddresses.length > 0 && (
+                    <div className="flex items-center gap-2 mb-3">
+                      <label className="text-sm text-gray-700 dark:text-gray-300">
+                        Usar endereço salvo:
+                      </label>
+                      <select
+                        className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        value={selectedWorkAddressId}
+                        onChange={(e) => {
+                          const addressId = e.target.value;
+                          setSelectedWorkAddressId(addressId);
+                          const addr = customerAddresses.find((a) => a._id === addressId);
+                          if (!addr) return;
+                          setEditForm({
+                            ...editForm,
+                            workAddress: {
+                              street: addr.street,
+                              number: addr.number,
+                              complement: addr.complement,
+                              neighborhood: addr.neighborhood,
+                              city: addr.city,
+                              state: addr.state,
+                              zipCode: addr.zipCode,
+                              workName:
+                                addr.workName ||
+                                addr.addressName ||
+                                (addr.type === "main"
+                                  ? "Endereço Principal"
+                                  : addr.type === "billing"
+                                    ? "Endereço de Cobrança"
+                                    : "Outro Endereço"),
+                              workId: addr._id,
+                            },
+                          });
+                          setSaveWorkAddress(false);
+                        }}
+                      >
+                        <option value="">Selecione um endereço</option>
+                        {customerAddresses.map((address) => (
+                          <option key={address._id} value={address._id}>
+                            {address.type === "work"
+                              ? address.workName || address.addressName || "Obra"
+                              : address.type === "main"
+                                ? "Principal"
+                                : address.type === "billing"
+                                  ? "Cobrança"
+                                  : "Outro"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <input
+                        type="text"
+                        placeholder="Nome da obra"
+                        value={editForm.workAddress.workName}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            workAddress: {
+                              ...editForm.workAddress,
+                              workName: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <input
+                        type="text"
+                        placeholder="Rua"
+                        value={editForm.workAddress.street}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            workAddress: {
+                              ...editForm.workAddress,
+                              street: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="Número"
+                        value={editForm.workAddress.number || ""}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            workAddress: {
+                              ...editForm.workAddress,
+                              number: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="Complemento"
+                        value={editForm.workAddress.complement || ""}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            workAddress: {
+                              ...editForm.workAddress,
+                              complement: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="Bairro"
+                        value={editForm.workAddress.neighborhood || ""}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            workAddress: {
+                              ...editForm.workAddress,
+                              neighborhood: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="Cidade"
+                        value={editForm.workAddress.city}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            workAddress: {
+                              ...editForm.workAddress,
+                              city: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="Estado"
+                        maxLength={2}
+                        value={editForm.workAddress.state}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            workAddress: {
+                              ...editForm.workAddress,
+                              state: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm uppercase"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="CEP"
+                        value={editForm.workAddress.zipCode}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            workAddress: {
+                              ...editForm.workAddress,
+                              zipCode: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="ID da obra"
+                        value={editForm.workAddress.workId || ""}
+                        onChange={(e) =>
+                          setEditForm({
+                            ...editForm,
+                            workAddress: {
+                              ...editForm.workAddress,
+                              workId: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+                  </div>
+                  <label className="mt-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={saveWorkAddress}
+                      onChange={(e) => setSaveWorkAddress(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-500"
+                    />
+                    Salvar este endereço para próximos aluguéis
+                  </label>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Observações
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={editForm.notes}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, notes: e.target.value })
+                    }
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  />
+                </div>
+                {!isAdminUser && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Como funcionário, a edição será enviada para aprovação.
+                  </p>
+                )}
+              </div>
+              <div className="flex justify-end gap-2 mt-5">
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    const discountValue =
+                      editForm.discount === ""
+                        ? undefined
+                        : Number(editForm.discount);
+                    const work = editForm.workAddress;
+                    const workValues = [
+                      work.workName,
+                      work.street,
+                      work.city,
+                      work.state,
+                      work.zipCode,
+                      work.number,
+                      work.complement,
+                      work.neighborhood,
+                      work.workId,
+                    ];
+                    const hasWorkAddress = workValues.some((v) => (v || "").trim() !== "");
+
+                    if (hasWorkAddress) {
+                      const missing = [];
+                      if (!work.workName.trim()) missing.push("nome da obra");
+                      if (!work.street.trim()) missing.push("rua");
+                      if (!work.city.trim()) missing.push("cidade");
+                      if (!work.state.trim()) missing.push("estado");
+                      if (!work.zipCode.trim()) missing.push("CEP");
+                      if (missing.length > 0) {
+                        toast.error(
+                          `Preencha o endereço da obra: ${missing.join(", ")}.`
+                        );
+                        return;
+                      }
+                    }
+
+                    const payload: {
+                      notes?: string;
+                      pricing?: { discount?: number };
+                      dates?: { pickupScheduled?: string; returnScheduled?: string };
+                      workAddress?: RentalWorkAddress;
+                    } = {
+                      notes: editForm.notes,
+                      pricing: {
+                        discount: discountValue,
+                      },
+                    };
+
+                    if (editForm.pickupDate || editForm.returnDate) {
+                      payload.dates = {
+                        pickupScheduled: editForm.pickupDate
+                          ? new Date(editForm.pickupDate).toISOString()
+                          : undefined,
+                        returnScheduled: editForm.returnDate
+                          ? new Date(editForm.returnDate).toISOString()
+                          : undefined,
+                      };
+                    }
+
+                    if (hasWorkAddress) {
+                      payload.workAddress = {
+                        workName: work.workName.trim(),
+                        street: work.street.trim(),
+                        city: work.city.trim(),
+                        state: work.state.trim(),
+                        zipCode: work.zipCode.trim(),
+                        number: work.number?.trim(),
+                        complement: work.complement?.trim(),
+                        neighborhood: work.neighborhood?.trim(),
+                        workId: work.workId?.trim(),
+                      };
+                    }
+
+                    updateRentalMutation.mutate(payload);
+                  }}
+                  className="px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {modalFinalizarAluguel && newStatusAluguel === "completed" && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75">
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl p-6 w-full max-w-md">
@@ -1106,6 +1837,142 @@ const RentalDetailPage: React.FC = () => {
                           : "-"}
                       </span>
                     </div>
+                  </div>
+
+                  <div className="mt-5 space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Data de devolução
+                      </label>
+                      <input
+                        type="date"
+                        value={closeForm.returnDate}
+                        onChange={(e) =>
+                          setCloseForm({ ...closeForm, returnDate: e.target.value })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Tipo de aluguel
+                      </label>
+                      <select
+                        value={closeForm.rentalType}
+                        onChange={(e) =>
+                          setCloseForm({ ...closeForm, rentalType: e.target.value })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      >
+                        <option value="daily">Diária</option>
+                        <option value="weekly">Semanal</option>
+                        <option value="biweekly">Quinzenal</option>
+                        <option value="monthly">Mensal</option>
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Subtotal equipamentos
+                        </label>
+                        <input
+                          type="number"
+                          value={closeForm.equipmentSubtotal}
+                          onChange={(e) =>
+                            setCloseForm({
+                              ...closeForm,
+                              equipmentSubtotal: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Subtotal serviços
+                        </label>
+                        <input
+                          type="number"
+                          value={closeForm.servicesSubtotal}
+                          onChange={(e) =>
+                            setCloseForm({
+                              ...closeForm,
+                              servicesSubtotal: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Desconto
+                        </label>
+                        <input
+                          type="number"
+                          value={closeForm.discount}
+                          onChange={(e) =>
+                            setCloseForm({
+                              ...closeForm,
+                              discount: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                          Multa
+                        </label>
+                        <input
+                          type="number"
+                          value={closeForm.lateFee}
+                          onChange={(e) =>
+                            setCloseForm({
+                              ...closeForm,
+                              lateFee: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Total
+                      </label>
+                      <input
+                        type="number"
+                        value={closeForm.total}
+                        onChange={(e) =>
+                          setCloseForm({ ...closeForm, total: e.target.value })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Observações
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={closeForm.notes}
+                        onChange={(e) =>
+                          setCloseForm({ ...closeForm, notes: e.target.value })
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+
+                    {!isAdminUser && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Como funcionário, esta finalização com ajustes será enviada
+                        para aprovação do administrador.
+                      </p>
+                    )}
                   </div>
 
                   <div className="mt-6 flex justify-end gap-2">

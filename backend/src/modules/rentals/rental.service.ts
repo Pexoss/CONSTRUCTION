@@ -9,8 +9,27 @@ import { RoleType } from '@/shared/constants/roles';
 import { canApplyDiscount, canUpdateRentalStatus } from '../../helpers/UserPermission';
 import { notificationService } from '../notification/notification.service'
 import { User } from '../users/user.model';
+import billingService from '../billings/billing.service';
+import { Billing } from '../billings/billing.model';
 import { NOTFOUND } from 'dns';
+import PDFDocument from 'pdfkit';
 class RentalService {
+  private getPeriodLengthDays(rentalType: RentalType): number {
+    const periodDays: Record<RentalType, number> = {
+      daily: 1,
+      weekly: 7,
+      biweekly: 15,
+      monthly: 30,
+    };
+
+    return periodDays[rentalType];
+  }
+
+  private addPeriod(date: Date, rentalType: RentalType): Date {
+    const next = new Date(date);
+    next.setDate(next.getDate() + this.getPeriodLengthDays(rentalType));
+    return next;
+  }
   /**
    * Calculate rental price based on period and rates
    * NOVO: Suporta biweeklyRate e rentalType
@@ -348,6 +367,75 @@ class RentalService {
   }
 
   /**
+   * Processa fechamentos periódicos para um aluguel ativo
+   */
+  async processDueBillings(companyId: string, rentalId: string, userId: string): Promise<number> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+    if (!rental) {
+      throw new Error('Rental not found');
+    }
+
+    if (rental.status !== 'active' && rental.status !== 'overdue') {
+      return 0;
+    }
+
+    const now = new Date();
+    const pickupBase = rental.dates.pickupActual || rental.dates.pickupScheduled;
+
+    let cycle: RentalType | null = rental.dates.billingCycle || rental.items[0]?.rentalType || 'daily';
+
+    if (cycle === 'daily') {
+      const daysSincePickup = Math.ceil((now.getTime() - pickupBase.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSincePickup <= 30) {
+        return 0;
+      }
+      cycle = 'monthly';
+    }
+
+    if (!cycle) {
+      return 0;
+    }
+
+    let lastBillingDate = rental.dates.lastBillingDate || pickupBase;
+    let nextBillingDate = rental.dates.nextBillingDate || this.addPeriod(lastBillingDate, cycle);
+
+    let createdCount = 0;
+
+    while (nextBillingDate <= now) {
+      const existing = await Billing.findOne({
+        companyId,
+        rentalId: rental._id,
+        periodStart: lastBillingDate,
+        periodEnd: nextBillingDate,
+      }).lean();
+
+      if (!existing) {
+        const billingCount = await Billing.countDocuments({ companyId, rentalId: rental._id });
+        await billingService.createPeriodicBilling(
+          companyId,
+          rental._id.toString(),
+          lastBillingDate,
+          nextBillingDate,
+          userId,
+          {
+            includeServices: billingCount === 0,
+            notes: 'Fechamento periódico automático',
+          }
+        );
+        createdCount += 1;
+      }
+
+      rental.dates.lastBillingDate = nextBillingDate;
+      rental.dates.nextBillingDate = this.addPeriod(nextBillingDate, cycle);
+      lastBillingDate = nextBillingDate;
+      nextBillingDate = rental.dates.nextBillingDate;
+    }
+
+    await rental.save();
+    return createdCount;
+  }
+
+  /**
    * Get all rentals with filters
    */
   async getRentals(
@@ -409,18 +497,154 @@ class RentalService {
    */
   async getRentalById(companyId: string, rentalId: string): Promise<IRental | null> {
     return Rental.findOne({ _id: rentalId, companyId })
-      .populate('customerId', 'name cpfCnpj email phone address')
+      .populate('customerId', 'name cpfCnpj email phone addresses')
       .populate('items.itemId', 'name sku pricing photos')
       .populate('createdBy', 'name email')
       .populate('checklistPickup.completedBy', 'name email')
       .populate('checklistReturn.completedBy', 'name email');
   }
 
-  private calculateFinalPricing(rental: any) {
+  async generateRentalPDF(companyId: string, rentalId: string): Promise<Buffer> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId })
+      .populate('customerId')
+      .populate('items.itemId')
+      .populate('companyId');
+
+    if (!rental) {
+      throw new Error('Rental not found');
+    }
+
+    const company = rental.companyId as any;
+    const customer = rental.customerId as any;
+
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ margin: 50, size: 'A4' });
+      const chunks: Buffer[] = [];
+
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      // Header
+      doc.fontSize(20).text('RECIBO DE LOCAÇÃO', { align: 'center' });
+      doc.moveDown();
+
+      // Company Info
+      doc.fontSize(12).text(company?.name || 'Empresa', { align: 'left' });
+      if (company?.cnpj) doc.text(`CNPJ: ${company.cnpj}`);
+      if (company?.email) doc.text(`Email: ${company.email}`);
+      if (company?.phone) doc.text(`Telefone: ${company.phone}`);
+      doc.moveDown();
+
+      // Rental Info
+      doc.fontSize(14).text(`Locação Nº: ${rental.rentalNumber}`);
+      doc.text(`Data de emissão: ${new Date().toLocaleDateString('pt-BR')}`);
+      doc.text(
+        `Período: ${new Date(rental.dates.pickupScheduled).toLocaleDateString('pt-BR')} até ${new Date(
+          rental.dates.returnScheduled
+        ).toLocaleDateString('pt-BR')}`
+      );
+      doc.moveDown();
+
+      // Customer Info
+      doc.fontSize(12).text('Cliente:', { underline: true });
+      doc.text(customer?.name || 'Cliente');
+      if (customer?.cpfCnpj) doc.text(`CPF/CNPJ: ${customer.cpfCnpj}`);
+      if (customer?.email) doc.text(`Email: ${customer.email}`);
+      if (customer?.phone) doc.text(`Telefone: ${customer.phone}`);
+      const customerAddresses = customer?.addresses || [];
+      const preferredAddress =
+        customerAddresses.find((addr: any) => addr.type === 'billing') ||
+        customerAddresses.find((addr: any) => addr.type === 'main') ||
+        customerAddresses[0];
+      if (preferredAddress) {
+        const addressLine = [
+          preferredAddress.street,
+          preferredAddress.number ? `, ${preferredAddress.number}` : '',
+        ].join('');
+        const complement = preferredAddress.complement
+          ? ` - ${preferredAddress.complement}`
+          : '';
+        const neighborhood = preferredAddress.neighborhood
+          ? ` - ${preferredAddress.neighborhood}`
+          : '';
+        doc.text(`Endereço: ${addressLine}${complement}${neighborhood}`);
+        doc.text(
+          `${preferredAddress.city || ''}/${preferredAddress.state || ''} - ${preferredAddress.zipCode || ''}`
+        );
+      }
+      doc.moveDown();
+
+      // Items Table
+      doc.fontSize(12).text('Equipamentos:', { underline: true });
+      doc.moveDown(0.5);
+
+      const tableTop = doc.y;
+      const itemHeight = 20;
+      let y = tableTop;
+
+      // Table Header
+      doc.fontSize(10).font('Helvetica-Bold');
+      doc.text('Descrição', 50, y);
+      doc.text('Qtd', 300, y);
+      doc.text('Valor Unit.', 350, y, { width: 80, align: 'right' });
+      doc.text('Total', 450, y, { width: 80, align: 'right' });
+      y += itemHeight;
+
+      // Table Items
+      doc.font('Helvetica');
+      rental.items.forEach((item: any) => {
+        const itemData = item.itemId as any;
+        const description =
+          itemData && typeof itemData === 'object' && 'name' in itemData
+            ? itemData.name
+            : 'Item';
+        doc.text(description, 50, y, { width: 240 });
+        doc.text(item.quantity.toString(), 300, y);
+        doc.text(`R$ ${item.unitPrice.toFixed(2)}`, 350, y, { width: 80, align: 'right' });
+        doc.text(`R$ ${item.subtotal.toFixed(2)}`, 450, y, { width: 80, align: 'right' });
+        y += itemHeight;
+      });
+
+      // Totals
+      y += 10;
+      doc.font('Helvetica');
+      doc.text(`Subtotal:`, 350, y, { width: 80, align: 'right' });
+      doc.text(`R$ ${rental.pricing.subtotal.toFixed(2)}`, 450, y, { width: 80, align: 'right' });
+      y += itemHeight;
+
+      if (rental.pricing.discount && rental.pricing.discount > 0) {
+        doc.text(`Desconto:`, 350, y, { width: 80, align: 'right' });
+        doc.text(`R$ ${rental.pricing.discount.toFixed(2)}`, 450, y, { width: 80, align: 'right' });
+        y += itemHeight;
+      }
+
+      if (rental.pricing.deposit && rental.pricing.deposit > 0) {
+        doc.text(`Caução:`, 350, y, { width: 80, align: 'right' });
+        doc.text(`R$ ${rental.pricing.deposit.toFixed(2)}`, 450, y, { width: 80, align: 'right' });
+        y += itemHeight;
+      }
+
+      doc.font('Helvetica-Bold').fontSize(12);
+      doc.text(`Total:`, 350, y, { width: 80, align: 'right' });
+      doc.text(`R$ ${rental.pricing.total.toFixed(2)}`, 450, y, { width: 80, align: 'right' });
+
+      if (rental.notes) {
+        y += itemHeight * 2;
+        doc.font('Helvetica').fontSize(10);
+        doc.text('Observações:', 50, y);
+        doc.text(rental.notes, 50, y + 15, { width: 500 });
+      }
+
+      doc.end();
+    });
+  }
+
+  private calculateFinalPricing(rental: any, returnDateOverride?: Date) {
     const pickupDate =
       rental.dates.pickupActual || rental.dates.pickupScheduled;
 
-    const returnDate = new Date();
+    const returnDate = returnDateOverride || new Date();
 
     const diffMs = returnDate.getTime() - pickupDate.getTime();
     const usedDays = Math.max(
@@ -504,7 +728,17 @@ class RentalService {
     oldStatus: RentalStatus,
     newStatus: RentalStatus,
     companyId: string,
-    userId: string
+    userId: string,
+    adjustments?: {
+      returnDate?: Date;
+      pricingOverride?: {
+        equipmentSubtotal?: number;
+        servicesSubtotal?: number;
+        discount?: number;
+        lateFee?: number;
+        total?: number;
+      };
+    }
   ): Promise<void> {
     rental.status = newStatus;
 
@@ -513,6 +747,16 @@ class RentalService {
      */
     if (oldStatus === 'reserved' && newStatus === 'active') {
       rental.dates.pickupActual = new Date();
+
+      if (!rental.dates.lastBillingDate) {
+        rental.dates.lastBillingDate = rental.dates.pickupActual;
+      }
+      if (!rental.dates.nextBillingDate && rental.dates.billingCycle && rental.dates.billingCycle !== 'daily') {
+        rental.dates.nextBillingDate = this.addPeriod(
+          rental.dates.pickupActual,
+          rental.dates.billingCycle
+        );
+      }
 
       for (const item of rental.items) {
         await this.updateItemQuantityForRental(
@@ -539,7 +783,7 @@ class RentalService {
         usedDays,
         recalculatedEquipmentSubtotal,
         returnDate
-      } = this.calculateFinalPricing(rental);
+      } = this.calculateFinalPricing(rental, adjustments?.returnDate);
 
       rental.dates.returnActual = returnDate;
 
@@ -549,6 +793,38 @@ class RentalService {
       rental.pricing.subtotal = Number((rental.pricing.equipmentSubtotal + rental.pricing.servicesSubtotal).toFixed(2));
       rental.pricing.total = Number((rental.pricing.subtotal + rental.pricing.deposit - rental.pricing.discount + rental.pricing.lateFee).toFixed(2));
       rental.pricing.usedDays = usedDays;
+
+      if (adjustments?.pricingOverride) {
+        const override = adjustments.pricingOverride;
+        if (override.equipmentSubtotal !== undefined) {
+          rental.pricing.equipmentSubtotal = override.equipmentSubtotal;
+        }
+        if (override.servicesSubtotal !== undefined) {
+          rental.pricing.servicesSubtotal = override.servicesSubtotal;
+        }
+        if (override.discount !== undefined) {
+          rental.pricing.discount = override.discount;
+        }
+        if (override.lateFee !== undefined) {
+          rental.pricing.lateFee = override.lateFee;
+        }
+
+        rental.pricing.subtotal = Number(
+          (rental.pricing.equipmentSubtotal + rental.pricing.servicesSubtotal).toFixed(2)
+        );
+
+        rental.pricing.total =
+          override.total !== undefined
+            ? override.total
+            : Number(
+                (
+                  rental.pricing.subtotal +
+                  rental.pricing.deposit -
+                  rental.pricing.discount +
+                  rental.pricing.lateFee
+                ).toFixed(2)
+              );
+      }
 
       for (const item of rental.items) {
         await this.updateItemQuantityForRental(
@@ -583,6 +859,49 @@ class RentalService {
     }
   }
 
+  private async createFinalBillingIfNeeded(rental: IRental, userId: string): Promise<void> {
+    const periodStart =
+      rental.dates.lastBillingDate || rental.dates.pickupActual || rental.dates.pickupScheduled;
+    const periodEnd = rental.dates.returnActual || new Date();
+
+    if (!periodStart || periodEnd <= periodStart) {
+      return;
+    }
+
+    const existing = await Billing.findOne({
+      companyId: rental.companyId,
+      rentalId: rental._id,
+      periodStart,
+      periodEnd,
+    }).lean();
+
+    if (existing) {
+      return;
+    }
+
+    const billingCount = await Billing.countDocuments({
+      companyId: rental.companyId,
+      rentalId: rental._id,
+    });
+
+    await billingService.createPeriodicBilling(
+      rental.companyId.toString(),
+      rental._id.toString(),
+      periodStart,
+      periodEnd,
+      userId,
+      {
+        includeServices: billingCount === 0,
+        targetEquipmentSubtotal: rental.pricing.equipmentSubtotal,
+        totalOverride: rental.pricing.total,
+        notes: 'Fechamento final do aluguel',
+      }
+    );
+
+    rental.dates.lastBillingDate = periodEnd;
+    rental.dates.nextBillingDate = undefined;
+  }
+
   /**
    * Update rental status
    */
@@ -590,7 +909,19 @@ class RentalService {
     companyId: string,
     rentalId: string,
     status: RentalStatus,
-    userId: string
+    userId: string,
+    adjustments?: {
+      returnDate?: Date;
+      rentalType?: RentalType;
+      pricingOverride?: {
+        equipmentSubtotal?: number;
+        servicesSubtotal?: number;
+        discount?: number;
+        lateFee?: number;
+        total?: number;
+      };
+      notes?: string;
+    }
   ): Promise<UpdateRentalStatusResponse> {
 
     const rental = await Rental.findOne({ _id: rentalId, companyId });
@@ -603,8 +934,47 @@ class RentalService {
       throw new Error('Usuário não encontrado');
     }
 
+    const isAdmin = canUpdateRentalStatus(user.role as RoleType);
+
+    if (adjustments && status !== 'completed') {
+      throw new Error('Ajustes só podem ser enviados no fechamento do aluguel');
+    }
+
     // funcionário → cria solicitação
-    if (!canUpdateRentalStatus(user.role as RoleType)) {
+    if (!isAdmin) {
+      if (status === 'completed' && adjustments) {
+        await this.requestApproval(
+          companyId,
+          rentalId,
+          'close_adjustment',
+          {
+            previousStatus: rental.status,
+            newStatus: status,
+            previousValue: rental.status,
+            newValue: status,
+            adjustments,
+          },
+          userId,
+          adjustments.notes || `Solicitação de fechamento com ajustes`
+        );
+
+        await notificationService.notifyStatusChangeRequest({
+          title: "Solicitação de alteração de status",
+          message: `O funcionário ${user.name} solicitou fechar o aluguel com ajustes`,
+          companyId,
+          createdByUserId: userId,
+          referenceId: rentalId,
+          requestedStatus: status,
+        });
+
+        return {
+          success: true,
+          message: "Solicitação enviada para aprovação",
+          data: rental,
+          requiresApproval: true,
+        };
+      }
+
       await this.requestApproval(
         companyId,
         rentalId,
@@ -646,14 +1016,31 @@ class RentalService {
       };
     }
 
-    await this.applyStatusChangeDirect(rental, oldStatus, status, companyId, userId);
+    if (status === 'completed') {
+      await this.processDueBillings(companyId, rentalId, userId);
+    }
+
+    if (status === 'completed' && adjustments?.rentalType) {
+      for (const item of rental.items) {
+        item.rentalType = adjustments.rentalType;
+      }
+      rental.dates.billingCycle = adjustments.rentalType;
+      await this.recalcPricingForRental(rental, companyId);
+    }
+
+    await this.applyStatusChangeDirect(rental, oldStatus, status, companyId, userId, adjustments);
+
+    if (status === 'completed') {
+      await this.createFinalBillingIfNeeded(rental, userId);
+    }
 
     await this.addChangeHistory(
       rental,
       'status_change',
       oldStatus,
       status,
-      userId
+      userId,
+      adjustments?.notes
     );
 
     await rental.save();
@@ -766,25 +1153,141 @@ class RentalService {
   /**
    * Update rental (general update)
    */
-  async updateRental(companyId: string, rentalId: string, data: any, userId: string): Promise<IRental | null> {
+  async updateRental(
+    companyId: string,
+    rentalId: string,
+    data: any,
+    userId: string
+  ): Promise<{ rental: IRental; requiresApproval: boolean }> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
       throw new Error('Rental not found');
     }
 
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('Usuário não encontrado');
+    }
+
+    const changes: Record<string, any> = {};
+    const dateChanges: Record<string, any> = {};
+    const workAddressChanged = data.workAddress !== undefined;
+
+    if (data.dates?.pickupScheduled) {
+      const newPickup = new Date(data.dates.pickupScheduled);
+      if (rental.dates.pickupScheduled.getTime() !== newPickup.getTime()) {
+        dateChanges.pickupScheduled = {
+          previous: rental.dates.pickupScheduled,
+          next: newPickup,
+        };
+      }
+    }
+
+    if (data.dates?.returnScheduled) {
+      const newReturn = new Date(data.dates.returnScheduled);
+      if (rental.dates.returnScheduled.getTime() !== newReturn.getTime()) {
+        dateChanges.returnScheduled = {
+          previous: rental.dates.returnScheduled,
+          next: newReturn,
+        };
+      }
+    }
+
     // Only allow updates to certain fields
     if (data.notes !== undefined) {
-      rental.notes = data.notes;
+      changes.notes = {
+        previous: rental.notes || '',
+        next: data.notes || '',
+      };
     }
 
     if (data.pricing?.discount !== undefined) {
-      rental.pricing.discount = data.pricing.discount;
-      rental.pricing.total = rental.pricing.subtotal - rental.pricing.discount + rental.pricing.lateFee;
+      changes.discount = {
+        previous: rental.pricing.discount || 0,
+        next: data.pricing.discount || 0,
+      };
     }
 
+    if (workAddressChanged) {
+      rental.workAddress = data.workAddress
+        ? {
+            street: data.workAddress.street,
+            number: data.workAddress.number,
+            complement: data.workAddress.complement,
+            neighborhood: data.workAddress.neighborhood,
+            city: data.workAddress.city,
+            state: data.workAddress.state,
+            zipCode: data.workAddress.zipCode,
+            workName: data.workAddress.workName,
+            workId:
+              data.workAddress.workId && mongoose.Types.ObjectId.isValid(data.workAddress.workId)
+                ? new mongoose.Types.ObjectId(data.workAddress.workId)
+                : undefined,
+          }
+        : undefined;
+    }
+
+    const hasChanges = Object.keys(changes).length > 0;
+    const hasDateChanges = Object.keys(dateChanges).length > 0;
+
+    if (!hasChanges && !hasDateChanges && !workAddressChanged) {
+      return { rental, requiresApproval: false };
+    }
+
+    if (!canUpdateRentalStatus(user.role as RoleType) && (hasChanges || hasDateChanges)) {
+      await this.requestApproval(
+        companyId,
+        rentalId,
+        'rental_update',
+        {
+          previousNotes: changes.notes?.previous,
+          newNotes: changes.notes?.next,
+          previousDiscount: changes.discount?.previous,
+          newDiscount: changes.discount?.next,
+          previousPickupScheduled: dateChanges.pickupScheduled?.previous,
+          newPickupScheduled: dateChanges.pickupScheduled?.next,
+          previousReturnScheduled: dateChanges.returnScheduled?.previous,
+          newReturnScheduled: dateChanges.returnScheduled?.next,
+          previousValue: 'rental_update',
+          newValue: 'rental_update',
+        },
+        userId,
+        'Solicitação de edição do aluguel'
+      );
+
+      await rental.save();
+      return { rental, requiresApproval: true };
+    }
+
+    if (changes.notes) {
+      rental.notes = changes.notes.next;
+    }
+
+    if (changes.discount) {
+      rental.pricing.discount = changes.discount.next;
+      rental.pricing.total =
+        rental.pricing.subtotal - rental.pricing.discount + rental.pricing.lateFee;
+    }
+
+    if (dateChanges.pickupScheduled) {
+      rental.dates.pickupScheduled = dateChanges.pickupScheduled.next;
+    }
+
+    if (dateChanges.returnScheduled) {
+      rental.dates.returnScheduled = dateChanges.returnScheduled.next;
+    }
+
+    await this.addChangeHistory(
+      rental,
+      'rental_update',
+      JSON.stringify({ ...changes, ...dateChanges }),
+      JSON.stringify({ ...changes, ...dateChanges }),
+      userId
+    );
+
     await rental.save();
-    return rental;
+    return { rental, requiresApproval: false };
   }
 
   /**
@@ -1247,6 +1750,43 @@ class RentalService {
             rental.companyId.toString(),
             userId
           );
+        }
+        break;
+
+      case 'close_adjustment':
+        if (requestDetails?.adjustments?.rentalType) {
+          for (const item of rental.items) {
+            item.rentalType = requestDetails.adjustments.rentalType;
+          }
+          rental.dates.billingCycle = requestDetails.adjustments.rentalType;
+          await this.recalcPricingForRental(rental, rental.companyId.toString());
+        }
+        if (requestDetails.newStatus) {
+          await this.applyStatusChangeDirect(
+            rental,
+            rental.status,
+            requestDetails.newStatus,
+            rental.companyId.toString(),
+            userId,
+            requestDetails.adjustments
+          );
+        }
+        break;
+
+      case 'rental_update':
+        if (requestDetails.newNotes !== undefined) {
+          rental.notes = requestDetails.newNotes;
+        }
+        if (requestDetails.newDiscount !== undefined) {
+          rental.pricing.discount = requestDetails.newDiscount;
+          rental.pricing.total =
+            rental.pricing.subtotal - rental.pricing.discount + rental.pricing.lateFee;
+        }
+        if (requestDetails.newPickupScheduled) {
+          rental.dates.pickupScheduled = new Date(requestDetails.newPickupScheduled);
+        }
+        if (requestDetails.newReturnScheduled) {
+          rental.dates.returnScheduled = new Date(requestDetails.newReturnScheduled);
         }
         break;
 

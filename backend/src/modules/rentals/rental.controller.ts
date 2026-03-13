@@ -98,6 +98,21 @@ export class RentalController {
     }
   }
 
+  async generateRentalPDF(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentalId = req.params.id;
+
+      const pdfBuffer = await rentalService.generateRentalPDF(companyId, rentalId);
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=rental-${rentalId}.pdf`);
+      res.send(pdfBuffer);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   /**
    * Update rental status
    * PATCH /api/rentals/:id/status
@@ -111,13 +126,21 @@ export class RentalController {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
-      const { status } = updateRentalStatusSchema.parse(req.body);
+      const { status, adjustments } = updateRentalStatusSchema.parse(req.body);
+
+      const normalizedAdjustments = adjustments
+        ? {
+            ...adjustments,
+            returnDate: adjustments.returnDate ? new Date(adjustments.returnDate) : undefined,
+          }
+        : undefined;
 
       const result = await rentalService.updateRentalStatus(
         companyId,
         rentalId,
         status,
-        userId
+        userId,
+        normalizedAdjustments
       );
 
       // se for solicitação de aprovação
@@ -148,6 +171,23 @@ export class RentalController {
         data: preview,
       });
     } catch (error) {
+      next(error);
+    }
+  }
+
+  async processBillingCycles(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const rentalId = req.params.id;
+
+      const created = await rentalService.processDueBillings(companyId, rentalId, userId);
+
+      res.json({
+        success: true,
+        data: { created },
+      });
+    } catch (error: any) {
       next(error);
     }
   }
@@ -252,20 +292,15 @@ export class RentalController {
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
       const validatedData = updateRentalSchema.parse(req.body);
-      const rental = await rentalService.updateRental(companyId, rentalId, validatedData, userId);
-
-      if (!rental) {
-        res.status(404).json({
-          success: false,
-          message: 'Rental not found',
-        });
-        return;
-      }
+      const result = await rentalService.updateRental(companyId, rentalId, validatedData, userId);
 
       res.json({
         success: true,
-        message: 'Rental updated successfully',
-        data: rental,
+        message: result.requiresApproval
+          ? 'Solicitação enviada para aprovação'
+          : 'Rental updated successfully',
+        data: result.rental,
+        requiresApproval: result.requiresApproval,
       });
     } catch (error) {
       next(error);

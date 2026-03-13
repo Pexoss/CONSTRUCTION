@@ -180,6 +180,18 @@ export interface RentalFilters {
 
 export interface UpdateRentalStatusData {
   status: RentalStatus;
+  adjustments?: {
+    returnDate?: string;
+    rentalType?: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+    pricingOverride?: {
+      equipmentSubtotal?: number;
+      servicesSubtotal?: number;
+      discount?: number;
+      lateFee?: number;
+      total?: number;
+    };
+    notes?: string;
+  };
 }
 
 export interface ExtendRentalData {

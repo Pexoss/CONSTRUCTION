@@ -51,6 +51,13 @@ export const rentalService = {
     return response.data;
   },
 
+  generateRentalPDF: async (id: string) => {
+    const response = await api.get(`/rentals/${id}/pdf`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
   createRental: async (data: CreateRentalData) => {
     const response = await api.post<{ success: boolean; message: string; data: Rental }>(
       '/rentals',
@@ -59,7 +66,25 @@ export const rentalService = {
     return response.data;
   },
 
-  updateRental: async (id: string, data: { notes?: string; pricing?: { discount?: number } }) => {
+  updateRental: async (
+    id: string,
+    data: {
+      notes?: string;
+      pricing?: { discount?: number };
+      dates?: { pickupScheduled?: string; returnScheduled?: string };
+      workAddress?: {
+        street: string;
+        number?: string;
+        complement?: string;
+        neighborhood?: string;
+        city: string;
+        state: string;
+        zipCode: string;
+        workName: string;
+        workId?: string;
+      };
+    }
+  ) => {
     const response = await api.put<{ success: boolean; message: string; data: Rental }>(
       `/rentals/${id}`,
       data
