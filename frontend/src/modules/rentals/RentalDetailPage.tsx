@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
@@ -83,6 +83,7 @@ const RentalDetailPage: React.FC = () => {
 
   const { user } = useAuth();
   const isAdminUser = ["admin", "superadmin"].includes(user?.role || "");
+  const autoBillingProcessedRef = useRef(false);
 
   const [showSuccessToast, setShowSuccessToast] = useState(false);
 
@@ -100,8 +101,13 @@ const RentalDetailPage: React.FC = () => {
   });
 
   useEffect(() => {
+    autoBillingProcessedRef.current = false;
+  }, [id]);
+
+  useEffect(() => {
     if (!id || !data?.data) return;
-    if (["active", "overdue"].includes(data.data.status)) {
+    if (!autoBillingProcessedRef.current && ["active", "overdue"].includes(data.data.status)) {
+      autoBillingProcessedRef.current = true;
       processBillingMutation.mutate();
     }
   }, [id, data?.data?.status, processBillingMutation]);
@@ -679,7 +685,7 @@ const RentalDetailPage: React.FC = () => {
                 <div className="space-y-3">
                   <div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Reservado em
+                      Criado em
                     </div>
                     <div className="text-sm font-medium text-gray-900 dark:text-white">
                       {new Date(rental.dates.reservedAt).toLocaleString(
@@ -689,7 +695,7 @@ const RentalDetailPage: React.FC = () => {
                   </div>
                   <div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Retirada prevista
+                      Retirada real
                     </div>
                     <div className="text-sm font-medium text-gray-900 dark:text-white">
                       {new Date(
@@ -697,18 +703,6 @@ const RentalDetailPage: React.FC = () => {
                       ).toLocaleDateString("pt-BR")}
                     </div>
                   </div>
-                  {rental.dates.pickupActual && (
-                    <div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                        Retirada real
-                      </div>
-                      <div className="text-sm font-medium text-gray-900 dark:text-white">
-                        {new Date(rental.dates.pickupActual).toLocaleDateString(
-                          "pt-BR",
-                        )}
-                      </div>
-                    </div>
-                  )}
                   <div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
                       Devolução prevista
@@ -840,6 +834,103 @@ const RentalDetailPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+                <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                  <div className="flex items-center mb-4">
+                    <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
+                      <svg
+                        className="w-5 h-5 text-gray-700 dark:text-gray-300"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M12 6v6l4 2M6 6h.01M6 12h.01M6 18h.01M18 6h.01M18 12h.01M18 18h.01"
+                        />
+                      </svg>
+                    </div>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                      Fechamentos e cobranças
+                    </h2>
+                  <button
+                    type="button"
+                    onClick={() => processBillingMutation.mutate()}
+                    className="ml-auto text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    Atualizar fechamentos
+                  </button>
+                  </div>
+                  <div className="flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400 mb-4">
+                    <span>
+                      Períodos cobrados:{" "}
+                      <strong className="text-gray-900 dark:text-white">
+                        {billings.length}
+                      </strong>
+                    </span>
+                    <span>
+                      Pago:{" "}
+                      <strong className="text-gray-900 dark:text-white">
+                        {formatCurrency(totalPaid)}
+                      </strong>
+                    </span>
+                    <span>
+                      Em aberto:{" "}
+                      <strong className="text-gray-900 dark:text-white">
+                        {formatCurrency(totalOpen)}
+                      </strong>
+                    </span>
+                  </div>
+                  {billingsLoading ? (
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                      Carregando fechamentos...
+                    </div>
+                  ) : billings.length === 0 ? (
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                      Nenhum fechamento registrado.
+                    </div>
+                  ) : (
+                    <div className="space-y-3 text-sm">
+                      {billings.map((billing) => (
+                        <div
+                          key={billing._id}
+                          className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-900/50"
+                        >
+                          <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                            <span>
+                              {formatDate(billing.periodStart)} →{" "}
+                              {formatDate(billing.periodEnd)}
+                            </span>
+                            <span>
+                              {billing.status === "paid"
+                                ? "Pago"
+                                : billing.status === "approved"
+                                  ? "Aprovado"
+                                  : billing.status === "pending_approval"
+                                    ? "Pendente"
+                                    : billing.status === "cancelled"
+                                      ? "Cancelado"
+                                      : "Fechamento previsto"}
+                            </span>
+                          </div>
+                          <div className="text-sm font-medium text-gray-900 dark:text-white mt-1">
+                            {formatCurrency(billing.calculation?.total)}
+                          </div>
+                          <div className="mt-2 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadBillingPDF(billing._id)}
+                              className="text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                            >
+                              Baixar PDF
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1097,96 +1188,6 @@ const RentalDetailPage: React.FC = () => {
                   </p>
                 </div>
               )}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-                <div className="flex items-center mb-4">
-                  <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
-                    <svg
-                      className="w-5 h-5 text-gray-700 dark:text-gray-300"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M12 6v6l4 2M6 6h.01M6 12h.01M6 18h.01M18 6h.01M18 12h.01M18 18h.01"
-                      />
-                    </svg>
-                  </div>
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                    Fechamentos e cobranças
-                  </h2>
-                </div>
-                <div className="flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400 mb-4">
-                  <span>
-                    Períodos cobrados:{" "}
-                    <strong className="text-gray-900 dark:text-white">
-                      {billings.length}
-                    </strong>
-                  </span>
-                  <span>
-                    Pago:{" "}
-                    <strong className="text-gray-900 dark:text-white">
-                      {formatCurrency(totalPaid)}
-                    </strong>
-                  </span>
-                  <span>
-                    Em aberto:{" "}
-                    <strong className="text-gray-900 dark:text-white">
-                      {formatCurrency(totalOpen)}
-                    </strong>
-                  </span>
-                </div>
-                {billingsLoading ? (
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    Carregando fechamentos...
-                  </div>
-                ) : billings.length === 0 ? (
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    Nenhum fechamento registrado.
-                  </div>
-                ) : (
-                  <div className="space-y-3 text-sm">
-                    {billings.map((billing) => (
-                      <div
-                        key={billing._id}
-                        className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-900/50"
-                      >
-                        <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                          <span>
-                            {formatDate(billing.periodStart)} →{" "}
-                            {formatDate(billing.periodEnd)}
-                          </span>
-                          <span>
-                            {billing.status === "paid"
-                              ? "Pago"
-                              : billing.status === "approved"
-                                ? "Aprovado"
-                                : billing.status === "pending_approval"
-                                  ? "Pendente"
-                                  : billing.status === "cancelled"
-                                    ? "Cancelado"
-                                    : "Rascunho"}
-                          </span>
-                        </div>
-                        <div className="text-sm font-medium text-gray-900 dark:text-white mt-1">
-                          {formatCurrency(billing.calculation?.total)}
-                        </div>
-                        <div className="mt-2 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => handleDownloadBillingPDF(billing._id)}
-                            className="text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
-                          >
-                            Baixar PDF
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
               {changeHistory.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
                   <div className="flex items-center mb-4">

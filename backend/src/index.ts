@@ -72,7 +72,8 @@ app.use(
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 min
-  max: 5000, // 5000 requests per windowMs
+  max: 5000, // compat
+  limit: 5000, // express-rate-limit v7
   message: "Too many requests from this IP, please try again later.",
   standardHeaders: true,
   legacyHeaders: false,

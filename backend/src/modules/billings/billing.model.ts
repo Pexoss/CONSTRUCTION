@@ -237,18 +237,28 @@ BillingSchema.index({ companyId: 1, status: 1 });
 BillingSchema.index({ companyId: 1, billingDate: 1 });
 // billingNumber index is automatically created by unique: true
 
-// Pre-save hook to generate billing number if not provided
-BillingSchema.pre('save', async function (next) {
-  if (!this.billingNumber && this.companyId) {
+const assignBillingNumber = async (doc: any) => {
+  if (!doc.billingNumber && doc.companyId) {
     try {
       const BillingModel = mongoose.model<IBilling>('Billing');
-      const count = await BillingModel.countDocuments({ companyId: this.companyId });
+      const count = await BillingModel.countDocuments({ companyId: doc.companyId });
       const year = new Date().getFullYear();
-      this.billingNumber = `FCH-${year}-${String(count + 1).padStart(6, '0')}`;
+      doc.billingNumber = `FCH-${year}-${String(count + 1).padStart(6, '0')}`;
     } catch (error) {
-      this.billingNumber = `FCH-${Date.now()}`;
+      doc.billingNumber = `FCH-${Date.now()}`;
     }
   }
+};
+
+// Generate billing number before validation
+BillingSchema.pre('validate', async function (next) {
+  await assignBillingNumber(this);
+  next();
+});
+
+// Pre-save hook (fallback)
+BillingSchema.pre('save', async function (next) {
+  await assignBillingNumber(this);
   next();
 });
 

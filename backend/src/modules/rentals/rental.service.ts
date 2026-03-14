@@ -25,6 +25,37 @@ class RentalService {
     return periodDays[rentalType];
   }
 
+  private addDays(date: Date, days: number): Date {
+    const next = new Date(date);
+    next.setDate(next.getDate() + days);
+    return next;
+  }
+
+  private normalizeDate(date: Date): Date {
+    const normalized = new Date(date);
+    normalized.setHours(0, 0, 0, 0);
+    return normalized;
+  }
+
+  private addMonthsKeepingDay(date: Date, months: number): Date {
+    const year = date.getFullYear();
+    const month = date.getMonth() + months;
+    const day = date.getDate();
+    const maxDay = new Date(year, month + 1, 0).getDate();
+    const targetDay = Math.min(day, maxDay);
+    return new Date(year, month, targetDay);
+  }
+
+  private getPeriodEnd(startDate: Date, rentalType: RentalType): Date {
+    const normalizedStart = this.normalizeDate(startDate);
+    if (rentalType === 'monthly') {
+      const nextStart = this.addMonthsKeepingDay(normalizedStart, 1);
+      return this.addDays(nextStart, -1);
+    }
+
+    return this.addDays(normalizedStart, this.getPeriodLengthDays(rentalType) - 1);
+  }
+
   private addPeriod(date: Date, rentalType: RentalType): Date {
     const next = new Date(date);
     next.setDate(next.getDate() + this.getPeriodLengthDays(rentalType));
@@ -287,6 +318,35 @@ class RentalService {
       createdBy: userId,
     });
 
+    if (
+      billingCycle !== 'daily' &&
+      !data.dates?.lastBillingDate &&
+      !data.dates?.nextBillingDate
+    ) {
+      const periodStart = this.normalizeDate(rental.dates.pickupScheduled);
+      let periodEnd = this.getPeriodEnd(periodStart, billingCycle);
+      if (rental.dates.returnScheduled < periodEnd) {
+        periodEnd = this.normalizeDate(rental.dates.returnScheduled);
+      }
+
+      rental.dates.lastBillingDate = this.addDays(periodStart, -1);
+      rental.dates.nextBillingDate = periodEnd;
+      await rental.save();
+
+      await billingService.createPeriodicBilling(
+        companyId,
+        rental._id.toString(),
+        this.normalizeDate(periodStart),
+        this.normalizeDate(periodEnd),
+        userId,
+        {
+          includeServices: true,
+          notes: 'Fechamento previsto',
+          status: 'draft',
+        }
+      );
+    }
+
     // Update item quantities (reserve items)
     for (const item of data.items) {
       await this.updateItemQuantityForRental(
@@ -379,25 +439,27 @@ class RentalService {
       return 0;
     }
 
-    const now = new Date();
-    const pickupBase = rental.dates.pickupActual || rental.dates.pickupScheduled;
+    const now = this.normalizeDate(new Date());
+    const pickupBase = this.normalizeDate(rental.dates.pickupScheduled);
 
-    let cycle: RentalType | null = rental.dates.billingCycle || rental.items[0]?.rentalType || 'daily';
+    const cycle: RentalType =
+      rental.dates.billingCycle || rental.items[0]?.rentalType || 'daily';
 
+    // diário: cobrança em único fechamento no final
     if (cycle === 'daily') {
-      const daysSincePickup = Math.ceil((now.getTime() - pickupBase.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysSincePickup <= 30) {
-        return 0;
-      }
-      cycle = 'monthly';
+      return 0;
     }
 
     if (!cycle) {
       return 0;
     }
 
-    let lastBillingDate = rental.dates.lastBillingDate || pickupBase;
-    let nextBillingDate = rental.dates.nextBillingDate || this.addPeriod(lastBillingDate, cycle);
+    let lastBillingDate = rental.dates.lastBillingDate
+      ? this.normalizeDate(rental.dates.lastBillingDate)
+      : this.addDays(pickupBase, -1);
+    let periodStart = this.addDays(lastBillingDate, 1);
+    let nextBillingDate =
+      rental.dates.nextBillingDate || this.getPeriodEnd(periodStart, cycle);
 
     let createdCount = 0;
 
@@ -405,17 +467,20 @@ class RentalService {
       const existing = await Billing.findOne({
         companyId,
         rentalId: rental._id,
-        periodStart: lastBillingDate,
+        periodStart,
         periodEnd: nextBillingDate,
       }).lean();
 
       if (!existing) {
-        const billingCount = await Billing.countDocuments({ companyId, rentalId: rental._id });
+        const billingCount = await Billing.countDocuments({
+          companyId,
+          rentalId: rental._id,
+        });
         await billingService.createPeriodicBilling(
           companyId,
           rental._id.toString(),
-          lastBillingDate,
-          nextBillingDate,
+          this.normalizeDate(periodStart),
+          this.normalizeDate(nextBillingDate),
           userId,
           {
             includeServices: billingCount === 0,
@@ -425,10 +490,38 @@ class RentalService {
         createdCount += 1;
       }
 
-      rental.dates.lastBillingDate = nextBillingDate;
-      rental.dates.nextBillingDate = this.addPeriod(nextBillingDate, cycle);
-      lastBillingDate = nextBillingDate;
+      rental.dates.lastBillingDate = this.normalizeDate(nextBillingDate);
+      periodStart = this.addDays(nextBillingDate, 1);
+      rental.dates.nextBillingDate = this.getPeriodEnd(periodStart, cycle);
       nextBillingDate = rental.dates.nextBillingDate;
+    }
+
+    if (nextBillingDate > now) {
+      const existingFuture = await Billing.findOne({
+        companyId,
+        rentalId: rental._id,
+        periodStart: this.normalizeDate(periodStart),
+        periodEnd: this.normalizeDate(nextBillingDate),
+      }).lean();
+
+      if (!existingFuture) {
+        const billingCount = await Billing.countDocuments({
+          companyId,
+          rentalId: rental._id,
+        });
+        await billingService.createPeriodicBilling(
+          companyId,
+          rental._id.toString(),
+          this.normalizeDate(periodStart),
+          this.normalizeDate(nextBillingDate),
+          userId,
+          {
+            includeServices: billingCount === 0,
+            notes: 'Fechamento previsto',
+            status: 'draft',
+          }
+        );
+      }
     }
 
     await rental.save();
@@ -749,11 +842,17 @@ class RentalService {
       rental.dates.pickupActual = new Date();
 
       if (!rental.dates.lastBillingDate) {
-        rental.dates.lastBillingDate = rental.dates.pickupActual;
+        const basePickup = this.normalizeDate(rental.dates.pickupScheduled);
+        rental.dates.lastBillingDate = this.addDays(basePickup, -1);
       }
-      if (!rental.dates.nextBillingDate && rental.dates.billingCycle && rental.dates.billingCycle !== 'daily') {
-        rental.dates.nextBillingDate = this.addPeriod(
-          rental.dates.pickupActual,
+      if (
+        !rental.dates.nextBillingDate &&
+        rental.dates.billingCycle &&
+        rental.dates.billingCycle !== 'daily'
+      ) {
+        const basePickup = this.normalizeDate(rental.dates.pickupScheduled);
+        rental.dates.nextBillingDate = this.getPeriodEnd(
+          basePickup,
           rental.dates.billingCycle
         );
       }
@@ -860,8 +959,10 @@ class RentalService {
   }
 
   private async createFinalBillingIfNeeded(rental: IRental, userId: string): Promise<void> {
-    const periodStart =
-      rental.dates.lastBillingDate || rental.dates.pickupActual || rental.dates.pickupScheduled;
+    const lastBilling = rental.dates.lastBillingDate;
+    const periodStart = lastBilling
+      ? this.addDays(lastBilling, 1)
+      : rental.dates.pickupActual || rental.dates.pickupScheduled;
     const periodEnd = rental.dates.returnActual || new Date();
 
     if (!periodStart || periodEnd <= periodStart) {

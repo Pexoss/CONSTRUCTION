@@ -1,6 +1,6 @@
 import { Billing } from './billing.model';
 import { Rental } from '../rentals/rental.model';
-import { IBilling, IBillingCalculation, IBillingEarlyReturn, RentalType } from './billing.types';
+import { IBilling, IBillingCalculation, IBillingEarlyReturn, RentalType, BillingStatus } from './billing.types';
 import mongoose from 'mongoose';
 import PDFDocument from 'pdfkit';
 
@@ -129,6 +129,7 @@ class BillingService {
       notes?: string;
       targetEquipmentSubtotal?: number;
       totalOverride?: number;
+      status?: BillingStatus;
     }
   ): Promise<IBilling> {
     const rental = await Rental.findOne({ _id: rentalId, companyId })
@@ -187,7 +188,7 @@ class BillingService {
       calculation,
       items,
       services,
-      status: 'approved',
+      status: options?.status || 'approved',
       approvalRequired: false,
       requestedBy: userId,
       notes: options?.notes,

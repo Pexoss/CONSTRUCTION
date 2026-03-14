@@ -1363,9 +1363,15 @@ const CreateRentalPage: React.FC = () => {
                       <input
                         type="date"
                         value={pickupDate}
-                        onChange={(e) => setPickupDate(e.target.value)}
+                      onChange={(e) => {
+                        const nextPickup = e.target.value;
+                        setPickupDate(nextPickup);
+                        if (returnDate && nextPickup && returnDate < nextPickup) {
+                          setReturnDate(nextPickup);
+                        }
+                      }}
+                      onKeyDown={(e) => e.preventDefault()}
                         required
-                        min={new Date().toISOString().split("T")[0]}
                         className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
                     </div>
@@ -1378,10 +1384,9 @@ const CreateRentalPage: React.FC = () => {
                         type="date"
                         value={returnDate}
                         onChange={(e) => setReturnDate(e.target.value)}
+                      onKeyDown={(e) => e.preventDefault()}
                         required
-                        min={
-                          pickupDate || new Date().toISOString().split("T")[0]
-                        }
+                      min={pickupDate || undefined}
                         className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
                     </div>
