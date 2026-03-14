@@ -175,8 +175,7 @@ const RentalPendingApprovalSchema = new Schema<IRentalPendingApproval>(
     },
     approvalDate: Date,
     notes: String,
-  },
-  { _id: false }
+  }
 );
 
 const RentalDatesSchema = new Schema<IRentalDates>(

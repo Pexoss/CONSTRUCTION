@@ -21,6 +21,9 @@ router.get('/pending-approvals', billingController.getPendingApprovals.bind(bill
 // Obter fechamento por ID
 router.get('/:id', billingController.getBillingById.bind(billingController));
 
+// Gerar PDF do fechamento
+router.get('/:id/pdf', billingController.generateBillingPDF.bind(billingController));
+
 // Aprovar fechamento
 router.post('/:id/approve', billingController.approveBilling.bind(billingController));
 

@@ -79,6 +79,30 @@ export interface RentalWorkAddress {
   workId?: string;
 }
 
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+export interface RentalPendingApproval {
+  _id: string;
+  requestedBy: string | { name: string; email?: string };
+  requestDate: string;
+  requestType: string;
+  requestDetails: Record<string, any>;
+  status: ApprovalStatus;
+  approvedBy?: string | { name: string; email?: string };
+  approvalDate?: string;
+  notes?: string;
+}
+
+export interface RentalChangeHistory {
+  date: string;
+  changedBy: string | { name: string; email?: string };
+  changeType: string;
+  previousValue: string;
+  newValue: string;
+  reason?: string;
+  approvedBy?: string | { name: string; email?: string };
+}
+
 export type RentalStatusChangeApproval =
   | {
     hasPending: false;
@@ -113,6 +137,8 @@ export interface Rental {
   workAddress?: RentalWorkAddress;
   dates: RentalDates;
   pricing: RentalPricing;
+  changeHistory?: RentalChangeHistory[];
+  pendingApprovals?: RentalPendingApproval[];
   status: RentalStatus;
   notes?: string;
   checklistPickup?: RentalChecklist;
@@ -154,6 +180,18 @@ export interface RentalFilters {
 
 export interface UpdateRentalStatusData {
   status: RentalStatus;
+  adjustments?: {
+    returnDate?: string;
+    rentalType?: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+    pricingOverride?: {
+      equipmentSubtotal?: number;
+      servicesSubtotal?: number;
+      discount?: number;
+      lateFee?: number;
+      total?: number;
+    };
+    notes?: string;
+  };
 }
 
 export interface ExtendRentalData {

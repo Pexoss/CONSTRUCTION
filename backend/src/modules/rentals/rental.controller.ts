@@ -6,6 +6,9 @@ import {
   updateRentalStatusSchema,
   extendRentalSchema,
   updateChecklistSchema,
+  requestApprovalSchema,
+  approvalActionSchema,
+  rejectApprovalSchema,
 } from './rental.validator';
 import { Rental } from './rental.model';
 import { Customer } from '../customers/customer.model';
@@ -95,6 +98,21 @@ export class RentalController {
     }
   }
 
+  async generateRentalPDF(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentalId = req.params.id;
+
+      const pdfBuffer = await rentalService.generateRentalPDF(companyId, rentalId);
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=rental-${rentalId}.pdf`);
+      res.send(pdfBuffer);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   /**
    * Update rental status
    * PATCH /api/rentals/:id/status
@@ -108,13 +126,21 @@ export class RentalController {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
-      const { status } = updateRentalStatusSchema.parse(req.body);
+      const { status, adjustments } = updateRentalStatusSchema.parse(req.body);
+
+      const normalizedAdjustments = adjustments
+        ? {
+            ...adjustments,
+            returnDate: adjustments.returnDate ? new Date(adjustments.returnDate) : undefined,
+          }
+        : undefined;
 
       const result = await rentalService.updateRentalStatus(
         companyId,
         rentalId,
         status,
-        userId
+        userId,
+        normalizedAdjustments
       );
 
       // se for solicitação de aprovação
@@ -145,6 +171,23 @@ export class RentalController {
         data: preview,
       });
     } catch (error) {
+      next(error);
+    }
+  }
+
+  async processBillingCycles(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const rentalId = req.params.id;
+
+      const created = await rentalService.processDueBillings(companyId, rentalId, userId);
+
+      res.json({
+        success: true,
+        data: { created },
+      });
+    } catch (error: any) {
       next(error);
     }
   }
@@ -249,20 +292,15 @@ export class RentalController {
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
       const validatedData = updateRentalSchema.parse(req.body);
-      const rental = await rentalService.updateRental(companyId, rentalId, validatedData, userId);
-
-      if (!rental) {
-        res.status(404).json({
-          success: false,
-          message: 'Rental not found',
-        });
-        return;
-      }
+      const result = await rentalService.updateRental(companyId, rentalId, validatedData, userId);
 
       res.json({
         success: true,
-        message: 'Rental updated successfully',
-        data: rental,
+        message: result.requiresApproval
+          ? 'Solicitação enviada para aprovação'
+          : 'Rental updated successfully',
+        data: result.rental,
+        requiresApproval: result.requiresApproval,
       });
     } catch (error) {
       next(error);
@@ -297,15 +335,7 @@ export class RentalController {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
-      const { requestType, requestDetails, notes } = req.body;
-
-      if (!requestType || !requestDetails) {
-        res.status(400).json({
-          success: false,
-          message: 'requestType and requestDetails are required',
-        });
-        return;
-      }
+      const { requestType, requestDetails, notes } = requestApprovalSchema.parse(req.body);
 
       const rental = await rentalService.requestApproval(companyId, rentalId, requestType, requestDetails, userId, notes);
 
@@ -327,11 +357,11 @@ export class RentalController {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
-      const approvalIndex = parseInt(req.params.approvalIndex);
+      const approvalId = req.params.approvalId;
       const userId = req.user!._id.toString();
-      const { notes } = req.body;
+      const { notes } = approvalActionSchema.parse(req.body);
 
-      const rental = await rentalService.approveRequest(companyId, rentalId, approvalIndex, userId, notes);
+      const rental = await rentalService.approveRequest(companyId, rentalId, approvalId, userId, notes);
 
       res.json({
         success: true,
@@ -351,19 +381,11 @@ export class RentalController {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
-      const approvalIndex = parseInt(req.params.approvalIndex);
+      const approvalId = req.params.approvalId;
       const userId = req.user!._id.toString();
-      const { notes } = req.body;
+      const { notes } = rejectApprovalSchema.parse(req.body);
 
-      if (!notes) {
-        res.status(400).json({
-          success: false,
-          message: 'Notes are required for rejection',
-        });
-        return;
-      }
-
-      const rental = await rentalService.rejectRequest(companyId, rentalId, approvalIndex, userId, notes);
+      const rental = await rentalService.rejectRequest(companyId, rentalId, approvalId, userId, notes);
 
       res.json({
         success: true,
@@ -488,6 +510,33 @@ export class RentalController {
       res.json({
         success: true,
         data: dashboard,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Histórico de alterações do aluguel
+   * GET /api/rentals/:id/change-history
+   */
+  async getChangeHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentalId = req.params.id;
+      const rental = await Rental.findOne({ _id: rentalId, companyId }).select('changeHistory');
+
+      if (!rental) {
+        res.status(404).json({
+          success: false,
+          message: 'Rental not found',
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: rental.changeHistory || [],
       });
     } catch (error) {
       next(error);

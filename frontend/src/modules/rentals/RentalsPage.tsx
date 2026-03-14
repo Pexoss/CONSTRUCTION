@@ -44,6 +44,22 @@ const RentalsPage: React.FC = () => {
     return labels[status];
   };
 
+  const handleDownloadRentalPDF = async (rentalId: string) => {
+    try {
+      const blob = await rentalService.generateRentalPDF(rentalId);
+      const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `locacao-${rentalId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      // silêncio para não quebrar o fluxo
+    }
+  };
+
   if (isLoading) {
     return (
       <Layout title="Aluguéis e Reservas" backTo="/dashboard">
@@ -319,12 +335,21 @@ const RentalsPage: React.FC = () => {
                               </span>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                              <Link
-                                to={`/rentals/${rental._id}`}
-                                className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors"
-                              >
-                                Ver Detalhes
-                              </Link>
+                              <div className="flex justify-end gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadRentalPDF(rental._id)}
+                                  className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+                                >
+                                  Baixar PDF
+                                </button>
+                                <Link
+                                  to={`/rentals/${rental._id}`}
+                                  className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors"
+                                >
+                                  Ver Detalhes
+                                </Link>
+                              </div>
                             </td>
                           </tr>
                         );

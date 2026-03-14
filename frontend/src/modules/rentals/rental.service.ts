@@ -7,7 +7,8 @@ import {
   UpdateRentalStatusData,
   ExtendRentalData,
   ChecklistData,
-  RentalStatusChangeApproval,
+  RentalPendingApproval,
+  RentalChangeHistory,
 } from '../../types/rental.types';
 
 export const rentalService = {
@@ -50,6 +51,13 @@ export const rentalService = {
     return response.data;
   },
 
+  generateRentalPDF: async (id: string) => {
+    const response = await api.get(`/rentals/${id}/pdf`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
   createRental: async (data: CreateRentalData) => {
     const response = await api.post<{ success: boolean; message: string; data: Rental }>(
       '/rentals',
@@ -58,7 +66,25 @@ export const rentalService = {
     return response.data;
   },
 
-  updateRental: async (id: string, data: { notes?: string; pricing?: { discount?: number } }) => {
+  updateRental: async (
+    id: string,
+    data: {
+      notes?: string;
+      pricing?: { discount?: number };
+      dates?: { pickupScheduled?: string; returnScheduled?: string };
+      workAddress?: {
+        street: string;
+        number?: string;
+        complement?: string;
+        neighborhood?: string;
+        city: string;
+        state: string;
+        zipCode: string;
+        workName: string;
+        workId?: string;
+      };
+    }
+  ) => {
     const response = await api.put<{ success: boolean; message: string; data: Rental }>(
       `/rentals/${id}`,
       data
@@ -160,30 +186,35 @@ export const rentalService = {
     return response.data.data;
   },
 
-  getPendingStatusChange: async (rentalId: string) => {
-    const response = await api.get<{
-      success: boolean;
-      data: RentalStatusChangeApproval;
-    }>(`/rentals/${rentalId}/status-change-requests`);
-
+  getPendingApprovals: async () => {
+    const response = await api.get<{ success: boolean; data: Rental[] }>(
+      '/rentals/pending-approvals'
+    );
     return response.data.data;
   },
 
-  rejectStatusChange: async (requestId: string) => {
+  approveApproval: async (rentalId: string, approvalId: string, notes?: string) => {
     const response = await api.post<{
       success: boolean;
       message: string;
-    }>(`/rentals/status-change-request/${requestId}/reject`);
-
+      data: Rental;
+    }>(`/rentals/${rentalId}/approve/${approvalId}`, { notes });
     return response.data;
   },
 
-  approveStatusChange: async (requestId: string) => {
+  rejectApproval: async (rentalId: string, approvalId: string, notes: string) => {
     const response = await api.post<{
       success: boolean;
       message: string;
-    }>(`/rentals/status-change-request/${requestId}/approve`);
-
+      data: Rental;
+    }>(`/rentals/${rentalId}/reject/${approvalId}`, { notes });
     return response.data;
+  },
+
+  getChangeHistory: async (rentalId: string) => {
+    const response = await api.get<{ success: boolean; data: RentalChangeHistory[] }>(
+      `/rentals/${rentalId}/change-history`
+    );
+    return response.data.data;
   },
 };
