@@ -40,7 +40,8 @@ const CreateRentalPage: React.FC = () => {
     null,
   );
   const [saveWorkAddress, setSaveWorkAddress] = useState(false);
-  const [selectedWorkAddressId, setSelectedWorkAddressId] = useState<string>("");
+  const [selectedWorkAddressId, setSelectedWorkAddressId] =
+    useState<string>("");
   const [pickupDate, setPickupDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [discount, setDiscount] = useState(0);
@@ -73,7 +74,7 @@ const CreateRentalPage: React.FC = () => {
         try {
           const blob = await rentalService.generateRentalPDF(response.data._id);
           const url = window.URL.createObjectURL(
-            new Blob([blob], { type: "application/pdf" })
+            new Blob([blob], { type: "application/pdf" }),
           );
           const link = document.createElement("a");
           link.href = url;
@@ -286,7 +287,7 @@ const CreateRentalPage: React.FC = () => {
     const today = new Date().toISOString().split("T")[0];
     if (pickupDate < today || returnDate < today) {
       const shouldContinue = window.confirm(
-        "Você informou uma data anterior a hoje. Tem certeza de que deseja continuar?"
+        "Você informou uma data anterior a hoje. Tem certeza de que deseja continuar?",
       );
       if (!shouldContinue) return;
     }
@@ -341,7 +342,12 @@ const CreateRentalPage: React.FC = () => {
       onSuccess: async (res) => {
         setServerError(null);
 
-        if (saveWorkAddress && selectedCustomer && workAddress && !workAddress.workId) {
+        if (
+          saveWorkAddress &&
+          selectedCustomer &&
+          workAddress &&
+          !workAddress.workId
+        ) {
           const missing = [];
           if (!workAddress.workName?.trim()) missing.push("nome da obra");
           if (!workAddress.street?.trim()) missing.push("rua");
@@ -1164,10 +1170,10 @@ const CreateRentalPage: React.FC = () => {
                           </label>
                           <select
                             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            value={selectedWorkAddressId}
+                            defaultValue=""
                             onChange={(e) => {
-                              const selectedId = e.target.value;
-                              const addr = customerAddresses.find((a) => a._id === selectedId);
+                              const index = Number(e.target.value);
+                              const addr = customerAddresses[index];
                               if (!addr) return;
 
                               setWorkAddress({
@@ -1187,13 +1193,11 @@ const CreateRentalPage: React.FC = () => {
                                 zipCode: addr.zipCode,
                                 workId: addr._id,
                               });
-                              setSelectedWorkAddressId(addr._id || "");
-                              setSaveWorkAddress(false);
                             }}
                           >
                             <option value="">Selecione um endereço</option>
                             {customerAddresses.map((address, index) => (
-                              <option key={index} value={address._id || index}>
+                              <option key={index} value={index}>
                                 {address.type === "work"
                                   ? address.workName || `Obra ${index + 1}`
                                   : address.type === "main"
@@ -1333,17 +1337,6 @@ const CreateRentalPage: React.FC = () => {
                     </div>
                   </div>
                 )}
-                
-                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                      <input
-                        type="checkbox"
-                        checked={saveWorkAddress}
-                        onChange={(e) => setSaveWorkAddress(e.target.checked)}
-                        className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-500"
-                      />
-                      Salvar este endereço para próximos aluguéis
-                    </label>
-
               </div>
             </div>
 
@@ -1363,14 +1356,18 @@ const CreateRentalPage: React.FC = () => {
                       <input
                         type="date"
                         value={pickupDate}
-                      onChange={(e) => {
-                        const nextPickup = e.target.value;
-                        setPickupDate(nextPickup);
-                        if (returnDate && nextPickup && returnDate < nextPickup) {
-                          setReturnDate(nextPickup);
-                        }
-                      }}
-                      onKeyDown={(e) => e.preventDefault()}
+                        onChange={(e) => {
+                          const nextPickup = e.target.value;
+                          setPickupDate(nextPickup);
+                          if (
+                            returnDate &&
+                            nextPickup &&
+                            returnDate < nextPickup
+                          ) {
+                            setReturnDate(nextPickup);
+                          }
+                        }}
+                        onKeyDown={(e) => e.preventDefault()}
                         required
                         className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
@@ -1384,9 +1381,9 @@ const CreateRentalPage: React.FC = () => {
                         type="date"
                         value={returnDate}
                         onChange={(e) => setReturnDate(e.target.value)}
-                      onKeyDown={(e) => e.preventDefault()}
+                        onKeyDown={(e) => e.preventDefault()}
                         required
-                      min={pickupDate || undefined}
+                        min={pickupDate || undefined}
                         className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
                     </div>

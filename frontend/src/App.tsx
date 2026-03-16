@@ -1,41 +1,50 @@
-import React, { Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
-import { ThemeProvider } from './contexts/ThemeContext';
-import RegisterChoicePage from 'modules/auth/RegisterChoicePage';
-import LoginPage from './modules/auth/LoginPage';
-import RegisterPage from './modules/auth/RegisterPage';
-import RegisterUser from './modules/auth/RegisterUser';
-import ProtectedRoute from './components/ProtectedRoute';
-import Dashboard from './modules/dashboard/Dashboard';
-import Skeleton from './components/Skeleton';
-import InventoryPage from './modules/inventory/InventoryPage';
-import CreateItemPage from './modules/inventory/CreateItemPage';
-import ItemDetailPage from './modules/inventory/ItemDetailPage';
-import EditItemPage from './modules/inventory/EditItemPage';
-import CategoriesPage from './modules/inventory/CategoriesPage';
-import CustomersPage from './modules/customers/CustomersPage';
-import CreateCustomerPage from './modules/customers/CreateCustomerPage';
-import EditCustomerPage from './modules/customers/EditCustomerPage';
-import ViewCustomerPage from './modules/customers/ViewCustomerPage';
-import CustomerAddressesPage from 'modules/customers/CustomerAddressesPage';
-import RentalsPage from './modules/rentals/RentalsPage';
-import CreateRentalPage from './modules/rentals/CreateRentalPage';
-import RentalDetailPage from './modules/rentals/RentalDetailPage';
-import ExpirationDashboardPage from './modules/rentals/ExpirationDashboardPage';
-import RentalApprovalsPage from './modules/rentals/RentalApprovalsPage';
-import MaintenancesPage from './modules/maintenance/MaintenancesPage';
-import CreateMaintenancePage from './modules/maintenance/CreateMaintenancePage';
-import EditMaintenancePage from './modules/maintenance/EditMaintenancePage';
-import MaintenanceDetailPage from './modules/maintenance/MaintenanceDetailPage';
-import FinancialDashboardPage from './modules/transactions/FinancialDashboardPage';
-import InvoicesPage from './modules/invoices/InvoicesPage';
-import ReportsPage from './modules/reports/ReportsPage';
-import AdminPage from './modules/subscriptions/AdminPage';
-import CompanySettingsPage from './modules/company/CompanySettingsPage';
-import './App.css';
+import React, { Suspense } from "react";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+import { ThemeProvider } from "./contexts/ThemeContext";
+import RegisterChoicePage from "modules/auth/RegisterChoicePage";
+import LoginPage from "./modules/auth/LoginPage";
+import RegisterPage from "./modules/auth/RegisterPage";
+import RegisterEmploye from "./modules/employe/RegisterEmploye";
+import ProtectedRoute from "./components/ProtectedRoute";
+import Dashboard from "./modules/dashboard/Dashboard";
+import Skeleton from "./components/Skeleton";
+import InventoryPage from "./modules/inventory/InventoryPage";
+import CreateItemPage from "./modules/inventory/CreateItemPage";
+import ItemDetailPage from "./modules/inventory/ItemDetailPage";
+import EditItemPage from "./modules/inventory/EditItemPage";
+import CategoriesPage from "./modules/inventory/CategoriesPage";
+import CustomersPage from "./modules/customers/CustomersPage";
+import CreateCustomerPage from "./modules/customers/CreateCustomerPage";
+import EditCustomerPage from "./modules/customers/EditCustomerPage";
+import ViewCustomerPage from "./modules/customers/ViewCustomerPage";
+import CustomerAddressesPage from "modules/customers/CustomerAddressesPage";
+import RentalsPage from "./modules/rentals/RentalsPage";
+import CreateRentalPage from "./modules/rentals/CreateRentalPage";
+import RentalDetailPage from "./modules/rentals/RentalDetailPage";
+import ExpirationDashboardPage from "./modules/rentals/ExpirationDashboardPage";
+import RentalApprovalsPage from "./modules/rentals/RentalApprovalsPage";
+import MaintenancesPage from "./modules/maintenance/MaintenancesPage";
+import CreateMaintenancePage from "./modules/maintenance/CreateMaintenancePage";
+import EditMaintenancePage from "./modules/maintenance/EditMaintenancePage";
+import MaintenanceDetailPage from "./modules/maintenance/MaintenanceDetailPage";
+import FinancialDashboardPage from "./modules/transactions/FinancialDashboardPage";
+import InvoicesPage from "./modules/invoices/InvoicesPage";
+import ReportsPage from "./modules/reports/ReportsPage";
+import AdminPage from "./modules/subscriptions/AdminPage";
+import CompanySettingsPage from "./modules/company/CompanySettingsPage";
+import Employees from "modules/employe/Employes";
+import EditEmploye from "modules/employe/EditEmploye";
+import ViewEmployeePage from "modules/employe/EmployeViewer";
+
+import "./App.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -53,11 +62,8 @@ function App() {
         <Router>
           <Suspense fallback={<Skeleton className="w-full h-screen" />}>
             <Routes>
-              <Route path="/" element={<RegisterChoicePage />} />
-              <Route path="/login" element={<LoginPage />} />
+              <Route path="/" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
-              <Route path="/registerUser" element={<RegisterUser />} />
-
               <Route
                 path="/dashboard"
                 element={
@@ -126,7 +132,8 @@ function App() {
                 path="/customers/:id"
                 element={
                   <ProtectedRoute>
-                    <ViewCustomerPage /> {/* você precisaria criar essa página */}
+                    <ViewCustomerPage />{" "}
+                    {/* você precisaria criar essa página */}
                   </ProtectedRoute>
                 }
               />
@@ -182,7 +189,7 @@ function App() {
               <Route
                 path="/rentals/approvals"
                 element={
-                  <ProtectedRoute requiredRoles={['admin', 'superadmin']}>
+                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
                     <RentalApprovalsPage />
                   </ProtectedRoute>
                 }
@@ -222,7 +229,7 @@ function App() {
               <Route
                 path="/finance"
                 element={
-                  <ProtectedRoute requiredRoles={['admin', 'superadmin']}>
+                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
                     <FinancialDashboardPage />
                   </ProtectedRoute>
                 }
@@ -246,7 +253,7 @@ function App() {
               <Route
                 path="/admin"
                 element={
-                  <ProtectedRoute requiredRoles={['superadmin']}>
+                  <ProtectedRoute requiredRoles={["superadmin"]}>
                     <AdminPage />
                   </ProtectedRoute>
                 }
@@ -254,8 +261,42 @@ function App() {
               <Route
                 path="/company/settings"
                 element={
-                  <ProtectedRoute requiredRoles={['admin', 'superadmin']}>
+                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
                     <CompanySettingsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/employes"
+                element={
+                  <ProtectedRoute>
+                    <Employees />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/registerEmploye"
+                element={
+                  <ProtectedRoute>
+                    <RegisterEmploye />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/employees/:id/editEmploye"
+                element={
+                  <ProtectedRoute>
+                    <EditEmploye />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/employees/:id"
+                element={
+                  <ProtectedRoute>
+                    <ViewEmployeePage />
                   </ProtectedRoute>
                 }
               />
