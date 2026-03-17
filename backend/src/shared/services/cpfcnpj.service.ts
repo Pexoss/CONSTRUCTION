@@ -157,8 +157,14 @@ class CpfCnpjService {
       const balance = data?.pacote?.[0]?.saldo ?? data?.saldo;
 
       if (typeof balance !== 'number') {
-        const error = new Error('CPF/CNPJ API did not return balance') as AppError;
-        error.statusCode = 502;
+        const error = new Error('Créditos acabaram para consulta de CPF/CNPJ') as AppError;
+        error.statusCode = 402;
+        throw error;
+      }
+
+      if (balance <= 0) {
+        const error = new Error('Créditos acabaram para consulta de CPF/CNPJ') as AppError;
+        error.statusCode = 402;
         throw error;
       }
 
