@@ -16,6 +16,7 @@ router.get('/rentals/expiration-dashboard', rentalController.getExpirationDashbo
 router.post('/rentals', rentalController.createRental.bind(rentalController));
 router.get('/rentals', rentalController.getRentals.bind(rentalController));
 router.get('/rentals/:id', rentalController.getRentalById.bind(rentalController));
+router.post('/rentals/:id/close',rentalController.closeRental.bind(rentalController));
 router.get('/rentals/:id/pdf', rentalController.generateRentalPDF.bind(rentalController));
 router.put('/rentals/:id', rentalController.updateRental.bind(rentalController));
 router.patch('/rentals/:id/status', rentalController.updateRentalStatus.bind(rentalController));

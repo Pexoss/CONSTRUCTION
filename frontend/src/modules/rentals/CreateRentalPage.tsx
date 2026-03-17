@@ -22,13 +22,22 @@ export const rentalTypeMapper: Record<RentalTypeUI, RentalTypeAPI> = {
   quinzenal: "biweekly",
   mensal: "monthly",
 };
-
 interface SelectedItem {
   itemId: string;
   quantity: number;
   unitId?: string;
   rentalType?: RentalTypeUI;
+  pickupDate?: string; // string ou Date
+  returnDate?: string; // string ou Date
   item: Item;
+}
+interface Totals {
+  equipmentSubtotal: number;
+  servicesSubtotal: number;
+  subtotal: number;
+  deposit: number;
+  total: number;
+  rentalPeriod: { start: string; end: string };
 }
 
 const CreateRentalPage: React.FC = () => {
@@ -91,7 +100,8 @@ const CreateRentalPage: React.FC = () => {
     },
   });
 
-  // Calcula o preço de um item considerando o tipo de aluguel
+  // Calcula o preço estimado de um item considerando o tipo de aluguel
+  // Calcula o preço estimado de um item considerando o tipo de aluguel e dias extras
   const calculatePrice = (
     item: Item,
     quantity: number,
@@ -101,68 +111,103 @@ const CreateRentalPage: React.FC = () => {
   ) => {
     if (!startDate || !endDate) return 0;
 
-    const days = Math.ceil(
-      (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
-    );
-    const weeks = Math.ceil(days / 7);
-    const biweeks = Math.ceil(days / 15);
-    const months = Math.ceil(days / 30);
+    const diffTime = endDate.getTime() - startDate.getTime();
 
-    let pricePerUnit = 0;
+    if (diffTime <= 0) return 0;
+
+    const days = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+
+    const pricing = item.pricing ?? {};
+
+    let totalPrice = 0;
 
     switch (rentalType) {
       case "diario":
-        pricePerUnit = item.pricing.dailyRate ?? 0;
-        return pricePerUnit * days * quantity;
+        totalPrice = (pricing.dailyRate ?? 0) * days * quantity;
+        break;
 
-      case "semanal":
-        pricePerUnit = item.pricing.weeklyRate ?? item.pricing.dailyRate ?? 0;
-        return pricePerUnit * weeks * quantity;
+      case "semanal": {
+        const fullWeeks = Math.floor(days / 7);
+        const extraDays = days % 7;
+        const weeklyRate = pricing.weeklyRate ?? pricing.dailyRate ?? 0;
+        const dailyRate = pricing.dailyRate ?? 0;
+        totalPrice =
+          (fullWeeks * weeklyRate + extraDays * dailyRate) * quantity;
+        break;
+      }
 
-      case "quinzenal":
-        pricePerUnit = item.pricing.biweeklyRate ?? item.pricing.dailyRate ?? 0;
-        return pricePerUnit * biweeks * quantity;
+      case "quinzenal": {
+        const fullBiweeks = Math.floor(days / 15);
+        const extraDays = days % 15;
+        const biweeklyRate = pricing.biweeklyRate ?? pricing.dailyRate ?? 0;
+        const dailyRate = pricing.dailyRate ?? 0;
+        totalPrice =
+          (fullBiweeks * biweeklyRate + extraDays * dailyRate) * quantity;
+        break;
+      }
 
-      case "mensal":
-        pricePerUnit = item.pricing.monthlyRate ?? item.pricing.dailyRate ?? 0;
-        return pricePerUnit * months * quantity;
+      case "mensal": {
+        const fullMonths = Math.floor(days / 30);
+        const extraDays = days % 30;
+        const monthlyRate = pricing.monthlyRate ?? pricing.dailyRate ?? 0;
+        const dailyRate = pricing.dailyRate ?? 0;
+        totalPrice =
+          (fullMonths * monthlyRate + extraDays * dailyRate) * quantity;
+        break;
+      }
 
       default:
-        return 0;
+        totalPrice = 0;
     }
+
+    return totalPrice;
   };
 
-  // Calcula o resumo completo do aluguel
-  const calculateTotals = (
-    rentalType?: "diario" | "semanal" | "quinzenal" | "mensal",
-  ) => {
-    if (!pickupDate || !returnDate)
+  const calculateTotals = (): Totals => {
+    if (selectedItems.length === 0) {
       return {
         equipmentSubtotal: 0,
         servicesSubtotal: 0,
         subtotal: 0,
         deposit: 0,
         total: 0,
+        rentalPeriod: { start: "", end: "" },
       };
-
-    const startDate = new Date(pickupDate);
-    const endDate = new Date(returnDate);
+    }
 
     let equipmentSubtotal = 0;
     let servicesSubtotal = 0;
     let deposit = 0;
 
-    selectedItems.forEach((selectedItem) => {
-      const itemPrice = calculatePrice(
-        selectedItem.item,
-        selectedItem.quantity,
-        startDate,
-        endDate,
-        rentalType ?? "diario",
-      );
-      equipmentSubtotal += itemPrice;
-      deposit +=
-        (selectedItem.item.pricing.depositAmount ?? 0) * selectedItem.quantity;
+    // Tipamos explicitamente como Date | null
+    let minPickup: Date | null = null;
+    let maxReturn: Date | null = null;
+
+    selectedItems.forEach((item) => {
+      const itemPickup: Date | null = item.pickupDate
+        ? new Date(item.pickupDate)
+        : null;
+      const itemReturn: Date | null = item.returnDate
+        ? new Date(item.returnDate)
+        : null;
+
+      if (itemPickup && (!minPickup || itemPickup < minPickup))
+        minPickup = itemPickup;
+      if (itemReturn && (!maxReturn || itemReturn > maxReturn))
+        maxReturn = itemReturn;
+
+      if (itemPickup && itemReturn) {
+        const price = calculatePrice(
+          item.item,
+          item.quantity,
+          itemPickup,
+          itemReturn,
+          item.rentalType ?? "diario",
+        );
+        equipmentSubtotal += price;
+      }
+
+      deposit += (item.item.pricing?.depositAmount ?? 0) * item.quantity;
     });
 
     services.forEach((service) => {
@@ -170,9 +215,26 @@ const CreateRentalPage: React.FC = () => {
     });
 
     const subtotal = equipmentSubtotal + servicesSubtotal;
-    const total = subtotal + deposit - discount;
+    const total = subtotal - discount;
 
-    return { equipmentSubtotal, servicesSubtotal, subtotal, deposit, total };
+    const rentalPeriod = {
+      start:
+        minPickup && !isNaN(new Date(minPickup).getTime())
+          ? new Date(minPickup).toISOString().split("T")[0]
+          : "",
+      end:
+        maxReturn && !isNaN(new Date(maxReturn).getTime())
+          ? new Date(maxReturn).toISOString().split("T")[0]
+          : "",
+    };
+    return {
+      equipmentSubtotal,
+      servicesSubtotal,
+      subtotal,
+      deposit,
+      total,
+      rentalPeriod,
+    };
   };
 
   const handleAddItem = (item: Item) => {
@@ -274,8 +336,8 @@ const CreateRentalPage: React.FC = () => {
       return;
     }
 
-    if (totals.total <= 0) {
-      alert("O valor total do aluguel deve ser maior que zero.");
+    if (selectedItems.length === 0) {
+      alert("Adicione pelo menos um item.");
       return;
     }
 
@@ -386,7 +448,7 @@ const CreateRentalPage: React.FC = () => {
     });
   };
 
-  const totals = calculateTotals(rentalType);
+  const totals = calculateTotals();
   const items = itemsData?.data || [];
   const customers = customersData?.data || [];
   const selectedCustomerData =
@@ -852,7 +914,7 @@ const CreateRentalPage: React.FC = () => {
                           className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900/50"
                         >
                           <div className="flex items-start justify-between">
-                            <div className="flex-1">
+                            <div className="flex-1 space-y-2">
                               <div className="flex items-center justify-between">
                                 <h3 className="font-medium text-gray-900 dark:text-white">
                                   {selectedItem.item.name}
@@ -864,14 +926,16 @@ const CreateRentalPage: React.FC = () => {
                                         selectedItem.quantity,
                                         new Date(pickupDate),
                                         new Date(returnDate),
-                                        rentalType,
+                                        selectedItem.rentalType ?? "diario",
                                       ).toFixed(2)}/unidade`
                                     : "Defina as datas"}
                                 </span>
                               </div>
+
+                              {/* Unidade se for item unitário */}
                               {selectedItem.item.trackingType === "unit" && (
-                                <div className="mt-3">
-                                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                <div className="flex items-center gap-2">
+                                  <label className="text-sm text-gray-700 dark:text-gray-300">
                                     Selecione a unidade *
                                   </label>
                                   <select
@@ -885,7 +949,7 @@ const CreateRentalPage: React.FC = () => {
                                       setSelectedItems(updated);
                                     }}
                                     required
-                                    className="w-full md:w-auto px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                   >
                                     <option value="">Selecione...</option>
                                     {selectedItem.item.units
@@ -901,8 +965,76 @@ const CreateRentalPage: React.FC = () => {
                                   </select>
                                 </div>
                               )}
+
+                              {/* Tipo de Aluguel por item */}
+                              <div className="flex items-center gap-2">
+                                <label className="text-sm text-gray-700 dark:text-gray-300">
+                                  Tipo de Aluguel:
+                                </label>
+                                <select
+                                  value={selectedItem.rentalType ?? "diario"}
+                                  onChange={(e) => {
+                                    const updated = selectedItems.map((si) =>
+                                      si.itemId === selectedItem.itemId
+                                        ? {
+                                            ...si,
+                                            rentalType: e.target
+                                              .value as RentalTypeUI,
+                                          }
+                                        : si,
+                                    );
+                                    setSelectedItems(updated);
+                                  }}
+                                  className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                >
+                                  <option value="diario">Diário</option>
+                                  <option value="semanal">Semanal</option>
+                                  <option value="quinzenal">Quinzenal</option>
+                                  <option value="mensal">Mensal</option>
+                                </select>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <label className="text-sm text-gray-700 dark:text-gray-300">
+                                  Retirada:
+                                </label>
+                                <input
+                                  type="date"
+                                  value={selectedItem.pickupDate || ""}
+                                  onChange={(e) => {
+                                    const updated = selectedItems.map((si) =>
+                                      si.itemId === selectedItem.itemId
+                                        ? { ...si, pickupDate: e.target.value }
+                                        : si,
+                                    );
+                                    setSelectedItems(updated);
+                                  }}
+                                  className="px-2 py-1 border rounded-md text-sm"
+                                />
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <label className="text-sm text-gray-700 dark:text-gray-300">
+                                  Devolução:
+                                </label>
+                                <input
+                                  type="date"
+                                  value={selectedItem.returnDate || ""}
+                                  min={selectedItem.pickupDate || undefined}
+                                  onChange={(e) => {
+                                    const updated = selectedItems.map((si) =>
+                                      si.itemId === selectedItem.itemId
+                                        ? { ...si, returnDate: e.target.value }
+                                        : si,
+                                    );
+                                    setSelectedItems(updated);
+                                  }}
+                                  className="px-2 py-1 border rounded-md text-sm"
+                                />
+                              </div>
                             </div>
-                            <div className="flex items-center gap-4 ml-4">
+
+                            {/* Quantidade e botão remover */}
+                            <div className="flex flex-col items-end gap-2 ml-4">
                               <div className="flex items-center gap-2">
                                 <label className="text-sm text-gray-700 dark:text-gray-300">
                                   Qtd:
@@ -1348,64 +1480,8 @@ const CreateRentalPage: React.FC = () => {
                 </h2>
 
                 <form onSubmit={handleSubmit} className="space-y-6">
+                  {/* Inputs de desconto e observações */}
                   <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Data de Retirada *
-                      </label>
-                      <input
-                        type="date"
-                        value={pickupDate}
-                        onChange={(e) => {
-                          const nextPickup = e.target.value;
-                          setPickupDate(nextPickup);
-                          if (
-                            returnDate &&
-                            nextPickup &&
-                            returnDate < nextPickup
-                          ) {
-                            setReturnDate(nextPickup);
-                          }
-                        }}
-                        onKeyDown={(e) => e.preventDefault()}
-                        required
-                        className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Data de Devolução *
-                      </label>
-                      <input
-                        type="date"
-                        value={returnDate}
-                        onChange={(e) => setReturnDate(e.target.value)}
-                        onKeyDown={(e) => e.preventDefault()}
-                        required
-                        min={pickupDate || undefined}
-                        className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Tipo de Aluguel *
-                      </label>
-                      <select
-                        value={rentalType}
-                        onChange={(e) =>
-                          setRentalType(e.target.value as typeof rentalType)
-                        }
-                        className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                      >
-                        <option value="diario">Diário</option>
-                        <option value="semanal">Semanal</option>
-                        <option value="quinzenal">Quinzenal</option>
-                        <option value="mensal">Mensal</option>
-                      </select>
-                    </div>
-
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Desconto (R$)
@@ -1415,28 +1491,13 @@ const CreateRentalPage: React.FC = () => {
                         min="0"
                         step="0.01"
                         value={discount}
-                        onChange={(e) => {
-                          const value = e.target.value;
-
-                          if (value === "") {
-                            setDiscount(0);
-                          } else {
-                            setDiscount(Number(value));
-                          }
-
-                          if (serverError) setServerError(null);
-                        }}
-                        className={`w-full px-4 py-3 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm ${
-                          serverError
-                            ? "border-red-500 dark:border-red-500 focus:ring-red-500"
-                            : "border-gray-300 dark:border-gray-600"
-                        }`}
+                        onChange={(e) =>
+                          setDiscount(
+                            e.target.value === "" ? 0 : Number(e.target.value),
+                          )
+                        }
+                        className="w-full px-4 py-3 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
-                      {serverError && (
-                        <span className="text-red-600 dark:text-red-400 text-xs mt-1 font-medium block">
-                          {serverError}
-                        </span>
-                      )}
                     </div>
 
                     <div>
@@ -1453,41 +1514,46 @@ const CreateRentalPage: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Resumo dos itens */}
                   <div className="border-t border-gray-200 dark:border-gray-700 pt-6 space-y-3">
                     <div className="flex justify-between items-center">
                       <span className="text-gray-600 dark:text-gray-400">
                         Equipamentos:
                       </span>
                       <span className="font-medium text-gray-900 dark:text-white">
-                        R$ {totals.equipmentSubtotal.toFixed(2)}
+                        R$ {totalsWithRentalType.equipmentSubtotal.toFixed(2)}
                       </span>
                     </div>
-                    {totals.servicesSubtotal > 0 && (
+
+                    {totalsWithRentalType.servicesSubtotal > 0 && (
                       <div className="flex justify-between items-center">
                         <span className="text-gray-600 dark:text-gray-400">
                           Serviços:
                         </span>
                         <span className="font-medium text-gray-900 dark:text-white">
-                          R$ {totals.servicesSubtotal.toFixed(2)}
+                          R$ {totalsWithRentalType.servicesSubtotal.toFixed(2)}
                         </span>
                       </div>
                     )}
+
                     <div className="flex justify-between items-center pt-3 border-t border-gray-200 dark:border-gray-700">
                       <span className="text-gray-600 dark:text-gray-400">
                         Subtotal:
                       </span>
                       <span className="font-medium text-gray-900 dark:text-white">
-                        R$ {totals.subtotal.toFixed(2)}
+                        R$ {totalsWithRentalType.subtotal.toFixed(2)}
                       </span>
                     </div>
+
                     <div className="flex justify-between items-center">
                       <span className="text-gray-600 dark:text-gray-400">
                         Caução:
                       </span>
                       <span className="font-medium text-gray-900 dark:text-white">
-                        R$ {totals.deposit.toFixed(2)}
+                        R$ {totalsWithRentalType.deposit.toFixed(2)}
                       </span>
                     </div>
+
                     {discount > 0 && (
                       <div className="flex justify-between items-center text-red-600 dark:text-red-400">
                         <span>Desconto:</span>
@@ -1496,6 +1562,7 @@ const CreateRentalPage: React.FC = () => {
                         </span>
                       </div>
                     )}
+
                     <div className="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-700">
                       <span className="text-lg font-bold text-gray-900 dark:text-white">
                         Total:
@@ -1504,33 +1571,19 @@ const CreateRentalPage: React.FC = () => {
                         R$ {totalsWithRentalType.total.toFixed(2)}
                       </span>
                     </div>
+
+                    {/* Período total estimado */}
+                    <div className="mt-2">
+                      <small className="text-gray-500 dark:text-gray-400 text-xs">
+                        ⚠️ Período estimado: {totals.rentalPeriod.start} a{" "}
+                        {totals.rentalPeriod.end}. O valor final será calculado
+                        no fechamento do aluguel com base na devolução real de
+                        cada item.
+                      </small>
+                    </div>
                   </div>
 
-                  {createMutation.isError && (
-                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 rounded-md p-4 text-sm text-red-800 dark:text-red-300">
-                      <div className="flex items-center gap-2">
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={1.5}
-                            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                        <span>
-                          {createMutation.error instanceof Error
-                            ? createMutation.error.message
-                            : "Erro ao criar aluguel"}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
+                  {/* Botão de criação */}
                   <div className="pt-4">
                     <button
                       type="submit"
@@ -1543,34 +1596,11 @@ const CreateRentalPage: React.FC = () => {
                           : "bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white hover:shadow"
                       }`}
                     >
-                      {createMutation.isPending ? (
-                        <div className="flex items-center justify-center gap-2">
-                          <svg
-                            className="animate-spin h-4 w-4 text-white"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                          >
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                            />
-                            <path
-                              className="opacity-75"
-                              fill="currentColor"
-                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                            />
-                          </svg>
-                          Criando aluguel...
-                        </div>
-                      ) : selectedItems.length === 0 ? (
-                        "Selecione pelo menos 1 item"
-                      ) : (
-                        `Criar Aluguel • R$ ${totals.total.toFixed(2)}`
-                      )}
+                      {createMutation.isPending
+                        ? "Criando aluguel..."
+                        : selectedItems.length === 0
+                          ? "Selecione pelo menos 1 item"
+                          : `Criar Aluguel • R$ ${totalsWithRentalType.total.toFixed(2)}`}
                     </button>
                   </div>
                 </form>
