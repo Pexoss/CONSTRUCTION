@@ -24,6 +24,9 @@ export interface RentalItem {
   quantity: number;
   unitPrice: number;
   rentalType?: RentalTypeUI;
+  pickupScheduled?: string;
+  returnScheduled?: string;
+  returnActual?: string;
   subtotal: number;
 }
 
@@ -154,13 +157,15 @@ export interface CreateRentalData {
     itemId: string;
     unitId?: string;
     quantity: number;
-    rentalType?: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+    rentalType: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+    pickupScheduled: string;
+    returnScheduled?: string;
   }[];
   services?: RentalService[];
   workAddress?: RentalWorkAddress;
-  dates: {
-    pickupScheduled: string;
-    returnScheduled: string;
+  dates?: {
+    pickupScheduled?: string;
+    returnScheduled?: string;
   };
   pricing?: {
     discount?: number;

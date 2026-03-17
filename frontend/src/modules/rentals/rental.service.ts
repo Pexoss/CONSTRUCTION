@@ -51,6 +51,26 @@ export const rentalService = {
     return response.data.data;
   },
 
+  getClosePreviewItem: async (
+    rentalId: string,
+    itemId: string,
+    unitId?: string,
+  ) => {
+    const params = unitId ? `?unitId=${encodeURIComponent(unitId)}` : "";
+    const response = await api.get<{
+      success: boolean;
+      data: {
+        originalTotal: number;
+        recalculatedTotal: number;
+        usedDays: number;
+        contractedDays: number;
+        rentalType: string;
+      };
+    }>(`/rentals/${rentalId}/items/${itemId}/close-preview${params}`);
+
+    return response.data.data;
+  },
+
   getRentalById: async (id: string) => {
     const response = await api.get<{ success: boolean; data: Rental }>(
       `/rentals/${id}`,
@@ -62,6 +82,19 @@ export const rentalService = {
     const response = await api.get(`/rentals/${id}/pdf`, {
       responseType: "blob",
     });
+    return response.data;
+  },
+
+  closeRentalItem: async (
+    rentalId: string,
+    itemId: string,
+    data: { returnDate?: string; unitId?: string },
+  ) => {
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(`/rentals/${rentalId}/items/${itemId}/close`, data);
     return response.data;
   },
 
@@ -78,8 +111,15 @@ export const rentalService = {
     id: string,
     data: {
       notes?: string;
-      pricing?: { discount?: number };
       dates?: { pickupScheduled?: string; returnScheduled?: string };
+      items?: Array<{
+        itemId: string;
+        unitId?: string;
+        quantity?: number;
+        rentalType?: "daily" | "weekly" | "biweekly" | "monthly";
+        pickupScheduled?: string;
+        returnScheduled?: string;
+      }>;
       workAddress?: {
         street: string;
         number?: string;

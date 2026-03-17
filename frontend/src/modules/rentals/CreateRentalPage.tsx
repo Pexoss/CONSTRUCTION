@@ -56,15 +56,10 @@ const CreateRentalPage: React.FC = () => {
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("");
   const [rentalType, setRentalType] = useState<
     "diario" | "semanal" | "quinzenal" | "mensal"
   >("diario");
   const [serverError, setServerError] = useState<string | null>(null);
-  const { data: categories = [] } = useQuery({
-    queryKey: ["categories"],
-    queryFn: () => rentalService.getCategories(true),
-  });
 
   const [sort, setSort] = useState<
     "name" | "name_desc" | "price" | "price_desc" | "available"
@@ -106,18 +101,32 @@ const CreateRentalPage: React.FC = () => {
     item: Item,
     quantity: number,
     startDate: Date,
-    endDate: Date,
+    endDate: Date | null,
     rentalType: "diario" | "semanal" | "quinzenal" | "mensal",
   ) => {
-    if (!startDate || !endDate) return 0;
+    if (!startDate) return 0;
+
+    const pricing = item.pricing ?? {};
+    if (!endDate) {
+      switch (rentalType) {
+        case "diario":
+          return (pricing.dailyRate ?? 0) * quantity;
+        case "semanal":
+          return (pricing.weeklyRate ?? pricing.dailyRate ?? 0) * quantity;
+        case "quinzenal":
+          return (pricing.biweeklyRate ?? pricing.dailyRate ?? 0) * quantity;
+        case "mensal":
+          return (pricing.monthlyRate ?? pricing.dailyRate ?? 0) * quantity;
+        default:
+          return 0;
+      }
+    }
 
     const diffTime = endDate.getTime() - startDate.getTime();
 
     if (diffTime <= 0) return 0;
 
     const days = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-
-    const pricing = item.pricing ?? {};
 
     let totalPrice = 0;
 
@@ -196,7 +205,7 @@ const CreateRentalPage: React.FC = () => {
       if (itemReturn && (!maxReturn || itemReturn > maxReturn))
         maxReturn = itemReturn;
 
-      if (itemPickup && itemReturn) {
+      if (itemPickup) {
         const price = calculatePrice(
           item.item,
           item.quantity,
@@ -261,7 +270,14 @@ const CreateRentalPage: React.FC = () => {
     } else {
       setSelectedItems([
         ...selectedItems,
-        { itemId: item._id, quantity: 1, item },
+        {
+          itemId: item._id,
+          quantity: 1,
+          item,
+          pickupDate: pickupDate || "",
+          returnDate: returnDate || "",
+          rentalType: rentalType,
+        },
       ]);
     }
   };
@@ -321,8 +337,6 @@ const CreateRentalPage: React.FC = () => {
 
     const missingFields: string[] = [];
     if (!selectedCustomer) missingFields.push("cliente");
-    if (!pickupDate) missingFields.push("data de retirada");
-    if (!returnDate) missingFields.push("data de devolução");
     if (selectedItems.length === 0) {
       if ((itemsData?.data || []).length === 0) {
         alert("Nenhum item disponível no inventário para alugar.");
@@ -341,13 +355,13 @@ const CreateRentalPage: React.FC = () => {
       return;
     }
 
-    if (new Date(returnDate) <= new Date(pickupDate)) {
-      alert("A data de devolução deve ser maior que a data de retirada.");
-      return;
-    }
-
     const today = new Date().toISOString().split("T")[0];
-    if (pickupDate < today || returnDate < today) {
+    const hasRetroactive = selectedItems.some(
+      (si) =>
+        (si.pickupDate && si.pickupDate < today) ||
+        (si.returnDate && si.returnDate < today),
+    );
+    if (hasRetroactive || (pickupDate && pickupDate < today) || (returnDate && returnDate < today)) {
       const shouldContinue = window.confirm(
         "Você informou uma data anterior a hoje. Tem certeza de que deseja continuar?",
       );
@@ -363,6 +377,16 @@ const CreateRentalPage: React.FC = () => {
     for (const si of selectedItems) {
       if (si.item.trackingType === "unit" && !si.unitId) {
         alert(`O item "${si.item.name}" precisa de um unitId válido.`);
+        return;
+      }
+      if (!si.pickupDate) {
+        alert(`Informe a retirada do item "${si.item.name}".`);
+        return;
+      }
+      if (si.returnDate && si.pickupDate && si.returnDate < si.pickupDate) {
+        alert(
+          `A devolução do item "${si.item.name}" deve ser posterior à retirada.`,
+        );
         return;
       }
     }
@@ -385,15 +409,20 @@ const CreateRentalPage: React.FC = () => {
           unitId: si.item.trackingType === "unit" ? si.unitId : undefined,
           quantity: si.quantity,
           rentalType: rentalTypeMapper[uiType],
+          pickupScheduled: formatDateToISO(si.pickupDate as string),
+          returnScheduled: si.returnDate ? formatDateToISO(si.returnDate) : undefined,
         };
       }),
 
       services: servicesToSend.length > 0 ? servicesToSend : undefined,
       workAddress: workAddress || undefined,
-      dates: {
-        pickupScheduled: formatDateToISO(pickupDate),
-        returnScheduled: formatDateToISO(returnDate),
-      },
+      dates:
+        pickupDate || returnDate
+          ? {
+              pickupScheduled: pickupDate ? formatDateToISO(pickupDate) : undefined,
+              returnScheduled: returnDate ? formatDateToISO(returnDate) : undefined,
+            }
+          : undefined,
       pricing: {
         discount,
       },
@@ -543,8 +572,6 @@ const CreateRentalPage: React.FC = () => {
   const filteredItems = items.filter((item) => {
     if (item.quantity.available <= 0) return false;
 
-    if (category && item.category !== category) return false;
-
     if (search) {
       const term = search.toLowerCase();
 
@@ -563,7 +590,6 @@ const CreateRentalPage: React.FC = () => {
 
   const handleClearFilters = () => {
     setSearch("");
-    setCategory("");
   };
 
   const sortedItems = useMemo(() => {
@@ -708,58 +734,28 @@ const CreateRentalPage: React.FC = () => {
                       placeholder="Buscar por nome, descrição ou código..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      className="w-full pl-10 pr-12 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     />
-                  </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <div className="flex-1 min-w-[200px]">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Filtrar por categoria
-                      </label>
-                      <select
-                        value={category}
-                        onChange={(e) => setCategory(e.target.value)}
-                        className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    <button
+                      type="button"
+                      onClick={handleClearFilters}
+                      className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                      aria-label="Limpar filtros"
+                    >
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
                       >
-                        <option value="">Todas as categorias</option>
-                        {categories.map((cat) => (
-                          <option key={cat._id} value={cat.name}>
-                            {cat.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex items-end gap-2">
-                      <button
-                        type="button"
-                        onClick={handleClearFilters}
-                        className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        Limpar filtros
-                      </button>
-
-                      <button
-                        type="button"
-                        className="px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-colors flex items-center gap-2"
-                      >
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={1.5}
-                            d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
-                          />
-                        </svg>
-                        Filtros
-                      </button>
-                    </div>
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.5}
+                          d="M6 7h12M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-7 0l1 12a1 1 0 001 1h4a1 1 0 001-1l1-12"
+                        />
+                      </svg>
+                    </button>
                   </div>
                 </div>
 
@@ -920,15 +916,17 @@ const CreateRentalPage: React.FC = () => {
                                   {selectedItem.item.name}
                                 </h3>
                                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                  {pickupDate && returnDate
+                                  {selectedItem.pickupDate
                                     ? `R$ ${calculatePrice(
                                         selectedItem.item,
                                         selectedItem.quantity,
-                                        new Date(pickupDate),
-                                        new Date(returnDate),
+                                        new Date(selectedItem.pickupDate),
+                                        selectedItem.returnDate
+                                          ? new Date(selectedItem.returnDate)
+                                          : null,
                                         selectedItem.rentalType ?? "diario",
                                       ).toFixed(2)}/unidade`
-                                    : "Defina as datas"}
+                                    : "Defina a retirada"}
                                 </span>
                               </div>
 
@@ -1008,6 +1006,7 @@ const CreateRentalPage: React.FC = () => {
                                     );
                                     setSelectedItems(updated);
                                   }}
+                                  onKeyDown={(e) => e.preventDefault()}
                                   className="px-2 py-1 border rounded-md text-sm"
                                 />
                               </div>
@@ -1028,6 +1027,7 @@ const CreateRentalPage: React.FC = () => {
                                     );
                                     setSelectedItems(updated);
                                   }}
+                                  onKeyDown={(e) => e.preventDefault()}
                                   className="px-2 py-1 border rounded-md text-sm"
                                 />
                               </div>

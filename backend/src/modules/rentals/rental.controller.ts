@@ -117,6 +117,44 @@ export class RentalController {
   }
 
   /**
+   * Close rental item (finalizar entrega por equipamento)
+   * POST /api/rentals/:id/items/:itemId/close
+   */
+  async closeRentalItem(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const rentalId = req.params.id;
+      const itemId = req.params.itemId;
+      const returnDate = req.body?.returnDate
+        ? new Date(req.body.returnDate)
+        : undefined;
+      const unitId = req.body?.unitId as string | undefined;
+
+      const rental = await rentalService.closeRentalItem(
+        companyId,
+        rentalId,
+        itemId,
+        userId,
+        returnDate,
+        unitId,
+      );
+
+      res.json({
+        success: true,
+        message: "Item closed successfully",
+        data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Get rental by ID
    * GET /api/rentals/:id
    */
@@ -227,6 +265,32 @@ export class RentalController {
       const companyId = req.companyId;
 
       const preview = await rentalService.getClosePreview(id, companyId!);
+
+      res.json({
+        success: true,
+        data: preview,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getClosePreviewItem(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const { id, itemId } = req.params;
+      const companyId = req.companyId!;
+      const unitId = req.query.unitId as string | undefined;
+
+      const preview = await rentalService.getClosePreviewItem(
+        id,
+        itemId,
+        companyId,
+        unitId,
+      );
 
       res.json({
         success: true,

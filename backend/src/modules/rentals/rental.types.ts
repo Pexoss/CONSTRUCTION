@@ -72,6 +72,11 @@ export interface IRentalItem {
   quantity: number; // Para quantitativos (1 se for unitário)
   unitPrice: number;
   rentalType: RentalType; // NOVO: tipo de aluguel (diária, semanal, etc.)
+  pickupScheduled: Date;
+  returnScheduled?: Date;
+  returnActual?: Date;
+  lastBillingDate?: Date;
+  nextBillingDate?: Date;
   subtotal: number;
 }
 

@@ -31,4 +31,19 @@ export const billingService = {
     });
     return response.data;
   },
+  markAsPaid: async (
+    id: string,
+    data: {
+      paymentMethod: string;
+      paymentDate?: string;
+      discount?: number;
+      discountReason?: string;
+    }
+  ) => {
+    const response = await api.post<{ success: boolean; data: Billing }>(
+      `/billings/${id}/mark-as-paid`,
+      data
+    );
+    return response.data;
+  },
 };

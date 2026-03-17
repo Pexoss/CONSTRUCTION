@@ -30,6 +30,7 @@ import RentalsPage from "./modules/rentals/RentalsPage";
 import CreateRentalPage from "./modules/rentals/CreateRentalPage";
 import RentalDetailPage from "./modules/rentals/RentalDetailPage";
 import ExpirationDashboardPage from "./modules/rentals/ExpirationDashboardPage";
+import BillingsPage from "./modules/billings/BillingsPage";
 import RentalApprovalsPage from "./modules/rentals/RentalApprovalsPage";
 import MaintenancesPage from "./modules/maintenance/MaintenancesPage";
 import CreateMaintenancePage from "./modules/maintenance/CreateMaintenancePage";
@@ -183,6 +184,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <ExpirationDashboardPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/billings"
+                element={
+                  <ProtectedRoute>
+                    <BillingsPage />
                   </ProtectedRoute>
                 }
               />

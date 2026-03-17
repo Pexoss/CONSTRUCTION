@@ -29,7 +29,10 @@ export function calculateBillingPeriod(
   };
 
   const periodLength = periodDays[rentalType];
-  const daysPassed = Math.ceil((returnDate.getTime() - pickupDate.getTime()) / (1000 * 60 * 60 * 24));
+  const diffDays = Math.ceil(
+    (returnDate.getTime() - pickupDate.getTime()) / (1000 * 60 * 60 * 24)
+  );
+  const daysPassed = Math.max(1, diffDays);
   const periodsCompleted = Math.floor(daysPassed / periodLength);
   const extraDays = daysPassed % periodLength;
 
@@ -129,6 +132,8 @@ class BillingService {
       notes?: string;
       targetEquipmentSubtotal?: number;
       totalOverride?: number;
+      discount?: number;
+      discountReason?: string;
       status?: BillingStatus;
     }
   ): Promise<IBilling> {
@@ -159,10 +164,11 @@ class BillingService {
     );
 
     const subtotal = equipmentSubtotal + servicesSubtotal;
+    const appliedDiscount = options?.discount ?? 0;
     const total =
       options?.totalOverride !== undefined
         ? options.totalOverride
-        : subtotal - (rental.pricing?.discount || 0) + (rental.pricing?.lateFee || 0);
+        : subtotal - appliedDiscount + (rental.pricing?.lateFee || 0);
 
     const calculation: IBillingCalculation = {
       baseRate: items[0]?.unitPrice || 0,
@@ -172,14 +178,92 @@ class BillingService {
       baseAmount: equipmentSubtotal,
       servicesAmount: servicesSubtotal,
       subtotal,
-      discount: rental.pricing?.discount || 0,
-      discountReason: rental.pricing?.discountReason,
+      discount: appliedDiscount,
+      discountReason: options?.discountReason,
       total,
     };
 
     const billing = await Billing.create({
       companyId,
       rentalId,
+      customerId: rental.customerId,
+      billingDate: new Date(),
+      periodStart,
+      periodEnd,
+      rentalType,
+      calculation,
+      items,
+      services,
+      status: options?.status || 'approved',
+      approvalRequired: false,
+      requestedBy: userId,
+      notes: options?.notes,
+    });
+
+    return billing;
+  }
+
+  async createPeriodicBillingForItem(
+    companyId: string,
+    rental: any,
+    item: any,
+    periodStart: Date,
+    periodEnd: Date,
+    userId: string,
+    options?: {
+      includeServices?: boolean;
+      notes?: string;
+      discount?: number;
+      discountReason?: string;
+      status?: BillingStatus;
+    }
+  ): Promise<IBilling> {
+    if (!rental) {
+      throw new Error('Rental not found');
+    }
+
+    const rentalType: RentalType = item.rentalType || 'daily';
+    const periodCalculation = calculateBillingPeriod(periodStart, periodEnd, rentalType);
+    const periodsCharged = Math.max(1, periodCalculation.totalPeriods);
+
+    const itemSubtotal = item.unitPrice * item.quantity * periodsCharged;
+    const items = [
+      {
+        itemId: item.itemId,
+        unitId: item.unitId,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        periodsCharged,
+        subtotal: Number(itemSubtotal.toFixed(2)),
+      },
+    ];
+
+    const { services, servicesSubtotal } = this.buildBillingServices(
+      rental,
+      !!options?.includeServices
+    );
+
+    const equipmentSubtotal = Number(itemSubtotal.toFixed(2));
+    const subtotal = equipmentSubtotal + servicesSubtotal;
+    const appliedDiscount = options?.discount ?? 0;
+    const total = subtotal - appliedDiscount + (rental.pricing?.lateFee || 0);
+
+    const calculation: IBillingCalculation = {
+      baseRate: item.unitPrice || 0,
+      periodsCompleted: periodCalculation.periodsCompleted,
+      extraDays: periodCalculation.extraDays,
+      chargeExtraPeriod: periodCalculation.chargeExtraPeriod,
+      baseAmount: equipmentSubtotal,
+      servicesAmount: servicesSubtotal,
+      subtotal,
+      discount: appliedDiscount,
+      discountReason: options?.discountReason,
+      total,
+    };
+
+    const billing = await Billing.create({
+      companyId,
+      rentalId: rental._id,
       customerId: rental.customerId,
       billingDate: new Date(),
       periodStart,
@@ -394,7 +478,9 @@ class BillingService {
     companyId: string,
     billingId: string,
     paymentMethod: string,
-    paymentDate?: Date
+    paymentDate?: Date,
+    discount?: number,
+    discountReason?: string
   ): Promise<IBilling> {
     const billing = await Billing.findOne({
       _id: billingId,
@@ -409,6 +495,13 @@ class BillingService {
       throw new Error('Billing must be approved before marking as paid');
     }
 
+    const appliedDiscount = discount ?? billing.calculation?.discount ?? 0;
+    billing.calculation.discount = appliedDiscount;
+    billing.calculation.discountReason = discountReason;
+    billing.calculation.total = Math.max(
+      0,
+      billing.calculation.subtotal - appliedDiscount
+    );
     billing.status = 'paid';
     billing.paymentMethod = paymentMethod;
     billing.paymentDate = paymentDate || new Date();
@@ -467,6 +560,7 @@ class BillingService {
         .populate('customerId')
         .populate('requestedBy')
         .populate('approvedBy')
+        .populate('items.itemId')
         .sort({ billingDate: -1 })
         .skip(skip)
         .limit(limit),

@@ -8,7 +8,9 @@ export const createRentalSchema = z.object({
         itemId: z.string().min(1, 'Item ID is required'),
         unitId: z.string().optional(), // unitário opcional
         quantity: z.number().int().min(1, 'Quantity must be at least 1'),
-        rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(), // opcional
+        rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']),
+        pickupScheduled: z.string().datetime().or(z.date()),
+        returnScheduled: z.string().datetime().or(z.date()).optional(),
       })
     )
     .min(1, 'At least one item is required'),
@@ -23,13 +25,15 @@ export const createRentalSchema = z.object({
       })
     )
     .optional(),
-  dates: z.object({
-    pickupScheduled: z.string().datetime().or(z.date()),
-    returnScheduled: z.string().datetime().or(z.date()),
-    billingCycle: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
-    lastBillingDate: z.string().datetime().or(z.date()).optional(),
-    nextBillingDate: z.string().datetime().or(z.date()).optional(),
-  }),
+  dates: z
+    .object({
+      pickupScheduled: z.string().datetime().or(z.date()).optional(),
+      returnScheduled: z.string().datetime().or(z.date()).optional(),
+      billingCycle: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
+      lastBillingDate: z.string().datetime().or(z.date()).optional(),
+      nextBillingDate: z.string().datetime().or(z.date()).optional(),
+    })
+    .optional(),
   workAddress: z
     .object({
       street: z.string(),
@@ -55,10 +59,17 @@ export const createRentalSchema = z.object({
 
 export const updateRentalSchema = z.object({
   notes: z.string().optional(),
-  pricing: z
-    .object({
-      discount: z.number().min(0).optional(),
-    })
+  items: z
+    .array(
+      z.object({
+        itemId: z.string().min(1, 'Item ID is required'),
+        unitId: z.string().optional(),
+        quantity: z.number().int().min(1).optional(),
+        rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
+        pickupScheduled: z.string().datetime().or(z.date()).optional(),
+        returnScheduled: z.string().datetime().or(z.date()).optional(),
+      })
+    )
     .optional(),
   dates: z
     .object({

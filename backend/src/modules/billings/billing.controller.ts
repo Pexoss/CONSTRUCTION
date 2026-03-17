@@ -158,7 +158,14 @@ class BillingController {
 
       const paymentDate = data.paymentDate ? (typeof data.paymentDate === 'string' ? new Date(data.paymentDate) : data.paymentDate) : undefined;
 
-      const billing = await billingService.markAsPaid(companyId, id, data.paymentMethod, paymentDate);
+      const billing = await billingService.markAsPaid(
+        companyId,
+        id,
+        data.paymentMethod,
+        paymentDate,
+        data.discount,
+        data.discountReason
+      );
 
       res.json({
         success: true,
