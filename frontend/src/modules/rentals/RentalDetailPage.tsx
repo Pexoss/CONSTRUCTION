@@ -2,7 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
-import { RentalStatus, ChecklistData, RentalWorkAddress } from "../../types/rental.types";
+import {
+  RentalStatus,
+  ChecklistData,
+  RentalWorkAddress,
+} from "../../types/rental.types";
 import { billingService } from "../billings/billing.service";
 import { Billing } from "../../types/billing.types";
 import { customerService } from "../customers/customer.service";
@@ -73,7 +77,8 @@ const RentalDetailPage: React.FC = () => {
     } as RentalWorkAddress,
   });
   const [saveWorkAddress, setSaveWorkAddress] = useState(false);
-  const [selectedWorkAddressId, setSelectedWorkAddressId] = useState<string>("");
+  const [selectedWorkAddressId, setSelectedWorkAddressId] =
+    useState<string>("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["rental", id],
@@ -106,7 +111,10 @@ const RentalDetailPage: React.FC = () => {
 
   useEffect(() => {
     if (!id || !data?.data) return;
-    if (!autoBillingProcessedRef.current && ["active", "overdue"].includes(data.data.status)) {
+    if (
+      !autoBillingProcessedRef.current &&
+      ["active", "overdue"].includes(data.data.status)
+    ) {
       autoBillingProcessedRef.current = true;
       processBillingMutation.mutate();
     }
@@ -223,8 +231,13 @@ const RentalDetailPage: React.FC = () => {
   });
 
   const approveApprovalMutation = useMutation({
-    mutationFn: ({ approvalId, notes }: { approvalId: string; notes?: string }) =>
-      rentalService.approveApproval(id!, approvalId, notes),
+    mutationFn: ({
+      approvalId,
+      notes,
+    }: {
+      approvalId: string;
+      notes?: string;
+    }) => rentalService.approveApproval(id!, approvalId, notes),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rental", id] });
       queryClient.invalidateQueries({ queryKey: ["rentals"] });
@@ -232,8 +245,13 @@ const RentalDetailPage: React.FC = () => {
   });
 
   const rejectApprovalMutation = useMutation({
-    mutationFn: ({ approvalId, notes }: { approvalId: string; notes: string }) =>
-      rentalService.rejectApproval(id!, approvalId, notes),
+    mutationFn: ({
+      approvalId,
+      notes,
+    }: {
+      approvalId: string;
+      notes: string;
+    }) => rentalService.rejectApproval(id!, approvalId, notes),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rental", id] });
       queryClient.invalidateQueries({ queryKey: ["rentals"] });
@@ -280,7 +298,9 @@ const RentalDetailPage: React.FC = () => {
   const handleDownloadBillingPDF = async (billingId: string) => {
     try {
       const blob = await billingService.generateBillingPDF(billingId);
-      const url = window.URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+      const url = window.URL.createObjectURL(
+        new Blob([blob], { type: "application/pdf" }),
+      );
       const link = document.createElement("a");
       link.href = url;
       link.download = `fechamento-${billingId}.pdf`;
@@ -297,7 +317,9 @@ const RentalDetailPage: React.FC = () => {
     if (!id) return;
     try {
       const blob = await rentalService.generateRentalPDF(id);
-      const url = window.URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+      const url = window.URL.createObjectURL(
+        new Blob([blob], { type: "application/pdf" }),
+      );
       const link = document.createElement("a");
       link.href = url;
       link.download = `locacao-${id}.pdf`;
@@ -356,34 +378,28 @@ const RentalDetailPage: React.FC = () => {
     setShowStatusModal(false);
   };
 
-  const confirmarFinalizacao = () => {
-    if (!newStatusAluguel) return;
-    const toNumberOrUndefined = (value: string) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : undefined;
-    };
+  const confirmarFinalizacao = async () => {
+    if (!id) return;
 
-    const payload = {
-      status: newStatusAluguel,
-      adjustments: {
-        returnDate: closeForm.returnDate
-          ? new Date(closeForm.returnDate).toISOString()
-          : undefined,
-        rentalType: closeForm.rentalType || undefined,
-        pricingOverride: {
-          equipmentSubtotal: toNumberOrUndefined(closeForm.equipmentSubtotal),
-          servicesSubtotal: toNumberOrUndefined(closeForm.servicesSubtotal),
-          discount: toNumberOrUndefined(closeForm.discount),
-          lateFee: toNumberOrUndefined(closeForm.lateFee),
-          total: toNumberOrUndefined(closeForm.total),
-        },
-        notes: closeForm.notes || undefined,
-      },
-    };
+    try {
+      // 🔥 chama o backend que calcula tudo
+      await rentalService.closeRental(id);
 
-    updateStatusMutation.mutate(payload);
-    setModalFinalizarAluguel(false);
-    setNewStatusAluguel(null);
+      // 🔥 atualiza tela
+      queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+
+      // 🔥 fecha modal
+      setModalFinalizarAluguel(false);
+      setNewStatusAluguel(null);
+
+      alert("Aluguel finalizado com sucesso!");
+    } catch (err: any) {
+      console.error(err);
+      alert("Erro ao finalizar aluguel");
+    }
   };
 
   if (isLoading) {
@@ -419,7 +435,9 @@ const RentalDetailPage: React.FC = () => {
     .filter((billing) => !["paid", "cancelled"].includes(billing.status))
     .reduce((sum, billing) => sum + (billing.calculation?.total || 0), 0);
   const pendingApprovals =
-    rental.pendingApprovals?.filter((approval) => approval.status === "pending") || [];
+    rental.pendingApprovals?.filter(
+      (approval) => approval.status === "pending",
+    ) || [];
   const changeHistory = rental.changeHistory || [];
 
   return (
@@ -494,7 +512,8 @@ const RentalDetailPage: React.FC = () => {
                 </button>
                 <button
                   onClick={() => {
-                    const workAddress = rental.workAddress || ({} as RentalWorkAddress);
+                    const workAddress =
+                      rental.workAddress || ({} as RentalWorkAddress);
                     setEditForm({
                       notes: rental.notes || "",
                       discount: rental.pricing.discount?.toFixed(2) || "",
@@ -854,13 +873,13 @@ const RentalDetailPage: React.FC = () => {
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                       Fechamentos e cobranças
                     </h2>
-                  <button
-                    type="button"
-                    onClick={() => processBillingMutation.mutate()}
-                    className="ml-auto text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    Atualizar fechamentos
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => processBillingMutation.mutate()}
+                      className="ml-auto text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      Atualizar fechamentos
+                    </button>
                   </div>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400 mb-4">
                     <span>
@@ -920,7 +939,9 @@ const RentalDetailPage: React.FC = () => {
                           <div className="mt-2 flex justify-end">
                             <button
                               type="button"
-                              onClick={() => handleDownloadBillingPDF(billing._id)}
+                              onClick={() =>
+                                handleDownloadBillingPDF(billing._id)
+                              }
                               className="text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
                             >
                               Baixar PDF
@@ -936,74 +957,80 @@ const RentalDetailPage: React.FC = () => {
 
             {/* Sidebar */}
             <div className="space-y-6">
-              {pendingApprovals.length > 0 && (user?.role === "admin" || user?.role === "superadmin") && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-                  <div className="flex items-center mb-4">
-                    <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
-                      <svg
-                        className="w-5 h-5 text-gray-700 dark:text-gray-300"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M12 6v6l4 2"
-                        />
-                      </svg>
-                    </div>
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                      Aprovações pendentes
-                    </h2>
-                  </div>
-                  <div className="space-y-3">
-                    {pendingApprovals.map((approval) => (
-                      <div
-                        key={approval._id}
-                        className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-900/50"
-                      >
-                        <div className="text-sm font-medium text-gray-900 dark:text-white">
-                          {approval.requestType}
-                        </div>
-                        <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                          {new Date(approval.requestDate).toLocaleString("pt-BR")}
-                        </div>
-                        <div className="mt-2 flex gap-2">
-                          <button
-                            onClick={() => {
-                              const notes =
-                                window.prompt("Observações para aprovação (opcional):") ||
-                                undefined;
-                              approveApprovalMutation.mutate({
-                                approvalId: approval._id,
-                                notes,
-                              });
-                            }}
-                            className="px-3 py-2 text-xs bg-green-600 hover:bg-green-700 text-white rounded-md"
-                          >
-                            Aprovar
-                          </button>
-                          <button
-                            onClick={() => {
-                              const notes = window.prompt("Informe o motivo da rejeição:");
-                              if (!notes) return;
-                              rejectApprovalMutation.mutate({
-                                approvalId: approval._id,
-                                notes,
-                              });
-                            }}
-                            className="px-3 py-2 text-xs bg-red-600 hover:bg-red-700 text-white rounded-md"
-                          >
-                            Rejeitar
-                          </button>
-                        </div>
+              {pendingApprovals.length > 0 &&
+                (user?.role === "admin" || user?.role === "superadmin") && (
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                    <div className="flex items-center mb-4">
+                      <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
+                        <svg
+                          className="w-5 h-5 text-gray-700 dark:text-gray-300"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 6v6l4 2"
+                          />
+                        </svg>
                       </div>
-                    ))}
+                      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                        Aprovações pendentes
+                      </h2>
+                    </div>
+                    <div className="space-y-3">
+                      {pendingApprovals.map((approval) => (
+                        <div
+                          key={approval._id}
+                          className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-900/50"
+                        >
+                          <div className="text-sm font-medium text-gray-900 dark:text-white">
+                            {approval.requestType}
+                          </div>
+                          <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                            {new Date(approval.requestDate).toLocaleString(
+                              "pt-BR",
+                            )}
+                          </div>
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              onClick={() => {
+                                const notes =
+                                  window.prompt(
+                                    "Observações para aprovação (opcional):",
+                                  ) || undefined;
+                                approveApprovalMutation.mutate({
+                                  approvalId: approval._id,
+                                  notes,
+                                });
+                              }}
+                              className="px-3 py-2 text-xs bg-green-600 hover:bg-green-700 text-white rounded-md"
+                            >
+                              Aprovar
+                            </button>
+                            <button
+                              onClick={() => {
+                                const notes = window.prompt(
+                                  "Informe o motivo da rejeição:",
+                                );
+                                if (!notes) return;
+                                rejectApprovalMutation.mutate({
+                                  approvalId: approval._id,
+                                  notes,
+                                });
+                              }}
+                              className="px-3 py-2 text-xs bg-red-600 hover:bg-red-700 text-white rounded-md"
+                            >
+                              Rejeitar
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
               {/* Valores */}
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
                 <div className="flex items-center mb-4">
@@ -1233,7 +1260,6 @@ const RentalDetailPage: React.FC = () => {
                       </div>
                     ))}
                   </div>
-
                 </div>
               )}
             </div>
@@ -1422,7 +1448,9 @@ const RentalDetailPage: React.FC = () => {
                         onChange={(e) => {
                           const addressId = e.target.value;
                           setSelectedWorkAddressId(addressId);
-                          const addr = customerAddresses.find((a) => a._id === addressId);
+                          const addr = customerAddresses.find(
+                            (a) => a._id === addressId,
+                          );
                           if (!addr) return;
                           setEditForm({
                             ...editForm,
@@ -1452,7 +1480,9 @@ const RentalDetailPage: React.FC = () => {
                         {customerAddresses.map((address) => (
                           <option key={address._id} value={address._id}>
                             {address.type === "work"
-                              ? address.workName || address.addressName || "Obra"
+                              ? address.workName ||
+                                address.addressName ||
+                                "Obra"
                               : address.type === "main"
                                 ? "Principal"
                                 : address.type === "billing"
@@ -1673,7 +1703,9 @@ const RentalDetailPage: React.FC = () => {
                       work.neighborhood,
                       work.workId,
                     ];
-                    const hasWorkAddress = workValues.some((v) => (v || "").trim() !== "");
+                    const hasWorkAddress = workValues.some(
+                      (v) => (v || "").trim() !== "",
+                    );
 
                     if (hasWorkAddress) {
                       const missing = [];
@@ -1684,7 +1716,7 @@ const RentalDetailPage: React.FC = () => {
                       if (!work.zipCode.trim()) missing.push("CEP");
                       if (missing.length > 0) {
                         toast.error(
-                          `Preencha o endereço da obra: ${missing.join(", ")}.`
+                          `Preencha o endereço da obra: ${missing.join(", ")}.`,
                         );
                         return;
                       }
@@ -1693,7 +1725,10 @@ const RentalDetailPage: React.FC = () => {
                     const payload: {
                       notes?: string;
                       pricing?: { discount?: number };
-                      dates?: { pickupScheduled?: string; returnScheduled?: string };
+                      dates?: {
+                        pickupScheduled?: string;
+                        returnScheduled?: string;
+                      };
                       workAddress?: RentalWorkAddress;
                     } = {
                       notes: editForm.notes,
@@ -1849,7 +1884,10 @@ const RentalDetailPage: React.FC = () => {
                         type="date"
                         value={closeForm.returnDate}
                         onChange={(e) =>
-                          setCloseForm({ ...closeForm, returnDate: e.target.value })
+                          setCloseForm({
+                            ...closeForm,
+                            returnDate: e.target.value,
+                          })
                         }
                         className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
@@ -1862,7 +1900,10 @@ const RentalDetailPage: React.FC = () => {
                       <select
                         value={closeForm.rentalType}
                         onChange={(e) =>
-                          setCloseForm({ ...closeForm, rentalType: e.target.value })
+                          setCloseForm({
+                            ...closeForm,
+                            rentalType: e.target.value,
+                          })
                         }
                         className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       >
@@ -1970,8 +2011,8 @@ const RentalDetailPage: React.FC = () => {
 
                     {!isAdminUser && (
                       <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Como funcionário, esta finalização com ajustes será enviada
-                        para aprovação do administrador.
+                        Como funcionário, esta finalização com ajustes será
+                        enviada para aprovação do administrador.
                       </p>
                     )}
                   </div>

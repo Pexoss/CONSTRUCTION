@@ -1,10 +1,15 @@
-import { Document } from 'mongoose';
-import mongoose from 'mongoose';
+import { Document } from "mongoose";
+import mongoose from "mongoose";
 
-export type RentalStatus = 'reserved' | 'active' | 'overdue' | 'completed' | 'cancelled';
-export type RentalType = 'daily' | 'weekly' | 'biweekly' | 'monthly';
-export type BillingCycle = 'daily' | 'weekly' | 'biweekly' | 'monthly';
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+export type RentalStatus =
+  | "reserved"
+  | "active"
+  | "overdue"
+  | "completed"
+  | "cancelled";
+export type RentalType = "daily" | "weekly" | "biweekly" | "monthly";
+export type BillingCycle = "daily" | "weekly" | "biweekly" | "monthly";
+export type ApprovalStatus = "pending" | "approved" | "rejected";
 
 // NOVO: Interface para serviços adicionais
 export interface IRentalService {
@@ -16,10 +21,12 @@ export interface IRentalService {
   notes?: string;
 }
 
-export type UpdateRentalStatusResult = | IRental | {
-  requiresApproval: true;
-  currentStatus: RentalStatus;
-};
+export type UpdateRentalStatusResult =
+  | IRental
+  | {
+      requiresApproval: true;
+      currentStatus: RentalStatus;
+    };
 
 // NOVO: Interface para endereço da obra
 export interface IRentalWorkAddress {
@@ -76,7 +83,7 @@ export interface IRentalDates {
   returnActual?: Date;
 
   // NOVO: Datas de fechamento periódico
-  billingCycle?: BillingCycle;
+  billingCycle?: RentalType;
   lastBillingDate?: Date;
   nextBillingDate?: Date;
 }
@@ -142,7 +149,7 @@ export interface IRental extends Document {
 //Detalhes do item
 export interface RentalDetails {
   itemId: string;
-  status: 'available' | 'rented' | 'maintenance';
+  status: "available" | "rented" | "maintenance";
   rentedBy?: {
     customerId: string;
     name: string;
