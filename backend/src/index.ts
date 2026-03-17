@@ -25,6 +25,7 @@ import reportRoutes from "./modules/reports/report.routes";
 import billingRoutes from "./modules/billings/billing.routes";
 import notificationRoutes from "./modules/notification/notification.routes";
 import companyRoutes from "./modules/companies/company.routes";
+import employeRoutes from "./modules/employes/employes.routes";
 
 const app: Express = express();
 
@@ -137,6 +138,7 @@ app.use("/api", reportRoutes);
 app.use("/api/billings", billingRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/company", companyRoutes);
+app.use("/api/employees", employeRoutes);
 
 // 404 handler
 app.use((req, res) => {
