@@ -30,6 +30,7 @@ const RentalDetailPage: React.FC = () => {
     quinzenal: "biweekly",
     mensal: "monthly",
   };
+  
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();

@@ -91,11 +91,15 @@ const CreateRentalPage: React.FC = () => {
           // Mantém o fluxo mesmo se o PDF falhar
         }
       }
-      navigate("/rentals");
+      navigate("/rentals", {
+        state: {
+          newRentalId: response.data._id,
+          showSuccessModal: true,
+        },
+      });
     },
   });
 
-  // Calcula o preço estimado de um item considerando o tipo de aluguel
   // Calcula o preço estimado de um item considerando o tipo de aluguel e dias extras
   const calculatePrice = (
     item: Item,
@@ -361,7 +365,11 @@ const CreateRentalPage: React.FC = () => {
         (si.pickupDate && si.pickupDate < today) ||
         (si.returnDate && si.returnDate < today),
     );
-    if (hasRetroactive || (pickupDate && pickupDate < today) || (returnDate && returnDate < today)) {
+    if (
+      hasRetroactive ||
+      (pickupDate && pickupDate < today) ||
+      (returnDate && returnDate < today)
+    ) {
       const shouldContinue = window.confirm(
         "Você informou uma data anterior a hoje. Tem certeza de que deseja continuar?",
       );
@@ -410,7 +418,9 @@ const CreateRentalPage: React.FC = () => {
           quantity: si.quantity,
           rentalType: rentalTypeMapper[uiType],
           pickupScheduled: formatDateToISO(si.pickupDate as string),
-          returnScheduled: si.returnDate ? formatDateToISO(si.returnDate) : undefined,
+          returnScheduled: si.returnDate
+            ? formatDateToISO(si.returnDate)
+            : undefined,
         };
       }),
 
@@ -419,8 +429,12 @@ const CreateRentalPage: React.FC = () => {
       dates:
         pickupDate || returnDate
           ? {
-              pickupScheduled: pickupDate ? formatDateToISO(pickupDate) : undefined,
-              returnScheduled: returnDate ? formatDateToISO(returnDate) : undefined,
+              pickupScheduled: pickupDate
+                ? formatDateToISO(pickupDate)
+                : undefined,
+              returnScheduled: returnDate
+                ? formatDateToISO(returnDate)
+                : undefined,
             }
           : undefined,
       pricing: {

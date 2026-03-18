@@ -1,20 +1,32 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { rentalService } from './rental.service';
-import { RentalFilters, RentalStatus } from '../../types/rental.types';
-import Layout from '../../components/Layout';
+import React, { useState, useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { rentalService } from "./rental.service";
+import { RentalFilters, RentalStatus } from "../../types/rental.types";
+import { CheckCircle } from "lucide-react";
+import Layout from "../../components/Layout";
 
 const RentalsPage: React.FC = () => {
+  const location = useLocation();
   const [filters, setFilters] = useState<RentalFilters>({
     page: 1,
     limit: 20,
   });
-  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showModal, setShowModal] = useState(false);
+  const [newRentalId, setNewRentalId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (location.state?.showSuccessModal) {
+      setShowModal(true);
+      setNewRentalId(location.state.newRentalId);
+    }
+  }, [location.state]);
+  window.history.replaceState({}, document.title);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['rentals', filters],
+    queryKey: ["rentals", filters],
     queryFn: () => rentalService.getRentals(filters),
   });
 
@@ -24,22 +36,22 @@ const RentalsPage: React.FC = () => {
 
   const getStatusColor = (status: RentalStatus) => {
     const colors = {
-      reserved: 'bg-blue-100 text-blue-800',
-      active: 'bg-green-100 text-green-800',
-      overdue: 'bg-red-100 text-red-800',
-      completed: 'bg-gray-100 text-gray-800',
-      cancelled: 'bg-yellow-100 text-yellow-800',
+      reserved: "bg-blue-100 text-blue-800",
+      active: "bg-green-100 text-green-800",
+      overdue: "bg-red-100 text-red-800",
+      completed: "bg-gray-100 text-gray-800",
+      cancelled: "bg-yellow-100 text-yellow-800",
     };
     return colors[status];
   };
 
   const getStatusLabel = (status: RentalStatus) => {
     const labels = {
-      reserved: 'Reservado',
-      active: 'Ativo',
-      overdue: 'Atrasado',
-      completed: 'Finalizado',
-      cancelled: 'Cancelado',
+      reserved: "Reservado",
+      active: "Ativo",
+      overdue: "Atrasado",
+      completed: "Finalizado",
+      cancelled: "Cancelado",
     };
     return labels[status];
   };
@@ -47,8 +59,10 @@ const RentalsPage: React.FC = () => {
   const handleDownloadRentalPDF = async (rentalId: string) => {
     try {
       const blob = await rentalService.generateRentalPDF(rentalId);
-      const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-      const link = document.createElement('a');
+      const url = window.URL.createObjectURL(
+        new Blob([blob], { type: "application/pdf" }),
+      );
+      const link = document.createElement("a");
       link.href = url;
       link.download = `locacao-${rentalId}.pdf`;
       document.body.appendChild(link);
@@ -59,6 +73,20 @@ const RentalsPage: React.FC = () => {
       // silêncio para não quebrar o fluxo
     }
   };
+
+  const queryClient = useQueryClient();
+
+  const updateStatusMutation = useMutation({
+    mutationFn: (data: { rentalId: string; status: RentalStatus }) =>
+      rentalService.updateRentalStatus(data.rentalId, {
+        status: data.status,
+      }),
+
+    onSuccess: () => {
+      setShowModal(false);
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
+    },
+  });
 
   if (isLoading) {
     return (
@@ -74,7 +102,9 @@ const RentalsPage: React.FC = () => {
     return (
       <Layout title="Aluguéis e Reservas" backTo="/dashboard">
         <div className="bg-red-50 border border-red-200 rounded-md p-4">
-          <p className="text-red-800">Erro ao carregar aluguéis. Tente novamente.</p>
+          <p className="text-red-800">
+            Erro ao carregar aluguéis. Tente novamente.
+          </p>
         </div>
       </Layout>
     );
@@ -118,13 +148,14 @@ const RentalsPage: React.FC = () => {
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
         <div className="flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
           <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white">
-            {selectedDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+            {selectedDate.toLocaleDateString("pt-BR", {
+              month: "long",
+              year: "numeric",
+            })}
           </h2>
           <div className="flex gap-2 w-full sm:w-auto">
             <button
-              onClick={() =>
-                setSelectedDate(new Date(year, month - 1, 1))
-              }
+              onClick={() => setSelectedDate(new Date(year, month - 1, 1))}
               className="flex-1 sm:flex-none px-3 py-1.5 sm:py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             >
               ←
@@ -136,9 +167,7 @@ const RentalsPage: React.FC = () => {
               Hoje
             </button>
             <button
-              onClick={() =>
-                setSelectedDate(new Date(year, month + 1, 1))
-              }
+              onClick={() => setSelectedDate(new Date(year, month + 1, 1))}
               className="flex-1 sm:flex-none px-3 py-1.5 sm:py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             >
               →
@@ -147,15 +176,23 @@ const RentalsPage: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-7 gap-1 sm:gap-2">
-          {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((day) => (
-            <div key={day} className="text-center text-xs sm:text-sm font-semibold text-gray-700 dark:text-gray-300 py-2">
+          {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((day) => (
+            <div
+              key={day}
+              className="text-center text-xs sm:text-sm font-semibold text-gray-700 dark:text-gray-300 py-2"
+            >
               <span className="hidden sm:inline">{day}</span>
               <span className="sm:hidden">{day.charAt(0)}</span>
             </div>
           ))}
           {days.map((date, index) => {
             if (!date) {
-              return <div key={index} className="h-20 sm:h-24 border border-gray-200 dark:border-gray-700 rounded-lg"></div>;
+              return (
+                <div
+                  key={index}
+                  className="h-20 sm:h-24 border border-gray-200 dark:border-gray-700 rounded-lg"
+                ></div>
+              );
             }
             const dateStr = date.toDateString();
             const dayRentals = rentalsByDate[dateStr] || [];
@@ -164,10 +201,15 @@ const RentalsPage: React.FC = () => {
             return (
               <div
                 key={index}
-                className={`h-20 sm:h-24 border rounded-lg p-1 sm:p-2 ${isToday ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700' : 'border-gray-200 dark:border-gray-700'
-                  }`}
+                className={`h-20 sm:h-24 border rounded-lg p-1 sm:p-2 ${
+                  isToday
+                    ? "bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700"
+                    : "border-gray-200 dark:border-gray-700"
+                }`}
               >
-                <div className="text-xs sm:text-sm font-medium mb-1">{date.getDate()}</div>
+                <div className="text-xs sm:text-sm font-medium mb-1">
+                  {date.getDate()}
+                </div>
                 <div className="space-y-0.5 sm:space-y-1 overflow-hidden">
                   {dayRentals.slice(0, 2).map((rental) => (
                     <div
@@ -179,7 +221,9 @@ const RentalsPage: React.FC = () => {
                     </div>
                   ))}
                   {dayRentals.length > 2 && (
-                    <div className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">+{dayRentals.length - 2}</div>
+                    <div className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">
+                      +{dayRentals.length - 2}
+                    </div>
                   )}
                 </div>
               </div>
@@ -198,8 +242,12 @@ const RentalsPage: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Aluguéis e Reservas</h1>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Gerenciar aluguéis e reservas</p>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+                Aluguéis e Reservas
+              </h1>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                Gerenciar aluguéis e reservas
+              </p>
             </div>
             <Link
               to="/rentals/new"
@@ -217,27 +265,31 @@ const RentalsPage: React.FC = () => {
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
             <div className="flex gap-2">
               <button
-                onClick={() => setViewMode('list')}
-                className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${viewMode === 'list'
-                  ? 'bg-gray-800 dark:bg-gray-700 text-white focus:ring-gray-500 dark:focus:ring-gray-400'
-                  : 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:ring-gray-400 dark:focus:ring-gray-500'
-                  } active:scale-95`}
+                onClick={() => setViewMode("list")}
+                className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  viewMode === "list"
+                    ? "bg-gray-800 dark:bg-gray-700 text-white focus:ring-gray-500 dark:focus:ring-gray-400"
+                    : "border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:ring-gray-400 dark:focus:ring-gray-500"
+                } active:scale-95`}
               >
                 Lista
               </button>
               <button
-                onClick={() => setViewMode('calendar')}
-                className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${viewMode === 'calendar'
-                  ? 'bg-gray-800 dark:bg-gray-700 text-white focus:ring-gray-500 dark:focus:ring-gray-400'
-                  : 'border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:ring-gray-400 dark:focus:ring-gray-500'
-                  } active:scale-95`}
+                onClick={() => setViewMode("calendar")}
+                className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  viewMode === "calendar"
+                    ? "bg-gray-800 dark:bg-gray-700 text-white focus:ring-gray-500 dark:focus:ring-gray-400"
+                    : "border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 focus:ring-gray-400 dark:focus:ring-gray-500"
+                } active:scale-95`}
               >
                 Calendário
               </button>
             </div>
             <select
-              value={filters.status || ''}
-              onChange={(e) => handleFilterChange('status', e.target.value || undefined)}
+              value={filters.status || ""}
+              onChange={(e) =>
+                handleFilterChange("status", e.target.value || undefined)
+              }
               className="w-full sm:w-auto border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 dark:focus:border-gray-500"
             >
               <option value="">Todos os status</option>
@@ -253,7 +305,7 @@ const RentalsPage: React.FC = () => {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 mt-4 sm:mt-6 pb-6">
-        {viewMode === 'calendar' ? (
+        {viewMode === "calendar" ? (
           renderCalendarView()
         ) : (
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -289,25 +341,33 @@ const RentalsPage: React.FC = () => {
                   <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                     {rentals.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 sm:px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                        <td
+                          colSpan={7}
+                          className="px-4 sm:px-6 py-8 text-center text-gray-500 dark:text-gray-400"
+                        >
                           Nenhum aluguel encontrado
                         </td>
                       </tr>
                     ) : (
                       rentals.map((rental) => {
                         const customer =
-                          typeof rental.customerId === 'object'
+                          typeof rental.customerId === "object"
                             ? rental.customerId
-                            : { name: 'Cliente' };
+                            : { name: "Cliente" };
                         return (
-                          <tr key={rental._id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                          <tr
+                            key={rental._id}
+                            className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                          >
                             <td className="px-4 py-4 whitespace-nowrap">
                               <div className="text-sm font-medium text-gray-900 dark:text-white">
                                 {rental.rentalNumber}
                               </div>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
-                              <div className="text-sm text-gray-900 dark:text-white">{customer.name}</div>
+                              <div className="text-sm text-gray-900 dark:text-white">
+                                {customer.name}
+                              </div>
                             </td>
                             <td className="px-4 py-4">
                               <div className="text-sm text-gray-500 dark:text-gray-300">
@@ -316,8 +376,13 @@ const RentalsPage: React.FC = () => {
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
                               <div className="text-sm text-gray-600 dark:text-gray-300">
-                                {new Date(rental.dates.pickupScheduled).toLocaleDateString('pt-BR')} -{' '}
-                                {new Date(rental.dates.returnScheduled).toLocaleDateString('pt-BR')}
+                                {new Date(
+                                  rental.dates.pickupScheduled,
+                                ).toLocaleDateString("pt-BR")}{" "}
+                                -{" "}
+                                {new Date(
+                                  rental.dates.returnScheduled,
+                                ).toLocaleDateString("pt-BR")}
                               </div>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
@@ -328,7 +393,7 @@ const RentalsPage: React.FC = () => {
                             <td className="px-4 py-4 whitespace-nowrap">
                               <span
                                 className={`px-3 py-1 inline-flex text-xs leading-5 font-medium rounded-full border ${getStatusColor(
-                                  rental.status
+                                  rental.status,
                                 )}`}
                               >
                                 {getStatusLabel(rental.status)}
@@ -338,7 +403,9 @@ const RentalsPage: React.FC = () => {
                               <div className="flex justify-end gap-3">
                                 <button
                                   type="button"
-                                  onClick={() => handleDownloadRentalPDF(rental._id)}
+                                  onClick={() =>
+                                    handleDownloadRentalPDF(rental._id)
+                                  }
                                   className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
                                 >
                                   Baixar PDF
@@ -363,24 +430,28 @@ const RentalsPage: React.FC = () => {
         )}
 
         {/* Pagination */}
-        {viewMode === 'list' && pagination && pagination.totalPages > 1 && (
+        {viewMode === "list" && pagination && pagination.totalPages > 1 && (
           <div className="mt-4 sm:mt-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
               <div className="text-sm text-gray-600 dark:text-gray-400 text-center sm:text-left">
-                Mostrando {((pagination.page - 1) * pagination.limit) + 1} a{' '}
-                {Math.min(pagination.page * pagination.limit, pagination.total)} de {pagination.total}{' '}
-                aluguéis
+                Mostrando {(pagination.page - 1) * pagination.limit + 1} a{" "}
+                {Math.min(pagination.page * pagination.limit, pagination.total)}{" "}
+                de {pagination.total} aluguéis
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => setFilters((prev) => ({ ...prev, page: prev.page! - 1 }))}
+                  onClick={() =>
+                    setFilters((prev) => ({ ...prev, page: prev.page! - 1 }))
+                  }
                   disabled={pagination.page === 1}
                   className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:bg-gray-100 dark:active:bg-gray-500"
                 >
                   Anterior
                 </button>
                 <button
-                  onClick={() => setFilters((prev) => ({ ...prev, page: prev.page! + 1 }))}
+                  onClick={() =>
+                    setFilters((prev) => ({ ...prev, page: prev.page! + 1 }))
+                  }
                   disabled={pagination.page >= pagination.totalPages}
                   className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:bg-gray-100 dark:active:bg-gray-500"
                 >
@@ -391,6 +462,72 @@ const RentalsPage: React.FC = () => {
           </div>
         )}
       </div>
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md relative shadow-lg">
+            {/* ❌ Botão fechar (ícone) */}
+            <button
+              onClick={() => setShowModal(false)}
+              className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 dark:hover:text-white text-lg"
+            >
+              ✕
+            </button>
+
+            <div className="flex flex-col items-center text-center">
+              <div className="bg-green-100 dark:bg-green-900/30 p-3 rounded-full mb-2">
+                <span className="text-green-600 text-xl">✓</span>
+              </div>
+
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                Aluguel criado com sucesso
+              </h2>
+            </div>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              O aluguel foi criado com status <strong>Reservado</strong>. Se
+              tudo estiver correto, você já pode deixá-lo como <strong>ativo</strong>.
+            </p>
+
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+              O recibo foi gerado automaticamente.{" "}
+              <button
+                onClick={() => handleDownloadRentalPDF(newRentalId!)}
+                className="text-indigo-600 hover:underline font-medium"
+              >
+                Clique aqui para baixar novamente
+              </button>
+            </p>
+
+            {/*Ações */}
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                onClick={() =>
+                  updateStatusMutation.mutate({
+                    rentalId: newRentalId!,
+                    status: "active" as RentalStatus,
+                  })
+                }
+                disabled={updateStatusMutation.isPending}
+                className={`w-full py-2 rounded-md text-white font-medium transition ${
+                  updateStatusMutation.isPending
+                    ? "bg-green-400 cursor-not-allowed"
+                    : "bg-green-600 hover:bg-green-700"
+                }`}
+              >
+                {updateStatusMutation.isPending
+                  ? "Ativando..."
+                  : "Ativar aluguel"}
+              </button>
+
+              <button
+                onClick={() => setShowModal(false)}
+                className="w-full border border-gray-300 dark:border-gray-600 py-2 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                Depois eu faço isso
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 };
