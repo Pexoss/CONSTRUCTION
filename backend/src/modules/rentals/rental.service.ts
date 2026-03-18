@@ -520,14 +520,14 @@ class RentalService {
       throw new Error("Aluguel já finalizado");
     }
 
-    // 🔥 Datas reais
+    //Datas reais
     const pickupDate =
       rental.dates.pickupActual || rental.dates.pickupScheduled;
     const returnDate = new Date();
 
     rental.dates.returnActual = returnDate;
 
-    // 🔥 Dias utilizados
+    //Dias utilizados
     const diffTime = returnDate.getTime() - pickupDate.getTime();
 
     const usedDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
@@ -535,7 +535,7 @@ class RentalService {
     let equipmentSubtotal = 0;
     let totalDeposit = 0;
 
-    // 🔥 Calcular por item
+    //Calcular por item
     for (const item of rental.items) {
       const inventoryItem = await Item.findById(item.itemId);
 
@@ -574,7 +574,7 @@ class RentalService {
       const deposit =
         (inventoryItem.pricing.depositAmount || 0) * item.quantity;
 
-      // 🔥 Atualiza item
+      //Atualiza item
       item.unitPrice = unitPrice;
       item.subtotal = subtotal;
 
@@ -582,17 +582,17 @@ class RentalService {
       totalDeposit += deposit;
     }
 
-    // 🔥 Serviços
+    //Serviços
     const servicesSubtotal =
       rental.services?.reduce((acc, s) => acc + s.subtotal, 0) || 0;
 
     const discount = rental.pricing.discount || 0;
     const lateFee = 0;
 
-    // 🔥 Total final
+    //Total final
     const total = equipmentSubtotal + servicesSubtotal - discount + lateFee;
 
-    // 🔥 Atualiza pricing
+    //Atualiza pricing
     rental.pricing.equipmentSubtotal = equipmentSubtotal;
     rental.pricing.originalEquipmentSubtotal = equipmentSubtotal;
     rental.pricing.servicesSubtotal = servicesSubtotal;
