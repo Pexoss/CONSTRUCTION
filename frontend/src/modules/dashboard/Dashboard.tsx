@@ -154,7 +154,7 @@ const Dashboard: React.FC = () => {
                 <div className="flex gap-4 mt-6">
                   {/* Aluguéis ativos */}
                   <Link
-                    to="/billings"
+                    to="/rentals"
                     className="
             flex items-center gap-3
             bg-white/80
@@ -192,6 +192,20 @@ const Dashboard: React.FC = () => {
                   </Link>
 
                   {/* Vencimentos */}
+                  <Link
+                    to="/billings"
+                    className="
+            flex items-center gap-3
+            bg-white/80
+            backdrop-blur-sm
+            px-5 py-3
+            rounded-lg
+            border border-blue-100
+            shadow-sm
+            hover:bg-white
+            transition-colors
+          "
+                  >
                   <div
                     className="
             flex items-center gap-3
@@ -227,12 +241,13 @@ const Dashboard: React.FC = () => {
                         Vencimentos próximos
                       </p>
                     </div>
-                  </div>
+                    </div>
+                  </Link>
                 </div>
               </div>
 
               <Link
-                to="/rentals"
+                to="/rentals/new"
                 className="
         bg-blue-600 text-white
         px-6 py-3
@@ -246,7 +261,7 @@ const Dashboard: React.FC = () => {
         self-start lg:self-center
       "
               >
-                <span>Acessar aluguéis</span>
+                <span>Novo aluguel</span>
                 <svg
                   className="w-4 h-4 group-hover:translate-x-1 transition-transform"
                   fill="none"
