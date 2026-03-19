@@ -82,10 +82,11 @@ const Dashboard: React.FC = () => {
         },
 
         {
-          title: "Relatórios",
-          description: "Análises e métricas da operação",
-          to: "/reports",
+          title: "Vencimentos",
+          description: "Contratos vencidos e a vencer",
+          to: "/rentals/expiration-dashboard",
         },
+
         {
           title: "Equipe",
           description: "Gerencie funcionários e permissões",
@@ -101,6 +102,37 @@ const Dashboard: React.FC = () => {
           title: "Administração",
           description: "Configurações do sistema",
           to: "/admin",
+        },
+      ],
+    },
+
+    {
+      title: "Análise e Controle",
+      cards: [
+        {
+          title: "Relatórios",
+          description: "Análises e métricas da operação",
+          to: "/reports",
+        },
+        {
+          title: "Faturas",
+          description: "Gerenciar faturas e contratos",
+          to: "/invoices",
+          icon: (
+            <svg
+              className="h-6 w-6 text-gray-800 dark:text-gray-200"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
+            </svg>
+          ),
         },
       ],
     },
@@ -296,6 +328,22 @@ const Dashboard: React.FC = () => {
 
                 if (
                   card.title === "Relatórios" &&
+                  user?.role !== "admin" &&
+                  user?.role !== "superadmin"
+                ) {
+                  return false;
+                }
+
+                if (
+                  card.title === "Vencimentos" &&
+                  user?.role !== "admin" &&
+                  user?.role !== "superadmin"
+                ) {
+                  return false;
+                }
+
+                if (
+                  card.title === "Faturas" &&
                   user?.role !== "admin" &&
                   user?.role !== "superadmin"
                 ) {

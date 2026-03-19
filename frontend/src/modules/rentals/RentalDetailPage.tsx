@@ -30,7 +30,7 @@ const RentalDetailPage: React.FC = () => {
     quinzenal: "biweekly",
     mensal: "monthly",
   };
-  
+
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -49,7 +49,7 @@ const RentalDetailPage: React.FC = () => {
     conditions: {},
     notes: "",
   });
-
+  const [showRecalculateModal, setShowRecalculateModal] = useState(false);
   const [modalFinalizarAluguel, setModalFinalizarAluguel] = useState(false);
   const [newStatusAluguel, setNewStatusAluguel] = useState<RentalStatus | null>(
     null,
@@ -197,6 +197,22 @@ const RentalDetailPage: React.FC = () => {
       }
 
       // status alterado de verdade
+      queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+    },
+  });
+
+  const closeRentalMutation = useMutation({
+    mutationFn: () => rentalService.closeRental(id!),
+
+    onSuccess: () => {
+      setShowStatusModal(false);
+      setServerError(null);
+      setModalFinalizarAluguel(false);
+      setClosePreview(null);
+
       queryClient.invalidateQueries({ queryKey: ["rental", id] });
       queryClient.invalidateQueries({ queryKey: ["rentals"] });
       queryClient.invalidateQueries({ queryKey: ["items"] });
@@ -395,9 +411,7 @@ const RentalDetailPage: React.FC = () => {
       itemId: typeof item.itemId === "string" ? item.itemId : item.itemId._id,
       unitId: item.unitId,
       name:
-        typeof item.itemId === "object"
-          ? item.itemId.name || "Item"
-          : "Item",
+        typeof item.itemId === "object" ? item.itemId.name || "Item" : "Item",
     });
     setCloseItemReturnDate(new Date().toISOString().split("T")[0]);
     setCloseItemLoading(true);
@@ -510,6 +524,8 @@ const RentalDetailPage: React.FC = () => {
   const customer =
     typeof rental.customerId === "object" ? rental.customerId : null;
   const customerAddresses = customer?.addresses ?? [];
+
+  const allReturned = rental.items.every((item) => item.returnActual);
 
   const billings = (billingsData?.data?.billings || []) as Billing[];
   const getBillingItemName = (item: any) => {
@@ -630,8 +646,7 @@ const RentalDetailPage: React.FC = () => {
                                   const updated = [...editForm.items];
                                   updated[index] = {
                                     ...updated[index],
-                                    rentalType: e.target
-                                      .value as RentalTypeUI,
+                                    rentalType: e.target.value as RentalTypeUI,
                                   };
                                   setEditForm({
                                     ...editForm,
@@ -1139,7 +1154,11 @@ const RentalDetailPage: React.FC = () => {
                         itemId: string;
                         unitId?: string;
                         quantity?: number;
-                        rentalType?: "daily" | "weekly" | "biweekly" | "monthly";
+                        rentalType?:
+                          | "daily"
+                          | "weekly"
+                          | "biweekly"
+                          | "monthly";
                         pickupScheduled?: string;
                         returnScheduled?: string;
                       }>;
@@ -1225,6 +1244,14 @@ const RentalDetailPage: React.FC = () => {
           message="Sua Solicitação Foi Enviada Com Sucesso!"
           description="Os administradores vão cuidar disso."
         />
+      )}
+      {allReturned && rental.status !== "completed" && (
+        <button
+          onClick={confirmarFinalizacao}
+          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md"
+        >
+          Finalizar aluguel
+        </button>
       )}
 
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
@@ -1561,26 +1588,26 @@ const RentalDetailPage: React.FC = () => {
                           <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                             Tipo: {item.rentalType || "daily"} • Retirada:{" "}
                             {item.pickupScheduled
-                              ? new Date(item.pickupScheduled).toLocaleDateString(
-                                  "pt-BR",
-                                )
+                              ? new Date(
+                                  item.pickupScheduled,
+                                ).toLocaleDateString("pt-BR")
                               : "-"}{" "}
                             • Devolução:{" "}
                             {item.returnScheduled
-                              ? new Date(item.returnScheduled).toLocaleDateString(
-                                  "pt-BR",
-                                )
+                              ? new Date(
+                                  item.returnScheduled,
+                                ).toLocaleDateString("pt-BR")
                               : "-"}
                           </div>
-                        {!item.returnActual && (
-                          <button
-                            type="button"
-                            onClick={() => handleAbrirFinalizacaoItem(item)}
-                            className="mt-2 inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
-                          >
-                            Finalizar entrega deste item
-                          </button>
-                        )}
+                          {!item.returnActual && (
+                            <button
+                              type="button"
+                              onClick={() => handleAbrirFinalizacaoItem(item)}
+                              className="mt-2 inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                            >
+                              Finalizar entrega deste item
+                            </button>
+                          )}
                         </div>
                         <div className="text-right">
                           <div className="font-semibold text-gray-900 dark:text-white">
@@ -2230,8 +2257,7 @@ const RentalDetailPage: React.FC = () => {
                                   const updated = [...editForm.items];
                                   updated[index] = {
                                     ...updated[index],
-                                    rentalType: e.target
-                                      .value as RentalTypeUI,
+                                    rentalType: e.target.value as RentalTypeUI,
                                   };
                                   setEditForm({
                                     ...editForm,
@@ -2761,7 +2787,11 @@ const RentalDetailPage: React.FC = () => {
                         itemId: string;
                         unitId?: string;
                         quantity?: number;
-                        rentalType?: "daily" | "weekly" | "biweekly" | "monthly";
+                        rentalType?:
+                          | "daily"
+                          | "weekly"
+                          | "biweekly"
+                          | "monthly";
                         pickupScheduled?: string;
                         returnScheduled?: string;
                       }>;
@@ -3182,16 +3212,24 @@ const RentalDetailPage: React.FC = () => {
                   onClick={async () => {
                     if (!selectedCloseItem || !id) return;
                     try {
-                      await rentalService.closeRentalItem(id, selectedCloseItem.itemId, {
-                        returnDate: closeItemReturnDate
-                          ? new Date(closeItemReturnDate).toISOString()
-                          : undefined,
-                        unitId: selectedCloseItem.unitId,
-                      });
+                      await rentalService.closeRentalItem(
+                        id,
+                        selectedCloseItem.itemId,
+                        {
+                          returnDate: closeItemReturnDate
+                            ? new Date(closeItemReturnDate).toISOString()
+                            : undefined,
+                          unitId: selectedCloseItem.unitId,
+                        },
+                      );
                       setCloseItemModal(false);
-                      queryClient.invalidateQueries({ queryKey: ["rental", id] });
+                      queryClient.invalidateQueries({
+                        queryKey: ["rental", id],
+                      });
                       queryClient.invalidateQueries({ queryKey: ["rentals"] });
-                      queryClient.invalidateQueries({ queryKey: ["rental-billings", id] });
+                      queryClient.invalidateQueries({
+                        queryKey: ["rental-billings", id],
+                      });
                       toast.success("Entrega do item finalizada.");
                     } catch {
                       toast.error("Erro ao finalizar entrega do item.");

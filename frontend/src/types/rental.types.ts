@@ -1,7 +1,7 @@
 import { Item } from './inventory.types';
 import { Customer } from './customer.types';
 
-export type RentalStatus = 'reserved' | 'active' | 'overdue' | 'completed' | 'cancelled';
+export type RentalStatus = 'reserved' | 'active' | 'overdue' | 'completed' | 'cancelled' ;
 export type BillingCycle = 'daily' | 'weekly' | 'biweekly' | 'monthly';
 
 // O que o usuário vê na UI

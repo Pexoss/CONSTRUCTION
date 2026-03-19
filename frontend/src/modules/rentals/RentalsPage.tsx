@@ -465,7 +465,7 @@ const RentalsPage: React.FC = () => {
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md relative shadow-lg">
-            {/* ❌ Botão fechar (ícone) */}
+            {/*Botão fechar*/}
             <button
               onClick={() => setShowModal(false)}
               className="absolute top-3 right-3 text-gray-500 hover:text-gray-800 dark:hover:text-white text-lg"
