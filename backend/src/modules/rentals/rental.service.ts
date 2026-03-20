@@ -28,6 +28,8 @@ import billingService from "../billings/billing.service";
 import { Billing } from "../billings/billing.model";
 import { NOTFOUND } from "dns";
 import PDFDocument from "pdfkit";
+import { Invoice } from "../invoices/invoice.model";
+import { invoiceService } from "../invoices/invoice.service";
 class RentalService {
   private getPeriodLengthDays(rentalType: RentalType): number {
     const periodDays: Record<RentalType, number> = {
@@ -1365,7 +1367,6 @@ class RentalService {
       ).toFixed(2),
     );
   }
-
   private async applyStatusChangeDirect(
     rental: IRental,
     oldStatus: RentalStatus,
@@ -1383,6 +1384,14 @@ class RentalService {
       };
     },
   ): Promise<void> {
+    console.log("STATUS FLOW:", oldStatus, "→", newStatus);
+
+    // 🔒 Proteção contra execução duplicada ou inválida
+    if (oldStatus === newStatus) {
+      console.warn("⚠️ Tentativa de mudança de status redundante");
+      return;
+    }
+
     rental.status = newStatus;
 
     /**
@@ -1395,6 +1404,7 @@ class RentalService {
         const basePickup = this.normalizeDate(rental.dates.pickupScheduled);
         rental.dates.lastBillingDate = this.addDays(basePickup, -1);
       }
+
       if (
         !rental.dates.nextBillingDate &&
         rental.dates.billingCycle &&
@@ -1408,6 +1418,19 @@ class RentalService {
       }
 
       for (const item of rental.items) {
+        const itemDoc = await Item.findOne({ _id: item.itemId, companyId });
+        const unit = itemDoc?.units?.find((u) => u.unitId === item.unitId);
+
+        // 🔒 Proteção contra estado já alterado
+        if (unit?.status === "rented") {
+          console.warn(`⚠️ Unit ${item.unitId} já está rented`);
+          continue;
+        }
+
+        if (unit?.status !== "reserved") {
+          throw new Error(`Unit ${item.unitId} não está reservada`);
+        }
+
         await this.updateItemQuantityForRental(
           companyId,
           item.itemId,
@@ -1432,23 +1455,26 @@ class RentalService {
         this.calculateFinalPricing(rental, adjustments?.returnDate);
 
       rental.dates.returnActual = returnDate;
+
       for (const item of rental.items) {
         if (!item.returnActual) {
           item.returnActual = returnDate;
         }
       }
 
-      // guarda histórico financeiro
       rental.pricing.originalEquipmentSubtotal =
         rental.pricing.equipmentSubtotal;
+
       rental.pricing.equipmentSubtotal = Number(
         recalculatedEquipmentSubtotal.toFixed(2),
       );
+
       rental.pricing.subtotal = Number(
         (
           rental.pricing.equipmentSubtotal + rental.pricing.servicesSubtotal
         ).toFixed(2),
       );
+
       rental.pricing.total = Number(
         (
           rental.pricing.subtotal +
@@ -1457,19 +1483,24 @@ class RentalService {
           rental.pricing.lateFee
         ).toFixed(2),
       );
+
       rental.pricing.usedDays = usedDays;
 
       if (adjustments?.pricingOverride) {
         const override = adjustments.pricingOverride;
+
         if (override.equipmentSubtotal !== undefined) {
           rental.pricing.equipmentSubtotal = override.equipmentSubtotal;
         }
+
         if (override.servicesSubtotal !== undefined) {
           rental.pricing.servicesSubtotal = override.servicesSubtotal;
         }
+
         if (override.discount !== undefined) {
           rental.pricing.discount = override.discount;
         }
+
         if (override.lateFee !== undefined) {
           rental.pricing.lateFee = override.lateFee;
         }
@@ -1494,6 +1525,21 @@ class RentalService {
       }
 
       for (const item of rental.items) {
+        const itemDoc = await Item.findOne({ _id: item.itemId, companyId });
+        const unit = itemDoc?.units?.find((u) => u.unitId === item.unitId);
+
+        // 🔒 Proteção contra retorno indevido
+        if (unit?.status === "reserved") {
+          console.warn(
+            `⚠️ Tentativa de retorno com unit ainda reservada: ${item.unitId}`,
+          );
+          continue;
+        }
+
+        if (unit?.status !== "rented") {
+          throw new Error(`Unit ${item.unitId} não está alugada`);
+        }
+
         await this.updateItemQuantityForRental(
           companyId,
           item.itemId,
@@ -1702,6 +1748,30 @@ class RentalService {
       };
     }
 
+    await this.applyStatusChangeDirect(
+      rental,
+      oldStatus,
+      status,
+      companyId,
+      userId,
+      adjustments,
+    );
+
+    if (status === "active" && oldStatus !== "active") {
+      const existingInvoice = await Invoice.findOne({
+        rentalId: rental._id,
+        companyId,
+      });
+
+      if (!existingInvoice) {
+        await invoiceService.createInvoiceFromRental(
+          companyId,
+          rental._id.toString(),
+          userId,
+        );
+      }
+    }
+
     if (status === "completed") {
       await this.processDueBillings(companyId, rentalId, userId);
     }
@@ -1713,15 +1783,6 @@ class RentalService {
       rental.dates.billingCycle = adjustments.rentalType;
       await this.recalcPricingForRental(rental, companyId);
     }
-
-    await this.applyStatusChangeDirect(
-      rental,
-      oldStatus,
-      status,
-      companyId,
-      userId,
-      adjustments,
-    );
 
     if (status === "completed") {
       await this.createFinalBillingIfNeeded(rental, userId);
@@ -2339,9 +2400,6 @@ class RentalService {
     };
   }
 
-  /**
-   * Helper method to update item quantities based on rental actions
-   */
   private async updateItemQuantityForRental(
     companyId: string,
     itemId: mongoose.Types.ObjectId,
@@ -2358,12 +2416,14 @@ class RentalService {
       throw new Error("Item not found");
     }
 
+    console.log("🔥 ACTION:", action, "UNIT:", unitId);
+
     // =========================
     // ITEM UNITÁRIO
     // =========================
     if (item.trackingType === "unit") {
       if (!unitId) {
-        console.warn("Unit action without unitId", { itemId, rentalId });
+        console.warn("⚠️ Unit action without unitId", { itemId, rentalId });
         return;
       }
 
@@ -2372,52 +2432,72 @@ class RentalService {
         throw new Error("Unit not found");
       }
 
+      console.log("📦 STATUS ATUAL:", unit.status);
+
       switch (action) {
         case "reserve":
+          if (unit.status === "reserved") return; // idempotente
+
           if (unit.status !== "available") {
             throw new Error(`Unit ${unit.unitId} is not available`);
           }
+
           unit.status = "reserved";
           unit.currentRental = rentalId;
           unit.currentCustomer = customerId
             ? new mongoose.Types.ObjectId(customerId)
             : undefined;
-
-          // Atualiza quantity também
-          item.quantity.available -= 1;
-          item.quantity.reserved += 1;
           break;
 
         case "activate":
+          if (unit.status === "rented") return; // idempotente
+
           if (unit.status !== "reserved") {
             throw new Error(`Unit ${unit.unitId} is not reserved`);
           }
-          unit.status = "rented";
 
-          item.quantity.reserved -= 1;
-          item.quantity.rented += 1;
+          unit.status = "rented";
           break;
 
         case "return":
+          //proteção forte
+          if (unit.status === "available") return;
+
+          if (unit.status === "reserved") {
+            console.warn(
+              `Tentativa de return em unit ainda reservada: ${unit.unitId}`,
+            );
+            return;
+          }
+
+          if (unit.status !== "rented") {
+            throw new Error(`Unit ${unit.unitId} is not rented`);
+          }
+
           unit.status = "available";
           unit.currentRental = undefined;
           unit.currentCustomer = undefined;
-
-          item.quantity.rented -= 1;
-          item.quantity.available += 1;
           break;
 
         case "cancel":
+          if (unit.status === "available") return;
+
+          if (unit.status !== "reserved") {
+            console.warn(
+              `Cancel ignorado - unit não está reservada: ${unit.unitId}`,
+            );
+            return;
+          }
+
           unit.status = "available";
           unit.currentRental = undefined;
           unit.currentCustomer = undefined;
-
-          item.quantity.reserved -= 1;
-          item.quantity.available += 1;
           break;
       }
 
-      // RECALCULA ESTOQUE PELOS STATUS DAS UNITS
+      // =========================
+      // RECÁLCULO BASEADO NAS UNITS (FONTE DA VERDADE)
+      // =========================
       const units = item.units ?? [];
 
       item.quantity.total = units.length;
@@ -2426,7 +2506,7 @@ class RentalService {
       ).length;
       item.quantity.reserved = units.filter(
         (u) => u.status === "reserved",
-      ).length; // <-- aqui
+      ).length;
       item.quantity.rented = units.filter((u) => u.status === "rented").length;
       item.quantity.maintenance = units.filter(
         (u) => u.status === "maintenance",
@@ -2472,10 +2552,16 @@ class RentalService {
         break;
 
       case "cancel":
+        item.quantity.reserved -= quantity;
+        item.quantity.available += quantity;
         break;
     }
 
-    if (item.quantity.available < 0 || item.quantity.rented < 0) {
+    if (
+      item.quantity.available < 0 ||
+      item.quantity.rented < 0 ||
+      item.quantity.reserved < 0
+    ) {
       throw new Error("Invalid quantity operation");
     }
 
@@ -2493,7 +2579,6 @@ class RentalService {
       createdBy: new mongoose.Types.ObjectId(userId),
     });
   }
-
   /**
    * NOVO: Solicitar aprovação para alteração no aluguel
    */

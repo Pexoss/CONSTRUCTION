@@ -44,6 +44,7 @@ import CompanySettingsPage from "./modules/company/CompanySettingsPage";
 import Employees from "modules/employe/Employes";
 import EditEmploye from "modules/employe/EditEmploye";
 import ViewEmployeePage from "modules/employe/EmployeViewer";
+import InvoiceDetails from "modules/invoices/invoiceDetails";
 
 import "./App.css";
 
@@ -248,6 +249,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <InvoicesPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/invoiceDetails/:id"
+                element={
+                  <ProtectedRoute>
+                    <InvoiceDetails />
                   </ProtectedRoute>
                 }
               />

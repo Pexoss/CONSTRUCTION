@@ -5,6 +5,7 @@ import { rentalService } from "./rental.service";
 import { RentalFilters, RentalStatus } from "../../types/rental.types";
 import { CheckCircle } from "lucide-react";
 import Layout from "../../components/Layout";
+import { invoiceService } from "modules/invoices/invoice.service";
 
 const RentalsPage: React.FC = () => {
   const location = useLocation();
@@ -75,6 +76,8 @@ const RentalsPage: React.FC = () => {
   };
 
   const queryClient = useQueryClient();
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceRental, setInvoiceRental] = useState<any>(null);
 
   const updateStatusMutation = useMutation({
     mutationFn: (data: { rentalId: string; status: RentalStatus }) =>
@@ -82,9 +85,28 @@ const RentalsPage: React.FC = () => {
         status: data.status,
       }),
 
-    onSuccess: () => {
+    onSuccess: async (_, variables) => {
       setShowModal(false);
       queryClient.invalidateQueries({ queryKey: ["rentals"] });
+
+      if (variables.status === "active") {
+        try {
+          //busca fatura recem criada
+          const response = await invoiceService.getInvoices({
+            rentalId: variables.rentalId,
+            limit: 1,
+          });
+
+          const invoice = response.data?.[0];
+
+          if (invoice) {
+            setInvoiceRental(invoice);
+            setShowInvoiceModal(true);
+          }
+        } catch (err) {
+          console.error("Erro ao buscar fatura:", err);
+        }
+      }
     },
   });
 
@@ -400,21 +422,67 @@ const RentalsPage: React.FC = () => {
                               </span>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                              <div className="flex justify-end gap-3">
+                              <div className="flex justify-end items-center gap-2">
+                                {/* PDF */}
                                 <button
                                   type="button"
                                   onClick={() =>
                                     handleDownloadRentalPDF(rental._id)
                                   }
-                                  className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
+                                  className="relative group p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
                                 >
-                                  Baixar PDF
+                                  {/* Ícone download */}
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M12 3v12m0 0l-4-4m4 4l4-4m-9 8h10"
+                                    />
+                                  </svg>
+
+                                  {/* Tooltip */}
+                                  <span className="absolute bottom-full mb-2 hidden group-hover:block bg-gray-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                                    Baixar PDF
+                                  </span>
                                 </button>
+
+                                {/* Ver detalhes */}
                                 <Link
                                   to={`/rentals/${rental._id}`}
-                                  className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-medium transition-colors"
+                                  className="relative group p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                                 >
-                                  Ver Detalhes
+                                  {/* Ícone olho */}
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    className="w-4 h-4 text-gray-700 dark:text-gray-300"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-.001.003-.002.005-.003.008-.001.003-.002.005-.003.008C20.263 16.057 16.472 19 12 19c-4.477 0-8.268-2.943-9.542-7z"
+                                    />
+                                  </svg>
+
+                                  {/* Tooltip */}
+                                  <span className="absolute bottom-full mb-2 hidden group-hover:block bg-gray-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+                                    Ver detalhes
+                                  </span>
                                 </Link>
                               </div>
                             </td>
@@ -484,7 +552,8 @@ const RentalsPage: React.FC = () => {
             </div>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
               O aluguel foi criado com status <strong>Reservado</strong>. Se
-              tudo estiver correto, você já pode deixá-lo como <strong>ativo</strong>.
+              tudo estiver correto, você já pode deixá-lo como{" "}
+              <strong>ativo</strong>.
             </p>
 
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
@@ -525,6 +594,32 @@ const RentalsPage: React.FC = () => {
                 Depois eu faço isso
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showInvoiceModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg w-[400px]">
+            <h2 className="text-lg font-semibold">Fatura criada !</h2>
+
+            <p className="mt-2 text-sm">
+              A fatura do aluguel foi gerada com sucesso.
+            </p>
+
+            <Link
+              to={`/invoices/${invoiceRental._id}`}
+              className="flex-1 flex items-center justify-center bg-green-600 text-white py-2 rounded-md hover:bg-green-700"
+            >
+              Ver fatura
+            </Link>
+
+            <button
+              onClick={() => setShowInvoiceModal(false)}
+              className="mt-4 w-full bg-gray-900 text-white py-2 rounded-md"
+            >
+              Fechar
+            </button>
           </div>
         </div>
       )}

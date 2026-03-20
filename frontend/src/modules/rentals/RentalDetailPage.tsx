@@ -16,6 +16,7 @@ import { SuccessToast } from "../../components/SuccessToast";
 import { useAuth } from "hooks/useAuth";
 import { toast } from "react-toastify";
 import { useItems } from "../../hooks/useInventory";
+import { invoiceService } from "modules/invoices/invoice.service";
 
 const RentalDetailPage: React.FC = () => {
   const rentalTypeApiToUi: Record<string, RentalTypeUI> = {
@@ -149,6 +150,9 @@ const RentalDetailPage: React.FC = () => {
 
   const [showSuccessToast, setShowSuccessToast] = useState(false);
 
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceRental, setInvoiceRental] = useState<any>(null);
+
   const processBillingMutation = useMutation({
     mutationFn: () => billingService.processRentalBilling(id!),
     onSuccess: () => {
@@ -181,26 +185,43 @@ const RentalDetailPage: React.FC = () => {
     mutationFn: (data: { status: RentalStatus; adjustments?: any }) =>
       rentalService.updateRentalStatus(id!, data),
 
-    onSuccess: (response) => {
+    onSuccess: async (response, variables) => {
       setShowStatusModal(false);
       setServerError(null);
       setModalFinalizarAluguel(false);
       setClosePreview(null);
 
-      // Se a alteração precisa de aprovação, mostra o toast
       if ("requiresApproval" in response) {
         setShowSuccessToast(true);
-
-        // Fecha o toast automaticamente após 5s
         setTimeout(() => setShowSuccessToast(false), 5000);
         return;
       }
 
-      // status alterado de verdade
       queryClient.invalidateQueries({ queryKey: ["rental", id] });
       queryClient.invalidateQueries({ queryKey: ["rentals"] });
       queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
+
+      if (variables.status === "active") {
+        try {
+          const responseInvoices = await invoiceService.getInvoices({
+            rentalId: id!,
+            limit: 1,
+          });
+
+          const invoice = responseInvoices.data?.sort(
+            (a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          )[0];
+
+          if (invoice) {
+            setInvoiceRental(invoice);
+            setShowInvoiceModal(true);
+          }
+        } catch (err) {
+          console.error("Erro ao buscar fatura:", err);
+        }
+      }
     },
   });
 
@@ -3238,6 +3259,38 @@ const RentalDetailPage: React.FC = () => {
                   className="px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
                 >
                   Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showInvoiceModal && invoiceRental && (
+          <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg w-[400px]">
+              <h2 className="text-lg font-semibold">Fatura criada !</h2>
+
+              <p className="mt-2 text-sm">
+                A fatura{" "}
+                <span className="font-medium">
+                  {invoiceRental.invoiceNumber}
+                </span>{" "}
+                foi gerada com sucesso.
+              </p>
+
+              <div className="mt-4 flex gap-2">
+                <Link
+                  to={`/invoices/${invoiceRental._id}`}
+                  className="flex-1 flex items-center justify-center bg-green-600 text-white py-2 rounded-md hover:bg-green-700"
+                >
+                  Ver fatura
+                </Link>
+
+                <button
+                  onClick={() => setShowInvoiceModal(false)}
+                  className="flex-1 border border-gray-300 py-2 rounded-md"
+                >
+                  Fechar
                 </button>
               </div>
             </div>
