@@ -16,7 +16,6 @@ const CustomerSchema = new Schema<ICustomer>(
     },
     cpfCnpj: {
       type: String,
-      required: [true, 'CPF/CNPJ is required'],
       trim: true,
       index: true,
     },

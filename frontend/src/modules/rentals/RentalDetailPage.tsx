@@ -22,13 +22,11 @@ const RentalDetailPage: React.FC = () => {
   const rentalTypeApiToUi: Record<string, RentalTypeUI> = {
     daily: "diario",
     weekly: "semanal",
-    biweekly: "quinzenal",
     monthly: "mensal",
   };
   const rentalTypeUiToApi: Record<RentalTypeUI, string> = {
     diario: "daily",
     semanal: "weekly",
-    quinzenal: "biweekly",
     mensal: "monthly",
   };
 

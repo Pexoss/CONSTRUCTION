@@ -178,113 +178,109 @@ class RentalService {
     return rentalNumber;
   }
 
-  /**
-   * Create a new rental/reservation
-   */
+  //createRental revisado
   async createRental(
     companyId: string,
     data: any,
     userId: string,
   ): Promise<IRental> {
-    //rentailNumber gera automaticamente ao registrar aluguel
     const rentalNumber = await this.generateRentalNumber(companyId);
     const user = await User.findById(userId);
+    if (!user) throw new Error("Usuário não encontrado");
 
-    if (!user) {
-      throw new Error("Usuário não encontrado");
-    }
-    //verifica se o usuário um superadmin ou admin
     if (data.pricing?.discount && !canApplyDiscount(user.role as RoleType)) {
       throw new Error("Somente o admin pode aplicar desconto");
     }
 
-    // Validate items availability
+    // 🔥 Função para pegar tipo pelo item
+    const getRentalTypeFromItem = (item: any): RentalType => {
+      if (item.pricing?.monthlyRate) return "monthly";
+      if (item.pricing?.weeklyRate) return "weekly";
+      return "daily";
+    };
+
+    const calculateRentalPriceCorrect = (
+      dailyRate = 0,
+      weeklyRate = 0,
+      monthlyRate = 0,
+      startDate: Date,
+      endDate: Date,
+      rentalType: RentalType,
+    ) => {
+      const diffTime = endDate.getTime() - startDate.getTime();
+      if (diffTime <= 0) return 0;
+
+      const days = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+
+      switch (rentalType) {
+        case "daily":
+          return dailyRate * days;
+        case "weekly": {
+          const fullWeeks = Math.floor(days / 7);
+          const extraDays = days % 7;
+          return fullWeeks * (weeklyRate || dailyRate) + extraDays * dailyRate;
+        }
+        case "monthly": {
+          const fullMonths = Math.floor(days / 30);
+          const extraDays = days % 30;
+          return (
+            fullMonths * (monthlyRate || dailyRate) + extraDays * dailyRate
+          );
+        }
+        default:
+          return 0;
+      }
+    };
+
+    // Validar disponibilidade
     for (const item of data.items) {
       const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
-      if (!inventoryItem) {
-        throw new Error(`Item ${item.itemId} not found`);
-      }
+      if (!inventoryItem) throw new Error(`Item ${item.itemId} não encontrado`);
 
       if (inventoryItem.trackingType === "unit") {
-        if (!item.unitId) {
-          throw new Error(
-            `Item ${inventoryItem.name} is unit-based. Please specify unitId.`,
-          );
-        }
-
-        if (item.quantity && item.quantity !== 1) {
-          throw new Error(
-            `Unit-based item ${inventoryItem.name} must have quantity 1`,
-          );
-        }
+        if (!item.unitId)
+          throw new Error(`Item ${inventoryItem.name} precisa de unitId`);
 
         const unit = inventoryItem.units?.find((u) => u.unitId === item.unitId);
-        if (!unit) {
-          throw new Error(
-            `Unit ${item.unitId} not found for item ${inventoryItem.name}`,
-          );
-        }
-
-        if (unit.status !== "available") {
-          throw new Error(`Unit ${item.unitId} is not available for rental`);
-        }
+        if (!unit || unit.status !== "available")
+          throw new Error(`Unidade ${item.unitId} indisponível`);
       } else {
-        // Quantity-based: check available stock
         const available = inventoryItem.quantity.available || 0;
-
-        if (available < item.quantity) {
-          throw new Error(
-            `Insufficient quantity for item ${inventoryItem.name}. Available: ${available}, Requested: ${item.quantity}`,
-          );
-        }
+        if (available < item.quantity) throw new Error(`Estoque insuficiente`);
       }
     }
 
-    // Calculate pricing for each item
+    // 💰 Cálculo de preços
     const itemsWithPricing: IRentalItem[] = [];
     let equipmentSubtotal = 0;
     let totalDeposit = 0;
+
     const pickupDates: Date[] = [];
     const returnDates: Date[] = [];
 
     for (const item of data.items) {
       const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
-      if (!inventoryItem) {
-        throw new Error(`Item ${item.itemId} not found`);
-      }
+      if (!inventoryItem) continue;
 
-      // NOVO: Verificar se é item unitário e se unitId foi especificado
-      if (inventoryItem.trackingType === "unit" && !item.unitId) {
-        throw new Error(
-          `Item ${inventoryItem.name} is unit-based. Please specify unitId.`,
-        );
-      }
-
-      // NOVO: Usar rentalType do item ou default daily
-      const rentalType: RentalType = item.rentalType || "daily";
+      const rentalType = getRentalTypeFromItem(inventoryItem);
       const pickupScheduled = new Date(item.pickupScheduled);
       const returnScheduled = item.returnScheduled
         ? new Date(item.returnScheduled)
-        : undefined;
-      const pricingEndDate =
-        returnScheduled || this.getPricingEndDate(pickupScheduled, rentalType);
+        : this.getPricingEndDate(pickupScheduled, rentalType);
 
       pickupDates.push(pickupScheduled);
-      if (returnScheduled) {
-        returnDates.push(returnScheduled);
-      }
+      returnDates.push(returnScheduled);
 
-      const price = this.calculateRentalPrice(
+      const unitPrice = calculateRentalPriceCorrect(
         inventoryItem.pricing.dailyRate,
         inventoryItem.pricing.weeklyRate,
-        inventoryItem.pricing.biweeklyRate,
         inventoryItem.pricing.monthlyRate,
         pickupScheduled,
-        pricingEndDate,
+        returnScheduled,
         rentalType,
       );
 
-      const subtotal = price * item.quantity;
+      const subtotal = unitPrice * item.quantity;
       const deposit =
         (inventoryItem.pricing.depositAmount || 0) * item.quantity;
 
@@ -292,18 +288,18 @@ class RentalService {
         itemId: item.itemId,
         unitId: item.unitId,
         quantity: item.quantity,
-        unitPrice: price,
+        unitPrice,
         rentalType,
         pickupScheduled,
         returnScheduled,
-        subtotal: subtotal,
+        subtotal,
       });
 
       equipmentSubtotal += subtotal;
       totalDeposit += deposit;
     }
 
-    // NOVO: Calcular subtotal de serviços
+    // Serviços
     let servicesSubtotal = 0;
     const services: IRentalService[] = (data.services || []).map(
       (service: any) => {
@@ -324,16 +320,12 @@ class RentalService {
     const totalSubtotal = equipmentSubtotal + servicesSubtotal;
     const discount = data.pricing?.discount || 0;
 
-    const lateFee = 0;
-
-    const minPickupDate =
-      pickupDates.length > 0
-        ? new Date(Math.min(...pickupDates.map((d) => d.getTime())))
-        : new Date();
-    const maxReturnDate =
-      returnDates.length > 0
-        ? new Date(Math.max(...returnDates.map((d) => d.getTime())))
-        : minPickupDate;
+    const minPickupDate = new Date(
+      Math.min(...pickupDates.map((d) => d.getTime())),
+    );
+    const maxReturnDate = new Date(
+      Math.max(...returnDates.map((d) => d.getTime())),
+    );
 
     const diffTime = maxReturnDate.getTime() - minPickupDate.getTime();
     const contractedDays = Math.max(
@@ -343,10 +335,9 @@ class RentalService {
 
     const pricing: IRentalPricing = {
       equipmentSubtotal,
-      originalEquipmentSubtotal: equipmentSubtotal, // 🔥 valor contratado inicial
-      contractedDays, // 🔥 dias planejados
-      usedDays: 0, // 🔥 só será preenchido no fechamento
-
+      originalEquipmentSubtotal: equipmentSubtotal,
+      contractedDays,
+      usedDays: 0,
       servicesSubtotal,
       subtotal: totalSubtotal,
       deposit: totalDeposit,
@@ -355,51 +346,21 @@ class RentalService {
       discountApprovedBy: data.pricing?.discountApprovedBy
         ? new mongoose.Types.ObjectId(data.pricing.discountApprovedBy)
         : undefined,
-
       lateFee: 0,
       total: totalSubtotal - discount,
     };
 
-    // NOVO: Preparar endereço da obra se fornecido
-    let workAddress: IRentalWorkAddress | undefined;
-    if (data.workAddress) {
-      workAddress = {
-        street: data.workAddress.street,
-        number: data.workAddress.number,
-        complement: data.workAddress.complement,
-        neighborhood: data.workAddress.neighborhood,
-        city: data.workAddress.city,
-        state: data.workAddress.state,
-        zipCode: data.workAddress.zipCode,
-        workName: data.workAddress.workName,
-        workId: data.workAddress.workId
-          ? new mongoose.Types.ObjectId(data.workAddress.workId)
-          : undefined,
-      };
-    }
-
-    // NOVO: Preparar ciclo de faturamento
-    const billingCycle: RentalType | undefined = undefined;
-
-    // Create rental
+    //Criar rental
     const rental = await Rental.create({
       companyId,
       customerId: data.customerId,
       rentalNumber,
       items: itemsWithPricing,
-      services: services.length > 0 ? services : undefined, // NOVO
-      workAddress, // NOVO
+      services: services.length > 0 ? services : undefined,
       dates: {
         reservedAt: new Date(),
         pickupScheduled: minPickupDate,
         returnScheduled: maxReturnDate,
-        billingCycle, // NOVO
-        lastBillingDate: data.dates?.lastBillingDate
-          ? new Date(data.dates.lastBillingDate)
-          : undefined, // NOVO
-        nextBillingDate: data.dates?.nextBillingDate
-          ? new Date(data.dates.nextBillingDate)
-          : undefined, // NOVO
       },
       pricing,
       status: "reserved",
@@ -407,94 +368,7 @@ class RentalService {
       createdBy: userId,
     });
 
-    // Criar o primeiro fechamento e o próximo previsto por item (exceto diário)
-    let createdAnyBilling = false;
-    for (const item of rental.items) {
-      const cycle = item.rentalType || "daily";
-      if (cycle === "daily") {
-        continue;
-      }
-
-      const periodStart = this.normalizeDate(item.pickupScheduled);
-      let periodEnd = this.getPeriodEnd(periodStart, cycle);
-      const itemReturn = item.returnScheduled
-        ? this.normalizeDate(item.returnScheduled)
-        : undefined;
-      if (itemReturn && itemReturn < periodEnd) {
-        periodEnd = itemReturn;
-      }
-
-      await billingService.createPeriodicBillingForItem(
-        companyId,
-        rental,
-        item,
-        this.normalizeDate(periodStart),
-        this.normalizeDate(periodEnd),
-        userId,
-        {
-          includeServices: !createdAnyBilling,
-          notes: "Fechamento inicial",
-          status: "approved",
-        },
-      );
-      createdAnyBilling = true;
-
-      item.lastBillingDate = periodEnd;
-      const nextStart = this.addDays(periodEnd, 1);
-      if (!itemReturn || itemReturn >= nextStart) {
-        const nextEnd = this.getPeriodEnd(nextStart, cycle);
-        item.nextBillingDate = nextEnd;
-
-        await billingService.createPeriodicBillingForItem(
-          companyId,
-          rental,
-          item,
-          this.normalizeDate(nextStart),
-          this.normalizeDate(nextEnd),
-          userId,
-          {
-            includeServices: false,
-            notes: "Fechamento previsto",
-            status: "draft",
-          },
-        );
-      }
-    }
-
-    if (createdAnyBilling) {
-      await rental.save();
-    }
-
-    // if (
-    //   billingCycle !== "daily" &&
-    //   !data.dates?.lastBillingDate &&
-    //   !data.dates?.nextBillingDate
-    // ) {
-    //   const periodStart = this.normalizeDate(rental.dates.pickupScheduled);
-
-    //   if (rental.dates.returnScheduled < periodEnd) {
-    //     periodEnd = this.normalizeDate(rental.dates.returnScheduled);
-    //   }
-
-    //   rental.dates.lastBillingDate = this.addDays(periodStart, -1);
-    //   rental.dates.nextBillingDate = periodEnd;
-    //   await rental.save();
-
-    //   // await billingService.createPeriodicBilling(
-    //   //   companyId,
-    //   //   rental._id.toString(),
-    //   //   this.normalizeDate(periodStart),
-    //   //   this.normalizeDate(periodEnd),
-    //   //   userId,
-    //   //   {
-    //   //     includeServices: true,
-    //   //     notes: "Fechamento previsto",
-    //   //     status: "draft",
-    //   //   },
-    //   // );
-    // }
-
-    // Update item quantities (reserve items)
+    // Reservar unidades
     for (const item of data.items) {
       await this.updateItemQuantityForRental(
         companyId,
@@ -510,7 +384,6 @@ class RentalService {
 
     return rental;
   }
-
   async closeRental(companyId: string, rentalId: string, userId: string) {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
@@ -896,7 +769,7 @@ class RentalService {
       }
 
       //aqui você decide o fluxo
-      rental.status = "completed";
+      rental.status = "ready_to_close";
     }
 
     // =========================
@@ -1367,6 +1240,7 @@ class RentalService {
       ).toFixed(2),
     );
   }
+  
   private async applyStatusChangeDirect(
     rental: IRental,
     oldStatus: RentalStatus,
@@ -1421,16 +1295,30 @@ class RentalService {
         const itemDoc = await Item.findOne({ _id: item.itemId, companyId });
         const unit = itemDoc?.units?.find((u) => u.unitId === item.unitId);
 
-        // 🔒 Proteção contra estado já alterado
+        console.log(
+          "Items para ativar:",
+          rental.items.map((i) => ({
+            itemId: i.itemId,
+            unitId: i.unitId,
+          })),
+        );
+
         if (unit?.status === "rented") {
           console.warn(`⚠️ Unit ${item.unitId} já está rented`);
           continue;
         }
 
-        if (unit?.status !== "reserved") {
-          throw new Error(`Unit ${item.unitId} não está reservada`);
+        if (!unit) {
+          console.warn(`Skipping activation, unit not found: ${item.unitId}`);
+          continue;
         }
 
+        if (unit.status !== "reserved") {
+          console.warn(
+            `Skipping activation, unit not reserved: ${unit.unitId} (status=${unit.status})`,
+          );
+          continue;
+        }
         await this.updateItemQuantityForRental(
           companyId,
           item.itemId,
@@ -2323,7 +2211,7 @@ class RentalService {
     const sevenDaysFromNow = new Date(todayEnd);
     sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
 
-    // 🔴 Contratos vencidos
+    //Contratos vencidos
     const expiredQuery = {
       companyId,
       status: { $in: ["active", "reserved"] },
@@ -2333,7 +2221,7 @@ class RentalService {
       },
     };
 
-    // 🟡 Vencem hoje
+    //Vencem hoje
     const expiringTodayQuery = {
       companyId,
       status: { $in: ["active", "reserved"] },
@@ -2344,7 +2232,7 @@ class RentalService {
       },
     };
 
-    // 🟠 Vencem em até 7 dias
+    //Vencem em até 7 dias
     const expiringSoonQuery = {
       companyId,
       status: { $in: ["active", "reserved"] },
@@ -2355,7 +2243,7 @@ class RentalService {
       },
     };
 
-    // 🟢 Ativos
+    //Ativos
     const activeQuery = {
       companyId,
       status: "active",
@@ -2416,14 +2304,12 @@ class RentalService {
       throw new Error("Item not found");
     }
 
-    console.log("🔥 ACTION:", action, "UNIT:", unitId);
-
     // =========================
     // ITEM UNITÁRIO
     // =========================
     if (item.trackingType === "unit") {
       if (!unitId) {
-        console.warn("⚠️ Unit action without unitId", { itemId, rentalId });
+        console.warn("Unit action without unitId", { itemId, rentalId });
         return;
       }
 
@@ -2431,8 +2317,6 @@ class RentalService {
       if (!unit) {
         throw new Error("Unit not found");
       }
-
-      console.log("📦 STATUS ATUAL:", unit.status);
 
       switch (action) {
         case "reserve":

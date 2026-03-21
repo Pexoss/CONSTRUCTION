@@ -32,7 +32,7 @@ export interface ICustomerWork {
 export interface ICustomer extends Document {
   companyId: mongoose.Types.ObjectId;
   name: string;
-  cpfCnpj: string;
+  cpfCnpj?: string;
 
   // NOVO: Dados validados pela Receita Federal
   validated?: {

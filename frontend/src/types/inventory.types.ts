@@ -1,6 +1,6 @@
 export interface ItemUnit {
   unitId: string;
-  status: 'available' | 'rented' | 'maintenance' | 'damaged';
+  status: "available" | "rented" | "maintenance" | "damaged";
   currentRental?: string;
   currentCustomer?: string;
   maintenanceDetails?: {
@@ -22,10 +22,11 @@ export interface Item {
   sku: string;
   barcode?: string;
   customId?: string;
-  trackingType: 'unit' | 'quantity';
+  trackingType: "unit" | "quantity";
   units?: ItemUnit[];
   photos: string[];
   specifications?: Record<string, any>;
+  billingType: "daily" | "weekly" | "monthly";
   quantity: {
     total: number;
     available: number;
@@ -61,7 +62,16 @@ export interface ItemMovement {
   _id: string;
   companyId: string;
   itemId: string | Item;
-  type: 'in' | 'out' | 'rent' | 'return' | 'maintenance_start' | 'maintenance_end' | 'damage' | 'repair' | 'adjustment';
+  type:
+    | "in"
+    | "out"
+    | "rent"
+    | "return"
+    | "maintenance_start"
+    | "maintenance_end"
+    | "damage"
+    | "repair"
+    | "adjustment";
   quantity: number;
   previousQuantity: {
     total: number;
@@ -112,7 +122,7 @@ export interface CreateItemData {
   sku: string;
   barcode?: string;
   customId?: string;
-  trackingType: 'unit' | 'quantity';
+  trackingType: "unit" | "quantity";
   units?: ItemUnit[];
   photos?: string[];
   specifications?: Record<string, any>;
@@ -124,28 +134,27 @@ export interface CreateItemData {
     damaged?: number;
   };
   pricing: {
-    dailyRate: number;
-    weeklyRate?: number;
-    biweeklyRate?: number;
-    monthlyRate?: number;
-    depositAmount?: number;
+    dailyRate: number; // obrigatório
+    weeklyRate?: number; // opcional, se não tiver, cai no dailyRate
+    monthlyRate?: number; // opcional, se não tiver, cai no dailyRate
+    depositAmount?: number; // opcional
   };
   location?: string;
   depreciation?: {
     initialValue: number;
     depreciationRate: number;
     purchaseDate: string;
-  }
+  };
   lowStockThreshold?: number;
   isActive?: boolean;
 }
 
 export type CreateItemInput = {
   name: string;
-  trackingType: 'unit' | 'quantity';
+  trackingType: "unit" | "quantity";
   units?: {
     unitId: string;
-    status: 'available' | 'rented' | 'maintenance' | 'damaged';
+    status: "available" | "rented" | "maintenance" | "damaged";
     location?: string;
     notes?: string;
   }[];
@@ -153,7 +162,6 @@ export type CreateItemInput = {
     total: number;
   };
 };
-
 
 export interface EditItemData {
   name?: string;
@@ -191,7 +199,6 @@ export interface EditItemData {
   isActive?: boolean;
 }
 
-
 export interface ItemFilters {
   category?: string;
   subcategory?: string;
@@ -203,7 +210,7 @@ export interface ItemFilters {
 }
 
 export interface AdjustQuantityData {
-  type: 'in' | 'out' | 'adjustment' | 'damage' | 'repair';
+  type: "in" | "out" | "adjustment" | "damage" | "repair";
   quantity: number;
   notes?: string;
 }

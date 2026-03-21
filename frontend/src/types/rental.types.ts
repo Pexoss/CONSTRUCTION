@@ -2,22 +2,20 @@ import { Item } from './inventory.types';
 import { Customer } from './customer.types';
 
 export type RentalStatus = 'reserved' | 'active' | 'overdue' | 'completed' | 'cancelled' ;
-export type BillingCycle = 'daily' | 'weekly' | 'biweekly' | 'monthly';
+export type BillingCycle = 'daily' | 'weekly' | 'monthly';
 
 // O que o usuário vê na UI
 export type RentalTypeUI =
   | 'diario'
   | 'semanal'
-  | 'quinzenal'
   | 'mensal';
 
 // O que o backend espera
 export type RentalTypeAPI =
   | 'daily'
   | 'weekly'
-  | 'biweekly'
   | 'monthly';
-
+  
 export interface RentalItem {
   itemId: string | Item;
   unitId?: string;
