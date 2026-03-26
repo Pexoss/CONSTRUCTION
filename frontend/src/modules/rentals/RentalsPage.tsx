@@ -42,6 +42,7 @@ const RentalsPage: React.FC = () => {
       overdue: "bg-red-100 text-red-800",
       completed: "bg-gray-100 text-gray-800",
       cancelled: "bg-yellow-100 text-yellow-800",
+      ready_to_close: "bg-purple-100 text-purple-800",
     };
     return colors[status];
   };
@@ -53,6 +54,7 @@ const RentalsPage: React.FC = () => {
       overdue: "Atrasado",
       completed: "Finalizado",
       cancelled: "Cancelado",
+      ready_to_close: "Pronto para fechar",
     };
     return labels[status];
   };

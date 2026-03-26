@@ -136,6 +136,7 @@ export interface CreateItemData {
   pricing: {
     dailyRate: number; // obrigatório
     weeklyRate?: number; // opcional, se não tiver, cai no dailyRate
+    biweeklyRate?: number;
     monthlyRate?: number; // opcional, se não tiver, cai no dailyRate
     depositAmount?: number; // opcional
   };

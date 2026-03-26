@@ -68,7 +68,7 @@ class CustomerService {
     // 4. Se o CPF veio vazio, garante que salve como undefined ou null
     // Isso evita erros de index UNIQUE no MongoDB (string vazia conta como valor)
     if (!cleanCpfCnpj) {
-      delete customerData.cpfCnpj;
+      delete customerData.cpfCnpj;  
     }
 
     const customer = await Customer.create({

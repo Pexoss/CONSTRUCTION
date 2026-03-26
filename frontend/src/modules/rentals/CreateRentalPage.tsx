@@ -19,6 +19,7 @@ import { filterReferenceElements } from "recharts/types/state/selectors/axisSele
 export const rentalTypeMapper: Record<RentalTypeUI, RentalTypeAPI> = {
   diario: "daily",
   semanal: "weekly",
+  quinzenal: "biweekly",
   mensal: "monthly",
 };
 interface SelectedItem {
@@ -39,9 +40,13 @@ interface Totals {
   rentalPeriod: { start: string; end: string };
 }
 
-const rentalTypeMap: Record<RentalTypeUI, "daily" | "weekly" | "monthly"> = {
+const rentalTypeMap: Record<
+  RentalTypeUI,
+  "daily" | "weekly" | "biweekly" | "monthly"
+> = {
   diario: "daily",
   semanal: "weekly",
+  quinzenal: "biweekly",
   mensal: "monthly",
 };
 
@@ -61,18 +66,22 @@ const CreateRentalPage: React.FC = () => {
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
-  const [rentalType, setRentalType] = useState<"diario" | "semanal" | "mensal">(
-    "diario",
-  );
+  const [rentalType, setRentalType] = useState<
+    "diario" | "semanal" | "quinzenal" | "mensal"
+  >("diario");
   const [serverError, setServerError] = useState<string | null>(null);
 
   const [sort, setSort] = useState<
     "name" | "name_desc" | "price" | "price_desc" | "available"
   >("name");
 
-  const billingTypeLabel: Record<"diario" | "semanal" | "mensal", string> = {
+  const billingTypeLabel: Record<
+    "diario" | "semanal" | "quinzenal" | "mensal",
+    string
+  > = {
     diario: "Diário",
     semanal: "Semanal",
+    quinzenal: "Quinzenal",
     mensal: "Mensal",
   };
 
@@ -125,25 +134,21 @@ const CreateRentalPage: React.FC = () => {
   ) => {
     const pricing = item.pricing ?? {};
 
-    // 1. Remova aquele switch que dava setDate(+1, +7, +30)
-    // O Backend usa a data real selecionada, sem somar "prazos" na mão.
     let effectiveEndDate = endDate ? new Date(endDate) : new Date(startDate);
 
-    // 2. Cálculo de dias exato igual ao Backend (Math.ceil da diferença)
     const diffTime = effectiveEndDate.getTime() - startDate.getTime();
 
-    // Se a data for igual ou menor, o Backend garante 1 dia (Math.max(1, ...))
     const days =
       diffTime <= 0 ? 1 : Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     let totalPrice = 0;
     const daily = pricing.dailyRate ?? 0;
 
-    // 3. Replique a lógica exata do switch do seu Backend
     switch (rentalType) {
       case "daily":
         totalPrice = daily * days;
         break;
+
       case "weekly": {
         const weekly = pricing.weeklyRate || daily;
         const fullWeeks = Math.floor(days / 7);
@@ -151,6 +156,15 @@ const CreateRentalPage: React.FC = () => {
         totalPrice = fullWeeks * weekly + extraDays * daily;
         break;
       }
+
+      case "biweekly": {
+        const biweekly = pricing.biweeklyRate || daily;
+        const fullPeriods = Math.floor(days / 15);
+        const extraDays = days % 15;
+        totalPrice = fullPeriods * biweekly + extraDays * daily;
+        break;
+      }
+
       case "monthly": {
         const monthly = pricing.monthlyRate || daily;
         const fullMonths = Math.floor(days / 30);
@@ -247,6 +261,7 @@ const CreateRentalPage: React.FC = () => {
       rentalPeriod,
     };
   };
+
   const getRentalTypeFromItem = (item: Item): RentalTypeUI => {
     if (item.pricing.monthlyRate) return "mensal";
     if (item.pricing.weeklyRate) return "semanal";
@@ -256,7 +271,7 @@ const CreateRentalPage: React.FC = () => {
   function getBillingType(
     pickupDate?: string,
     returnDate?: string,
-  ): "diario" | "semanal" | "mensal" {
+  ): "diario" | "semanal" | "quinzenal" |"mensal" {
     if (!pickupDate || !returnDate) return "diario";
 
     const start = new Date(pickupDate);
@@ -266,6 +281,7 @@ const CreateRentalPage: React.FC = () => {
     );
 
     if (diffInDays >= 30) return "mensal";
+    if (diffInDays >= 15) return "quinzenal";
     if (diffInDays >= 7) return "semanal";
     return "diario";
   }
@@ -1075,7 +1091,6 @@ const CreateRentalPage: React.FC = () => {
                                   />
                                 </div>
 
-                                {/* Devolução */}
                                 {/* Devolução */}
                                 <div className="flex flex-col">
                                   <label className="text-xs text-gray-500 mb-1">

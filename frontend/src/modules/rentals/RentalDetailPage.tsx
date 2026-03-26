@@ -27,6 +27,7 @@ const RentalDetailPage: React.FC = () => {
   const rentalTypeUiToApi: Record<RentalTypeUI, string> = {
     diario: "daily",
     semanal: "weekly",
+    quinzenal: "biweekly",
     mensal: "monthly",
   };
 
@@ -53,6 +54,8 @@ const RentalDetailPage: React.FC = () => {
   const [newStatusAluguel, setNewStatusAluguel] = useState<RentalStatus | null>(
     null,
   );
+  const [showConfirmFinalClosure, setShowConfirmFinalClosure] = useState(false);
+  const [loadingConfirmClosure, setLoadingConfirmClosure] = useState(false);
 
   const [closePreview, setClosePreview] = useState<{
     originalTotal: number;
@@ -357,6 +360,7 @@ const RentalDetailPage: React.FC = () => {
       overdue: "bg-red-100 text-red-800",
       completed: "bg-gray-100 text-gray-800",
       cancelled: "bg-yellow-100 text-yellow-800",
+      ready_to_close: "bg-purple-100 text-purple-800", // 👈 ADICIONA
     };
     return colors[status];
   };
@@ -368,6 +372,7 @@ const RentalDetailPage: React.FC = () => {
       overdue: "Atrasado",
       completed: "Finalizado",
       cancelled: "Cancelado",
+      ready_to_close: "Pronto para fechar",
     };
     return labels[status];
   };
@@ -487,12 +492,43 @@ const RentalDetailPage: React.FC = () => {
 
   const handleSalvarStatus = () => {
     if (newStatus === "completed") {
-      setShowStatusModal(false);
-      handleAbrirFinalizacao("completed");
+      // Se o status atual é ready_to_close, pode confirmar
+      if (rental && rental.status === "ready_to_close") {
+        setShowStatusModal(false);
+        setShowConfirmFinalClosure(true);
+        return;
+      }
+      
+      // Se não está ready_to_close, mostra erro
+      toast.error(
+        "Este aluguel ainda possui itens não finalizados. Finalize todos os itens antes de concluir o aluguel."
+      );
       return;
     }
     updateStatusMutation.mutate({ status: newStatus });
     setShowStatusModal(false);
+  };
+
+  const confirmFinalClosure = async () => {
+    if (!id) return;
+
+    setLoadingConfirmClosure(true);
+    try {
+      await rentalService.confirmRentalClosure(id);
+
+      queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+
+      setShowConfirmFinalClosure(false);
+      toast.success("Aluguel finalizado com sucesso!");
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Erro ao finalizar aluguel");
+      console.error(err);
+    } finally {
+      setLoadingConfirmClosure(false);
+    }
   };
 
   const confirmarFinalizacao = async () => {
@@ -2124,7 +2160,14 @@ const RentalDetailPage: React.FC = () => {
                 <option value="reserved">Reservado</option>
                 <option value="active">Ativo</option>
                 <option value="overdue">Atrasado</option>
-                <option value="completed">Finalizado</option>
+                <option value="ready_to_close">Pronto para fechar</option>
+                <option 
+                  value="completed" 
+                  disabled={rental?.status !== "ready_to_close"}
+                  className={rental?.status !== "ready_to_close" ? "opacity-50" : ""}
+                >
+                  Finalizado {rental?.status !== "ready_to_close" ? "(Bloqueado)" : ""}
+                </option>
                 <option value="cancelled">Cancelado</option>
               </select>
               {serverError && (
@@ -3257,6 +3300,85 @@ const RentalDetailPage: React.FC = () => {
                   className="px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
                 >
                   Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showConfirmFinalClosure && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75">
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl p-6 w-full max-w-md">
+              <div className="flex items-center mb-4">
+                <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg mr-3">
+                  <svg
+                    className="w-5 h-5 text-green-600 dark:text-green-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Confirmar Fechamento do Aluguel
+                </h2>
+              </div>
+
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                Todos os itens foram devolvidos e o aluguel está pronto para ser
+                finalizado. Esta ação é irreversível.
+              </p>
+
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-6">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  <strong>Status atual:</strong> Pronto para fechar
+                </p>
+                <p className="text-sm text-blue-800 dark:text-blue-200 mt-2">
+                  <strong>Ação:</strong> Finalizar aluguel
+                </p>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  onClick={() => setShowConfirmFinalClosure(false)}
+                  disabled={loadingConfirmClosure}
+                  className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmFinalClosure}
+                  disabled={loadingConfirmClosure}
+                  className="px-4 py-2.5 bg-green-600 dark:bg-green-700 hover:bg-green-700 dark:hover:bg-green-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {loadingConfirmClosure && (
+                    <svg
+                      className="animate-spin h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                  )}
+                  {loadingConfirmClosure ? "Processando..." : "Confirmar Fechamento"}
                 </button>
               </div>
             </div>

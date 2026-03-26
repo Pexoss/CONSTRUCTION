@@ -297,4 +297,13 @@ export const rentalService = {
     }>(`/rentals/${rentalId}/change-history`);
     return response.data.data;
   },
+
+  confirmRentalClosure: async (rentalId: string) => {
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(`/rentals/${rentalId}/confirm-closure`, {});
+    return response.data;
+  },
 };

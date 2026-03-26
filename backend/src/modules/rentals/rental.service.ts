@@ -192,9 +192,10 @@ class RentalService {
       throw new Error("Somente o admin pode aplicar desconto");
     }
 
-    // 🔥 Função para pegar tipo pelo item
+    //Função para pegar tipo pelo item
     const getRentalTypeFromItem = (item: any): RentalType => {
       if (item.pricing?.monthlyRate) return "monthly";
+      if (item.pricing?.biweeklyRate) return "biweekly";
       if (item.pricing?.weeklyRate) return "weekly";
       return "daily";
     };
@@ -202,6 +203,7 @@ class RentalService {
     const calculateRentalPriceCorrect = (
       dailyRate = 0,
       weeklyRate = 0,
+      biweeklyRate = 0,
       monthlyRate = 0,
       startDate: Date,
       endDate: Date,
@@ -218,6 +220,11 @@ class RentalService {
         case "weekly": {
           const fullWeeks = Math.floor(days / 7);
           const extraDays = days % 7;
+          return fullWeeks * (weeklyRate || dailyRate) + extraDays * dailyRate;
+        }
+        case "biweekly": {
+          const fullWeeks = Math.floor(days / 15);
+          const extraDays = days % 15;
           return fullWeeks * (weeklyRate || dailyRate) + extraDays * dailyRate;
         }
         case "monthly": {
@@ -274,6 +281,7 @@ class RentalService {
       const unitPrice = calculateRentalPriceCorrect(
         inventoryItem.pricing.dailyRate,
         inventoryItem.pricing.weeklyRate,
+        inventoryItem.pricing.biweeklyRate,
         inventoryItem.pricing.monthlyRate,
         pickupScheduled,
         returnScheduled,
@@ -768,8 +776,11 @@ class RentalService {
         rental.dates.returnActual = maxReturn;
       }
 
-      //aqui você decide o fluxo
-      rental.status = "ready_to_close";
+      // Status muda para ready_to_close quando todos os itens foram devolvidos
+      // Aguardando confirmação do usuário para finalizar completamente
+      if (rental.status !== "ready_to_close") {
+        rental.status = "ready_to_close";
+      }
     }
 
     // =========================
@@ -777,6 +788,48 @@ class RentalService {
     // =========================
     await rental.save();
 
+    return rental;
+  }
+
+  /**
+   * Confirma o fechamento final do aluguel (transição de ready_to_close → completed)
+   * Deve ser chamado quando o usuário confirmar o fechamento após todos os itens serem devolvidos
+   */
+  async confirmRentalClosure(
+    companyId: string,
+    rentalId: string,
+    userId: string,
+  ): Promise<IRental> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+
+    if (!rental) {
+      throw new Error("Aluguel não encontrado");
+    }
+
+    if (rental.status !== "ready_to_close") {
+      throw new Error(
+        `Apenas aluguéis em status "Pronto para fechar" podem ser finalizados. Status atual: ${rental.status}`,
+      );
+    }
+
+    // Verifica se todos os itens foram realmente devolvidos
+    const notReturned = rental.items.filter((item) => !item.returnActual);
+    if (notReturned.length > 0) {
+      throw new Error(
+        `Não é possível finalizar: ${notReturned.length} item(ns) ainda não foi/foram devolvido(s)`,
+      );
+    }
+
+    // Aplica a transição de status usando o método padrão
+    await this.applyStatusChangeDirect(
+      rental,
+      "ready_to_close",
+      "completed",
+      companyId,
+      userId,
+    );
+
+    await rental.save();
     return rental;
   }
 
@@ -1240,7 +1293,7 @@ class RentalService {
       ).toFixed(2),
     );
   }
-  
+
   private async applyStatusChangeDirect(
     rental: IRental,
     oldStatus: RentalStatus,
@@ -1457,6 +1510,26 @@ class RentalService {
           rental.customerId.toString(),
         );
       }
+    }
+
+    /**
+     * READY_TO_CLOSE → COMPLETED
+     * Transição final do aluguel após todos os itens serem devolvidos
+     */
+    if (oldStatus === "ready_to_close" && newStatus === "completed") {
+      // Marca data de conclusão
+      rental.dates.returnActual = rental.dates.returnActual || new Date();
+
+      // Garante que todos os itens tenham returnActual
+      for (const item of rental.items) {
+        if (!item.returnActual) {
+          item.returnActual = rental.dates.returnActual;
+        }
+      }
+
+      // Nota: As unidades já foram retornadas por closeRentalItem
+      // apenas confirmamos que o aluguel está finalizado
+      console.log("✅ Aluguel finalizado com sucesso:", rental._id);
     }
   }
 

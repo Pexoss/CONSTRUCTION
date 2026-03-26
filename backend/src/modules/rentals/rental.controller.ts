@@ -155,6 +155,36 @@ export class RentalController {
   }
 
   /**
+   * Confirm rental closure (finalizar aluguel quando todos itens estão devolvidos)
+   * POST /api/rentals/:id/confirm-closure
+   */
+  async confirmRentalClosure(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const rentalId = req.params.id;
+
+      const rental = await rentalService.confirmRentalClosure(
+        companyId,
+        rentalId,
+        userId,
+      );
+
+      res.json({
+        success: true,
+        message: "Rental closed successfully",
+        data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Get rental by ID
    * GET /api/rentals/:id
    */
