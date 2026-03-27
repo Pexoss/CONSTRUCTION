@@ -64,6 +64,7 @@ const CreateRentalPage: React.FC = () => {
   const [pickupDate, setPickupDate] = useState("");
   const [returnDate, setReturnDate] = useState("");
   const [discount, setDiscount] = useState(0);
+  const [discountType, setDiscountType] = useState<"value" | "percentage">("value");
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
   const [rentalType, setRentalType] = useState<
@@ -236,7 +237,10 @@ const CreateRentalPage: React.FC = () => {
     });
 
     const subtotal = equipmentSubtotal + servicesSubtotal;
-    const total = subtotal - discount;
+    const discountAmount = discountType === "percentage" 
+      ? (subtotal * discount) / 100 
+      : discount;
+    const total = subtotal - discountAmount;
 
     //evitar toISOString (bug de fuso)
     const formatDate = (date: Date | null) => {
@@ -257,7 +261,7 @@ const CreateRentalPage: React.FC = () => {
       servicesSubtotal,
       subtotal,
       deposit,
-      total,
+      total: Math.max(0, total),
       rentalPeriod,
     };
   };
@@ -489,7 +493,10 @@ const CreateRentalPage: React.FC = () => {
             }
           : undefined,
       pricing: {
-        discount,
+        discount:
+          discountType === "percentage"
+            ? (totals.subtotal * discount) / 100
+            : discount,
       },
       notes,
     };
@@ -1125,24 +1132,30 @@ const CreateRentalPage: React.FC = () => {
 
                             {/* Quantidade e botão remover */}
                             <div className="flex flex-col items-end gap-2 ml-4">
-                              <div className="flex items-center gap-2">
-                                <label className="text-sm text-gray-700 dark:text-gray-300">
-                                  Qtd:
-                                </label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  max={selectedItem.item.quantity.available}
-                                  value={selectedItem.quantity}
-                                  onChange={(e) =>
-                                    handleQuantityChange(
-                                      selectedItem.itemId,
-                                      parseInt(e.target.value) || 1,
-                                    )
-                                  }
-                                  className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                                />
-                              </div>
+                              {selectedItem.item.trackingType === "unit" ? (
+                                <div className="text-sm text-gray-700 dark:text-gray-300">
+                                  <span className="font-medium">Qtd: 1</span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <label className="text-sm text-gray-700 dark:text-gray-300">
+                                    Qtd:
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max={selectedItem.item.quantity.available}
+                                    value={selectedItem.quantity}
+                                    onChange={(e) =>
+                                      handleQuantityChange(
+                                        selectedItem.itemId,
+                                        parseInt(e.target.value) || 1,
+                                      )
+                                    }
+                                    className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                  />
+                                </div>
+                              )}
                               <button
                                 onClick={() =>
                                   handleRemoveItem(selectedItem.itemId)
@@ -1573,21 +1586,52 @@ const CreateRentalPage: React.FC = () => {
                   {/* Inputs de desconto e observações */}
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Desconto (R$)
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                        Desconto
                       </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={discount}
-                        onChange={(e) =>
-                          setDiscount(
-                            e.target.value === "" ? 0 : Number(e.target.value),
-                          )
-                        }
-                        className="w-full px-4 py-3 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                      />
+                      <div className="flex gap-2 mb-3">
+                        <button
+                          type="button"
+                          onClick={() => setDiscountType("value")}
+                          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+                            discountType === "value"
+                              ? "bg-gray-900 dark:bg-gray-700 text-white"
+                              : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                          }`}
+                        >
+                          R$ (Valor)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDiscountType("percentage")}
+                          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+                            discountType === "percentage"
+                              ? "bg-gray-900 dark:bg-gray-700 text-white"
+                              : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                          }`}
+                        >
+                          % (Porcentagem)
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          max={discountType === "percentage" ? 100 : undefined}
+                          step={discountType === "percentage" ? "0.1" : "0.01"}
+                          value={discount}
+                          onChange={(e) =>
+                            setDiscount(
+                              e.target.value === "" ? 0 : Number(e.target.value),
+                            )
+                          }
+                          placeholder={discountType === "percentage" ? "Ex: 10" : "Ex: 100.00"}
+                          className="w-full px-4 py-3 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        />
+                        <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 dark:text-gray-400 font-medium">
+                          {discountType === "percentage" ? "%" : "R$"}
+                        </span>
+                      </div>
                     </div>
 
                     <div>
@@ -1646,9 +1690,17 @@ const CreateRentalPage: React.FC = () => {
 
                     {discount > 0 && (
                       <div className="flex justify-between items-center text-red-600 dark:text-red-400">
-                        <span>Desconto:</span>
+                        <span>
+                          Desconto {discountType === "percentage" ? `(${discount}%)` : "(R$)"}:
+                        </span>
                         <span className="font-medium">
-                          - R$ {discount.toFixed(2)}
+                          {discountType === "percentage"
+                            ? "- R$ " +
+                              (
+                                (totalsWithRentalType.subtotal * discount) /
+                                100
+                              ).toFixed(2)
+                            : "- R$ " + discount.toFixed(2)}
                         </span>
                       </div>
                     )}

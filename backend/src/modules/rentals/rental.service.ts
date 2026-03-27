@@ -656,10 +656,53 @@ class RentalService {
     }
 
     // =========================
-    // 1. FINALIZA ITEM
+    // 1. VALIDAR E BUSCAR ITEM DO INVENTÁRIO
+    // =========================
+    const inventoryItem = await Item.findOne({
+      _id: targetItem.itemId,
+      companyId,
+    });
+
+    if (!inventoryItem) {
+      throw new Error(
+        `Sistema de aluguel: Item com ID ${targetItem.itemId} não foi encontrado no inventário. O item pode ter sido removido do sistema. Por favor, contate o administrador para verificar a consistência dos dados.`
+      );
+    }
+
+    // =========================
+    // 2. FINALIZA ITEM
     // =========================
     const finalReturnDate = returnDate || new Date();
     targetItem.returnActual = finalReturnDate;
+
+    // Validar antes de fazer a devolução
+    if (inventoryItem.trackingType !== "unit") {
+      // Para itens quantitativos, validar a quantidade
+      if (inventoryItem.quantity.rented < targetItem.quantity) {
+        console.error("[ERRO] Inconsistência de quantidade detectada:", {
+          itemName: inventoryItem.name,
+          itemId: targetItem.itemId,
+          esperadoDevolucao: targetItem.quantity,
+          alugadaAtualmente: inventoryItem.quantity.rented,
+          disponivel: inventoryItem.quantity.available,
+          reservada: inventoryItem.quantity.reserved,
+          rentalId,
+          customerId: rental.customerId,
+          rentalStatus: rental.status,
+        });
+
+        // Verificar se está em "reserved" ao invés de "rented"
+        if (inventoryItem.quantity.reserved >= targetItem.quantity) {
+          throw new Error(
+            `Item "${inventoryItem.name}" não foi ativado: O item ainda está reservado e não foi confirmado como retirado. Por favor, cancele a reserva ou ative o aluguel antes de fechar o item. Contate o administrador se este erro persistir.`
+          );
+        }
+
+        throw new Error(
+          `Quantidade inconsistente para "${inventoryItem.name}": O sistema registra apenas ${inventoryItem.quantity.rented} unidades alugadas, mas o contrato indica ${targetItem.quantity}. Isto pode indicar uma inconsistência nos dados ou que o item já foi devolvido anteriormente. Por favor, contate o administrador.`
+        );
+      }
+    }
 
     await this.updateItemQuantityForRental(
       companyId,
@@ -843,7 +886,7 @@ class RentalService {
   ): Promise<number> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
     if (!rental) {
-      throw new Error("Rental not found");
+      throw new Error("Aluguel não encontrado");
     }
 
     if (rental.status !== "active" && rental.status !== "overdue") {
@@ -1311,11 +1354,11 @@ class RentalService {
       };
     },
   ): Promise<void> {
-    console.log("STATUS FLOW:", oldStatus, "→", newStatus);
+    console.log("[INFO] FLUXO DE STATUS:", oldStatus, "→", newStatus);
 
     // 🔒 Proteção contra execução duplicada ou inválida
     if (oldStatus === newStatus) {
-      console.warn("⚠️ Tentativa de mudança de status redundante");
+      console.warn("[AVISO] Tentativa de mudança de status redundante");
       return;
     }
 
@@ -1346,42 +1389,77 @@ class RentalService {
 
       for (const item of rental.items) {
         const itemDoc = await Item.findOne({ _id: item.itemId, companyId });
-        const unit = itemDoc?.units?.find((u) => u.unitId === item.unitId);
 
-        console.log(
-          "Items para ativar:",
-          rental.items.map((i) => ({
-            itemId: i.itemId,
-            unitId: i.unitId,
-          })),
-        );
-
-        if (unit?.status === "rented") {
-          console.warn(`⚠️ Unit ${item.unitId} já está rented`);
-          continue;
-        }
-
-        if (!unit) {
-          console.warn(`Skipping activation, unit not found: ${item.unitId}`);
-          continue;
-        }
-
-        if (unit.status !== "reserved") {
-          console.warn(
-            `Skipping activation, unit not reserved: ${unit.unitId} (status=${unit.status})`,
+        if (!itemDoc) {
+          console.error(
+            "[ERRO] Item não encontrado durante ativação do aluguel:",
+            { itemId: item.itemId, rentalId: rental._id }
           );
           continue;
         }
-        await this.updateItemQuantityForRental(
-          companyId,
-          item.itemId,
-          item.quantity,
-          "activate",
-          userId,
-          rental._id,
-          item.unitId,
-          rental.customerId.toString(),
-        );
+
+        // =========================
+        // ITEM UNITÁRIO
+        // =========================
+        if (itemDoc.trackingType === "unit") {
+          const unit = itemDoc.units?.find((u) => u.unitId === item.unitId);
+
+          console.log(
+            "[INFO] Ativando unidade:",
+            { itemId: item.itemId, unitId: item.unitId, status: unit?.status }
+          );
+
+          if (unit?.status === "rented") {
+            console.warn(
+              `[AVISO] Unidade ${item.unitId} já está alugada`
+            );
+            continue;
+          }
+
+          if (!unit) {
+            console.warn(
+              `[AVISO] Unidade não encontrada durante ativação: ${item.unitId}`
+            );
+            continue;
+          }
+
+          if (unit.status !== "reserved") {
+            console.warn(
+              `[AVISO] Unidade ${item.unitId} não está em status "reservada" (status=${unit.status}), pulando ativação`
+            );
+            continue;
+          }
+
+          await this.updateItemQuantityForRental(
+            companyId,
+            item.itemId,
+            item.quantity,
+            "activate",
+            userId,
+            rental._id,
+            item.unitId,
+            rental.customerId.toString(),
+          );
+        } else {
+          // =========================
+          // ITEM QUANTITATIVO
+          // =========================
+          console.log(
+            "[INFO] Ativando item quantitativo:",
+            { itemId: item.itemId, quantidade: item.quantity }
+          );
+
+          await this.updateItemQuantityForRental(
+            companyId,
+            item.itemId,
+            item.quantity,
+            "activate",
+            userId,
+            rental._id,
+            undefined, // sem unitId para quantitativos
+            rental.customerId.toString(),
+          );
+        }
       }
     }
 
@@ -1467,30 +1545,78 @@ class RentalService {
 
       for (const item of rental.items) {
         const itemDoc = await Item.findOne({ _id: item.itemId, companyId });
-        const unit = itemDoc?.units?.find((u) => u.unitId === item.unitId);
 
-        // 🔒 Proteção contra retorno indevido
-        if (unit?.status === "reserved") {
-          console.warn(
-            `⚠️ Tentativa de retorno com unit ainda reservada: ${item.unitId}`,
+        if (!itemDoc) {
+          console.error(
+            "[ERRO] Item não encontrado durante devolução do aluguel:",
+            { itemId: item.itemId, rentalId: rental._id }
           );
           continue;
         }
 
-        if (unit?.status !== "rented") {
-          throw new Error(`Unit ${item.unitId} não está alugada`);
-        }
+        // =========================
+        // ITEM UNITÁRIO
+        // =========================
+        if (itemDoc.trackingType === "unit") {
+          const unit = itemDoc.units?.find((u) => u.unitId === item.unitId);
 
-        await this.updateItemQuantityForRental(
-          companyId,
-          item.itemId,
-          item.quantity,
-          "return",
-          userId,
-          rental._id,
-          item.unitId,
-          rental.customerId.toString(),
-        );
+          console.log(
+            "[INFO] Devolvendo unidade:",
+            { itemId: item.itemId, unitId: item.unitId, status: unit?.status }
+          );
+
+          // 🔒 Proteção contra retorno indevido
+          if (unit?.status === "reserved") {
+            console.warn(
+              `[AVISO] Tentativa de devolução com unidade ainda reservada: ${item.unitId}`
+            );
+            continue;
+          }
+
+          if (!unit) {
+            console.warn(
+              `[AVISO] Unidade não encontrada durante devolução: ${item.unitId}`
+            );
+            continue;
+          }
+
+          if (unit.status !== "rented") {
+            console.warn(
+              `[AVISO] Unidade ${item.unitId} não está em status "alugada" (status=${unit.status}), pulando devolução`
+            );
+            continue;
+          }
+
+          await this.updateItemQuantityForRental(
+            companyId,
+            item.itemId,
+            item.quantity,
+            "return",
+            userId,
+            rental._id,
+            item.unitId,
+            rental.customerId.toString(),
+          );
+        } else {
+          // =========================
+          // ITEM QUANTITATIVO
+          // =========================
+          console.log(
+            "[INFO] Devolvendo item quantitativo:",
+            { itemId: item.itemId, quantidade: item.quantity }
+          );
+
+          await this.updateItemQuantityForRental(
+            companyId,
+            item.itemId,
+            item.quantity,
+            "return",
+            userId,
+            rental._id,
+            undefined, // sem unitId para quantitativos
+            rental.customerId.toString(),
+          );
+        }
       }
     }
 
@@ -1498,7 +1624,22 @@ class RentalService {
      * RESERVED → CANCELLED
      */
     if (oldStatus === "reserved" && newStatus === "cancelled") {
+      console.log(
+        "[INFO] Cancelando aluguel e liberando itens reservados:",
+        { rentalId: rental._id }
+      );
+
       for (const item of rental.items) {
+        const itemDoc = await Item.findOne({ _id: item.itemId, companyId });
+
+        if (!itemDoc) {
+          console.warn(
+            "[AVISO] Item não encontrado durante cancelamento do aluguel:",
+            { itemId: item.itemId }
+          );
+          continue;
+        }
+
         await this.updateItemQuantityForRental(
           companyId,
           item.itemId,
@@ -1529,7 +1670,7 @@ class RentalService {
 
       // Nota: As unidades já foram retornadas por closeRentalItem
       // apenas confirmamos que o aluguel está finalizado
-      console.log("✅ Aluguel finalizado com sucesso:", rental._id);
+      console.log("[SUCESSO] Aluguel finalizado com êxito:", rental._id);
     }
   }
 
@@ -2382,13 +2523,13 @@ class RentalService {
     // =========================
     if (item.trackingType === "unit") {
       if (!unitId) {
-        console.warn("Unit action without unitId", { itemId, rentalId });
+        console.warn("[AVISO] Ação de unidade sem unitId", { itemId, rentalId });
         return;
       }
 
       const unit = item.units?.find((u) => u.unitId === unitId);
       if (!unit) {
-        throw new Error("Unit not found");
+        throw new Error("Unidade não encontrada");
       }
 
       switch (action) {
@@ -2396,7 +2537,7 @@ class RentalService {
           if (unit.status === "reserved") return; // idempotente
 
           if (unit.status !== "available") {
-            throw new Error(`Unit ${unit.unitId} is not available`);
+            throw new Error(`Unidade ${unit.unitId} não está disponível`);
           }
 
           unit.status = "reserved";
@@ -2410,7 +2551,7 @@ class RentalService {
           if (unit.status === "rented") return; // idempotente
 
           if (unit.status !== "reserved") {
-            throw new Error(`Unit ${unit.unitId} is not reserved`);
+            throw new Error(`Unidade ${unit.unitId} não está reservada`);
           }
 
           unit.status = "rented";
@@ -2422,13 +2563,13 @@ class RentalService {
 
           if (unit.status === "reserved") {
             console.warn(
-              `Tentativa de return em unit ainda reservada: ${unit.unitId}`,
+              `Tentativa de devolução em unidade ainda reservada: ${unit.unitId}`,
             );
             return;
           }
 
           if (unit.status !== "rented") {
-            throw new Error(`Unit ${unit.unitId} is not rented`);
+            throw new Error(`Unidade ${unit.unitId} não está alugada`);
           }
 
           unit.status = "available";
@@ -2441,7 +2582,7 @@ class RentalService {
 
           if (unit.status !== "reserved") {
             console.warn(
-              `Cancel ignorado - unit não está reservada: ${unit.unitId}`,
+              `Cancelamento ignorado - unidade não está reservada: ${unit.unitId}`,
             );
             return;
           }
@@ -2519,7 +2660,19 @@ class RentalService {
       item.quantity.rented < 0 ||
       item.quantity.reserved < 0
     ) {
-      throw new Error("Invalid quantity operation");
+      console.error("[ERRO] Quantidade negativa após operação:", {
+        itemName: item.name,
+        itemId: item._id,
+        acao: action,
+        quantidadeSolicitada: quantity,
+        quantidadeAnterior: previousQuantity,
+        quantidadeAtual: item.quantity,
+        rentalId,
+      });
+
+      throw new Error(
+        `Operação inválida de quantidade para "${item.name}": Após ${action} de ${quantity} unidades, a quantidade dis${action === "return" ? "ponível" : "reservada"} ficaria negativa. ${action === "return" ? "Isto pode indicar que o item já foi devolvido ou há inconsistência nos dados." : "Verifique a disponibilidade do item."}. Por favor, contate o administrador.`
+      );
     }
 
     await item.save();
