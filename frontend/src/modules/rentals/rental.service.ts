@@ -1,5 +1,5 @@
-import api from '../../config/api';
-import { Category } from '../../types/inventory.types';
+import api from "../../config/api";
+import { Category } from "../../types/inventory.types";
 import {
   Rental,
   CreateRentalData,
@@ -7,24 +7,30 @@ import {
   UpdateRentalStatusData,
   ExtendRentalData,
   ChecklistData,
-  RentalStatusChangeApproval,
-} from '../../types/rental.types';
+  RentalPendingApproval,
+  RentalChangeHistory,
+} from "../../types/rental.types";
 
 export const rentalService = {
   getRentals: async (filters: RentalFilters = {}) => {
     const params = new URLSearchParams();
-    if (filters.status) params.append('status', filters.status);
-    if (filters.customerId) params.append('customerId', filters.customerId);
-    if (filters.startDate) params.append('startDate', filters.startDate);
-    if (filters.endDate) params.append('endDate', filters.endDate);
-    if (filters.search) params.append('search', filters.search);
-    if (filters.page) params.append('page', String(filters.page));
-    if (filters.limit) params.append('limit', String(filters.limit));
+    if (filters.status) params.append("status", filters.status);
+    if (filters.customerId) params.append("customerId", filters.customerId);
+    if (filters.startDate) params.append("startDate", filters.startDate);
+    if (filters.endDate) params.append("endDate", filters.endDate);
+    if (filters.search) params.append("search", filters.search);
+    if (filters.page) params.append("page", String(filters.page));
+    if (filters.limit) params.append("limit", String(filters.limit));
 
     const response = await api.get<{
       success: boolean;
       data: Rental[];
-      pagination: { total: number; page: number; limit: number; totalPages: number };
+      pagination: {
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+      };
     }>(`/rentals?${params.toString()}`);
 
     return response.data;
@@ -45,32 +51,102 @@ export const rentalService = {
     return response.data.data;
   },
 
+  getClosePreviewItem: async (
+    rentalId: string,
+    itemId: string,
+    unitId?: string,
+  ) => {
+    const params = unitId ? `?unitId=${encodeURIComponent(unitId)}` : "";
+    const response = await api.get<{
+      success: boolean;
+      data: {
+        originalTotal: number;
+        recalculatedTotal: number;
+        usedDays: number;
+        contractedDays: number;
+        rentalType: string;
+      };
+    }>(`/rentals/${rentalId}/items/${itemId}/close-preview${params}`);
+
+    return response.data.data;
+  },
+
   getRentalById: async (id: string) => {
-    const response = await api.get<{ success: boolean; data: Rental }>(`/rentals/${id}`);
+    const response = await api.get<{ success: boolean; data: Rental }>(
+      `/rentals/${id}`,
+    );
+    return response.data;
+  },
+
+  generateRentalPDF: async (id: string) => {
+    const response = await api.get(`/rentals/${id}/pdf`, {
+      responseType: "blob",
+    });
+    return response.data;
+  },
+
+  closeRentalItem: async (
+    rentalId: string,
+    itemId: string,
+    data: { returnDate?: string; unitId?: string },
+  ) => {
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(`/rentals/${rentalId}/items/${itemId}/close`, data);
     return response.data;
   },
 
   createRental: async (data: CreateRentalData) => {
-    const response = await api.post<{ success: boolean; message: string; data: Rental }>(
-      '/rentals',
-      data
-    );
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>("/rentals", data);
     return response.data;
   },
 
-  updateRental: async (id: string, data: { notes?: string; pricing?: { discount?: number } }) => {
-    const response = await api.put<{ success: boolean; message: string; data: Rental }>(
-      `/rentals/${id}`,
-      data
-    );
+  updateRental: async (
+    id: string,
+    data: {
+      notes?: string;
+      dates?: { pickupScheduled?: string; returnScheduled?: string };
+      items?: Array<{
+        itemId: string;
+        unitId?: string;
+        quantity?: number;
+        rentalType?: "daily" | "weekly" | "biweekly" | "monthly";
+        pickupScheduled?: string;
+        returnScheduled?: string;
+      }>;
+      workAddress?: {
+        street: string;
+        number?: string;
+        complement?: string;
+        neighborhood?: string;
+        city: string;
+        state: string;
+        zipCode: string;
+        workName: string;
+        workId?: string;
+      };
+    },
+  ) => {
+    const response = await api.put<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(`/rentals/${id}`, data);
     return response.data;
   },
 
   updateRentalStatus: async (id: string, data: UpdateRentalStatusData) => {
-    const response = await api.patch<{ success: boolean; message: string; data: Rental }>(
-      `/rentals/${id}/status`,
-      data
-    );
+    const response = await api.patch<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(`/rentals/${id}/status`, data);
     return response.data;
   },
 
@@ -79,34 +155,45 @@ export const rentalService = {
       success: boolean;
       message: string;
       data: Rental;
-    }>(
-      `/rentals/${id}/extend`,
-      data
-    );
+    }>(`/rentals/${id}/extend`, data);
 
     return response.data;
   },
 
   updatePickupChecklist: async (id: string, data: ChecklistData) => {
-    const response = await api.patch<{ success: boolean; message: string; data: Rental }>(
-      `/rentals/${id}/checklist/pickup`,
-      data
-    );
+    const response = await api.patch<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(`/rentals/${id}/checklist/pickup`, data);
     return response.data;
   },
 
   updateReturnChecklist: async (id: string, data: ChecklistData) => {
-    const response = await api.patch<{ success: boolean; message: string; data: Rental }>(
-      `/rentals/${id}/checklist/return`,
-      data
-    );
+    const response = await api.patch<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(`/rentals/${id}/checklist/return`, data);
     return response.data;
   },
 
   checkOverdueRentals: async () => {
-    const response = await api.post<{ success: boolean; message: string; count: number }>(
-      '/rentals/check-overdue'
-    );
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      count: number;
+    }>("/rentals/check-overdue");
+    return response.data;
+  },
+
+  closeRental: async (rentalId: string) => {
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(`/rentals/${rentalId}/close`);
+
     return response.data;
   },
 
@@ -125,7 +212,7 @@ export const rentalService = {
           totalActive: number;
         };
       };
-    }>('/rentals/expiration-dashboard');
+    }>("/rentals/expiration-dashboard");
     return response.data;
   },
 
@@ -134,10 +221,20 @@ export const rentalService = {
       success: boolean;
       data: {
         itemId: string;
-        status: 'available' | 'rented' | 'maintenance';
+        status: "available" | "rented" | "maintenance";
         rentedBy?: { customerId: string; name: string };
-        maintenance?: { provider: string; expectedReturnDate: string; cost: number };
-        rentalInfo?: { rentalId: string; rentalNumber: string; quantity: number; unitPrice: number; subtotal: number };
+        maintenance?: {
+          provider: string;
+          expectedReturnDate: string;
+          cost: number;
+        };
+        rentalInfo?: {
+          rentalId: string;
+          rentalNumber: string;
+          quantity: number;
+          unitPrice: number;
+          subtotal: number;
+        };
       };
     }>(`/rentals/${itemId}/details-status-item`, {
       params: { companyId },
@@ -150,40 +247,54 @@ export const rentalService = {
   getCategories: async (isActive?: boolean) => {
     const params = new URLSearchParams();
     if (isActive !== undefined) {
-      params.append('isActive', String(isActive));
+      params.append("isActive", String(isActive));
     }
 
     const response = await api.get<{ success: boolean; data: Category[] }>(
-      `/inventory/categories?${params.toString()}`
+      `/inventory/categories?${params.toString()}`,
     );
 
     return response.data.data;
   },
 
-  getPendingStatusChange: async (rentalId: string) => {
-    const response = await api.get<{
-      success: boolean;
-      data: RentalStatusChangeApproval;
-    }>(`/rentals/${rentalId}/status-change-requests`);
-
+  getPendingApprovals: async () => {
+    const response = await api.get<{ success: boolean; data: Rental[] }>(
+      "/rentals/pending-approvals",
+    );
     return response.data.data;
   },
 
-  rejectStatusChange: async (requestId: string) => {
+  approveApproval: async (
+    rentalId: string,
+    approvalId: string,
+    notes?: string,
+  ) => {
     const response = await api.post<{
       success: boolean;
       message: string;
-    }>(`/rentals/status-change-request/${requestId}/reject`);
-
+      data: Rental;
+    }>(`/rentals/${rentalId}/approve/${approvalId}`, { notes });
     return response.data;
   },
 
-  approveStatusChange: async (requestId: string) => {
+  rejectApproval: async (
+    rentalId: string,
+    approvalId: string,
+    notes: string,
+  ) => {
     const response = await api.post<{
       success: boolean;
       message: string;
-    }>(`/rentals/status-change-request/${requestId}/approve`);
-
+      data: Rental;
+    }>(`/rentals/${rentalId}/reject/${approvalId}`, { notes });
     return response.data;
+  },
+
+  getChangeHistory: async (rentalId: string) => {
+    const response = await api.get<{
+      success: boolean;
+      data: RentalChangeHistory[];
+    }>(`/rentals/${rentalId}/change-history`);
+    return response.data.data;
   },
 };

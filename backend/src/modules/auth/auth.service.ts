@@ -1,10 +1,14 @@
-import { Company } from '../companies/company.model';
-import { User } from '../users/user.model';
-import { comparePassword } from '../../shared/utils/password.util';
-import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../../shared/utils/jwt.util';
-import { generateUniqueCompanyCode } from '../../shared/utils/generateCode';
-import { UserRole } from '../../shared/constants/roles';
-import mongoose from 'mongoose';
+import { Company } from "../companies/company.model";
+import { User } from "../users/user.model";
+import { comparePassword } from "../../shared/utils/password.util";
+import {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyRefreshToken,
+} from "../../shared/utils/jwt.util";
+import { generateUniqueCompanyCode } from "../../shared/utils/generateCode";
+import { UserRole } from "../../shared/constants/roles";
+import mongoose from "mongoose";
 
 export interface RegisterCompanyData {
   companyName: string;
@@ -47,44 +51,80 @@ class AuthService {
    * Register a new company and create the first superadmin user
    */
   async registerCompany(data: RegisterCompanyData): Promise<any> {
-    const code = await generateUniqueCompanyCode(data.companyName);
+    // Normaliza dados
+    const email = data.email.trim().toLowerCase();
+    const userEmail = data.userEmail.trim().toLowerCase();
+    const cleanCnpj = data.cnpj ? data.cnpj.replace(/\D/g, "") : undefined;
+
+    // Validação básica de CNPJ (se informado)
+    if (cleanCnpj && cleanCnpj.length !== 14) {
+      throw new Error("Invalid CNPJ");
+    }
+
+    // Monta query dinâmica para evitar bug com undefined
+    const companyQuery: any[] = [{ email }];
+
+    if (cleanCnpj) {
+      companyQuery.push({ cnpj: cleanCnpj });
+    }
 
     // Verifica se empresa já existe
     const existingCompany = await Company.findOne({
-      $or: [{ cnpj: data.cnpj?.replace(/\D/g, '') }, { email: data.email }],
+      $or: companyQuery,
     });
-    if (existingCompany) throw new Error('Company with this CNPJ or email already exists');
+
+    if (existingCompany) {
+      throw new Error("Company with this CNPJ or email already exists");
+    }
 
     // Verifica se usuário já existe
-    const existingUser = await User.findOne({ email: data.userEmail });
-    if (existingUser) throw new Error('User with this email already exists');
+    const existingUser = await User.findOne({ email: userEmail });
+
+    if (existingUser) {
+      throw new Error("User with this email already exists");
+    }
+
+    // Gera código único da empresa
+    const code = await generateUniqueCompanyCode(data.companyName);
 
     // Cria empresa
     const company = await Company.create({
-      name: data.companyName,
-      cnpj: data.cnpj?.replace(/\D/g, ''),
-      email: data.email,
+      name: data.companyName.trim(),
+      cnpj: cleanCnpj,
+      email,
       phone: data.phone,
       code,
       address: data.address,
-      subscription: { plan: 'basic', status: 'active' },
+      subscription: {
+        plan: "basic",
+        status: "active",
+      },
     });
 
-    // Cria superadmin
+    // Cria usuário ADMIN (dono da empresa)
     const user = await User.create({
       companyId: company._id,
-      name: data.userName,
-      email: data.userEmail,
+      name: data.userName.trim(),
+      email: userEmail,
       password: data.password,
-      role: UserRole.SUPERADMIN,
+      role: UserRole.ADMIN,
       isActive: true,
     });
 
+    // Gera tokens
     const tokens: AuthTokens = {
-      accessToken: generateAccessToken(user._id.toString(), company._id.toString(), user.role),
-      refreshToken: generateRefreshToken(user._id.toString(), company._id.toString()),
+      accessToken: generateAccessToken(
+        user._id.toString(),
+        company._id.toString(),
+        user.role,
+      ),
+      refreshToken: generateRefreshToken(
+        user._id.toString(),
+        company._id.toString(),
+      ),
     };
 
+    // Retorno padronizado
     return {
       company: {
         _id: company._id.toString(),
@@ -108,14 +148,16 @@ class AuthService {
    * Register a new user (employee) using the company code
    */
   async registerUser(data: RegisterUserData): Promise<any> {
-    if (!data.companyCode || data.companyCode.trim() === '') {
-      throw new Error('Company code is required');
+    if (!data.companyCode || data.companyCode.trim() === "") {
+      throw new Error("Company code is required");
     }
 
-    const company = await Company.findOne({ code: data.companyCode.toUpperCase() });
-  
-    if (!company || company.subscription.status !== 'active') {
-      throw new Error('Invalid or inactive company code');
+    const company = await Company.findOne({
+      code: data.companyCode.toUpperCase(),
+    });
+
+    if (!company || company.subscription.status !== "active") {
+      throw new Error("Invalid or inactive company code");
     }
 
     const existingUser = await User.findOne({
@@ -124,7 +166,7 @@ class AuthService {
     });
 
     if (existingUser) {
-      throw new Error('User with this email already exists in this company');
+      throw new Error("User with this email already exists in this company");
     }
 
     const user = await User.create({
@@ -137,8 +179,15 @@ class AuthService {
     });
 
     const tokens = {
-      accessToken: generateAccessToken(user._id.toString(), company._id.toString(), user.role),
-      refreshToken: generateRefreshToken(user._id.toString(), company._id.toString()),
+      accessToken: generateAccessToken(
+        user._id.toString(),
+        company._id.toString(),
+        user.role,
+      ),
+      refreshToken: generateRefreshToken(
+        user._id.toString(),
+        company._id.toString(),
+      ),
     };
 
     return {
@@ -157,13 +206,13 @@ class AuthService {
     const user = await User.findById(payload.userId);
 
     if (!user || !user.isActive) {
-      throw new Error('User not found or inactive');
+      throw new Error("User not found or inactive");
     }
 
     const accessToken = generateAccessToken(
       user._id.toString(),
       user.companyId.toString(),
-      user.role
+      user.role,
     );
 
     return { accessToken };
@@ -173,21 +222,34 @@ class AuthService {
    * Login user using email + company code
    */
   async login(data: LoginData): Promise<{ user: any; tokens: AuthTokens }> {
-    const company = await Company.findOne({ code: data.companyCode.toUpperCase() });
-    if (!company || company.subscription.status !== 'active') throw new Error('Empresa não encontrada ou inativa');
+    const company = await Company.findOne({
+      code: data.companyCode.toUpperCase(),
+    });
+    if (!company || company.subscription.status !== "active")
+      throw new Error("Empresa não encontrada ou inativa");
 
-    const user = await User.findOne({ email: data.email, companyId: company._id }).select('+password');
-    if (!user) throw new Error('Email ou senha inválidos');
-    if (!user.isActive) throw new Error('Usuário inativo');
+    const user = await User.findOne({
+      email: data.email,
+      companyId: company._id,
+    }).select("+password");
+    if (!user) throw new Error("Email ou senha inválidos");
+    if (!user.isActive) throw new Error("Usuário inativo");
 
     const isPasswordValid = await comparePassword(data.password, user.password);
-    if (!isPasswordValid) throw new Error('Email ou senha inválidos');
+    if (!isPasswordValid) throw new Error("Email ou senha inválidos");
 
     await user.updateLastLogin();
 
     const tokens = {
-      accessToken: generateAccessToken(user._id.toString(), company._id.toString(), user.role),
-      refreshToken: generateRefreshToken(user._id.toString(), company._id.toString()),
+      accessToken: generateAccessToken(
+        user._id.toString(),
+        company._id.toString(),
+        user.role,
+      ),
+      refreshToken: generateRefreshToken(
+        user._id.toString(),
+        company._id.toString(),
+      ),
     };
 
     return {

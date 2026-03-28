@@ -3,7 +3,6 @@ import { NotificationModel, NotificationUserModel } from "./notification.validat
 import { Types } from "mongoose";
 import { RentalStatus } from "../rentals/rental.types";
 import { rentalService } from "../rentals/rental.service";
-import { notificationService } from "./notification.service";
 
 class NotificationController {
   async list(req: Request, res: Response) {
@@ -113,11 +112,34 @@ class NotificationController {
       return res.status(400).json({ message: "Solicitação inválida" });
     }
 
-    //aplica a mudança no aluguel
-    await rentalService.updateRentalStatus(
+    const rental = await rentalService.getRentalById(
+      notification.companyId.toString(),
+      notification.referenceId.toString()
+    );
+
+    if (!rental || !rental.pendingApprovals) {
+      return res.status(404).json({ message: "Solicitação pendente não encontrada" });
+    }
+
+    const matchingApproval = rental.pendingApprovals.find((approval) => {
+      if (approval.status !== "pending") return false;
+      if (approval.requestType !== "status_change") return false;
+      const requestedBy = approval.requestedBy?.toString?.() || approval.requestedBy;
+      const newStatus = approval.requestDetails?.newStatus || approval.requestDetails?.newValue;
+      return (
+        requestedBy?.toString() === notification.createdByUserId.toString() &&
+        newStatus === notification.requestedStatus
+      );
+    });
+
+    if (!matchingApproval || !matchingApproval._id) {
+      return res.status(404).json({ message: "Solicitação pendente não encontrada" });
+    }
+
+    await rentalService.approveRequest(
       notification.companyId.toString(),
       notification.referenceId.toString(),
-      notification.requestedStatus as RentalStatus,
+      matchingApproval._id.toString(),
       adminId
     );
 
@@ -145,8 +167,63 @@ class NotificationController {
       const notificationId = req.params.id;
       const userId = req.user!._id.toString();
 
-      const notification =
-        await notificationService.rejectStatusChange(notificationId, userId);
+      const notification = await NotificationModel.findById(notificationId);
+
+      if (!notification) {
+        return res.status(404).json({ message: "Notificação não encontrada" });
+      }
+
+      if (notification.resolved) {
+        return res.status(400).json({
+          message: "Solicitação já foi resolvida",
+        });
+      }
+
+      if (!notification.referenceId || !notification.requestedStatus) {
+        return res.status(400).json({ message: "Solicitação inválida" });
+      }
+
+      const rental = await rentalService.getRentalById(
+        notification.companyId.toString(),
+        notification.referenceId.toString()
+      );
+
+      if (!rental || !rental.pendingApprovals) {
+        return res.status(404).json({ message: "Solicitação pendente não encontrada" });
+      }
+
+      const matchingApproval = rental.pendingApprovals.find((approval) => {
+        if (approval.status !== "pending") return false;
+        if (approval.requestType !== "status_change") return false;
+        const requestedBy = approval.requestedBy?.toString?.() || approval.requestedBy;
+        const newStatus = approval.requestDetails?.newStatus || approval.requestDetails?.newValue;
+        return (
+          requestedBy?.toString() === notification.createdByUserId.toString() &&
+          newStatus === notification.requestedStatus
+        );
+      });
+
+      if (!matchingApproval || !matchingApproval._id) {
+        return res.status(404).json({ message: "Solicitação pendente não encontrada" });
+      }
+
+      await rentalService.rejectRequest(
+        notification.companyId.toString(),
+        notification.referenceId.toString(),
+        matchingApproval._id.toString(),
+        userId,
+        "Rejeitado via notificação"
+      );
+
+      notification.resolved = true;
+      notification.resolution = "rejected";
+      notification.resolvedAt = new Date();
+      await notification.save();
+
+      await NotificationUserModel.updateMany(
+        { notificationId },
+        { isRead: true, readAt: new Date() }
+      );
 
       return res.status(200).json({
         success: true,

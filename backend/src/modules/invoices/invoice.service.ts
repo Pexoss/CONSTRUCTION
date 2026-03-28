@@ -205,6 +205,27 @@ class InvoiceService {
       if (customer.cpfCnpj) doc.text(`CPF/CNPJ: ${customer.cpfCnpj}`);
       if (customer.email) doc.text(`Email: ${customer.email}`);
       if (customer.phone) doc.text(`Telefone: ${customer.phone}`);
+      const customerAddresses = customer?.addresses || [];
+      const preferredAddress =
+        customerAddresses.find((addr: any) => addr.type === 'billing') ||
+        customerAddresses.find((addr: any) => addr.type === 'main') ||
+        customerAddresses[0];
+      if (preferredAddress) {
+        const addressLine = [
+          preferredAddress.street,
+          preferredAddress.number ? `, ${preferredAddress.number}` : '',
+        ].join('');
+        const complement = preferredAddress.complement
+          ? ` - ${preferredAddress.complement}`
+          : '';
+        const neighborhood = preferredAddress.neighborhood
+          ? ` - ${preferredAddress.neighborhood}`
+          : '';
+        doc.text(`Endereço: ${addressLine}${complement}${neighborhood}`);
+        doc.text(
+          `${preferredAddress.city || ''}/${preferredAddress.state || ''} - ${preferredAddress.zipCode || ''}`
+        );
+      }
       doc.moveDown();
 
       // Items Table

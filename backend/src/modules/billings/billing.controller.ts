@@ -86,6 +86,24 @@ class BillingController {
   }
 
   /**
+   * Gerar PDF do fechamento
+   */
+  async generateBillingPDF(req: Request, res: Response, next: NextFunction) {
+    try {
+      const companyId = req.companyId!;
+      const { id } = req.params;
+
+      const pdfBuffer = await billingService.generateBillingPDF(companyId, id);
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=billing-${id}.pdf`);
+      res.send(pdfBuffer);
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
    * Aprovar fechamento pendente
    */
   async approveBilling(req: Request, res: Response, next: NextFunction) {
@@ -140,7 +158,14 @@ class BillingController {
 
       const paymentDate = data.paymentDate ? (typeof data.paymentDate === 'string' ? new Date(data.paymentDate) : data.paymentDate) : undefined;
 
-      const billing = await billingService.markAsPaid(companyId, id, data.paymentMethod, paymentDate);
+      const billing = await billingService.markAsPaid(
+        companyId,
+        id,
+        data.paymentMethod,
+        paymentDate,
+        data.discount,
+        data.discountReason
+      );
 
       res.json({
         success: true,

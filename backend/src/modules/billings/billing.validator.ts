@@ -18,6 +18,8 @@ export const rejectBillingSchema = z.object({
 export const markAsPaidSchema = z.object({
   paymentMethod: z.string().min(1, 'Payment method is required'),
   paymentDate: z.string().datetime().or(z.date()).optional(),
+  discount: z.number().min(0).optional(),
+  discountReason: z.string().optional(),
 });
 
 export const getBillingsSchema = z.object({

@@ -4,9 +4,18 @@ import { UserRole } from '../../shared/constants/roles';
 export const registerCompanySchema = z.object({
   // Company data
   companyName: z.string().min(2, 'Company name must be at least 2 characters'),
-  cnpj: z.string().regex(/^\d{14}$/, 'CNPJ must have exactly 14 digits').optional(),
+
+  cnpj: z
+    .string()
+    .transform((value) => value.replace(/\D/g, ''))
+    .refine((value) => value.length === 14, {
+      message: 'CNPJ must have exactly 14 digits',
+    }),
+
   email: z.string().email('Invalid email format'),
+
   phone: z.string().optional(),
+
   address: z
     .object({
       street: z.string().optional(),
@@ -16,9 +25,12 @@ export const registerCompanySchema = z.object({
       country: z.string().optional(),
     })
     .optional(),
-  // First user (superadmin) data
+
+  // First user (admin) data
   userName: z.string().min(2, 'Name must be at least 2 characters'),
+
   userEmail: z.string().email('Invalid email format'),
+
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
@@ -36,6 +48,6 @@ export const loginSchema = z.object({
   companyCode: z.string().min(1, 'Company code is required'),
 });
 
-export const refreshTokenSchema = z.object({
+export const refreshTokenSchema = z.object({ 
   refreshToken: z.string().min(1, 'Refresh token is required'),
 });

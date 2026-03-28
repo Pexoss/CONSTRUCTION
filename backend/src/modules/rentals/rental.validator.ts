@@ -8,7 +8,9 @@ export const createRentalSchema = z.object({
         itemId: z.string().min(1, 'Item ID is required'),
         unitId: z.string().optional(), // unitário opcional
         quantity: z.number().int().min(1, 'Quantity must be at least 1'),
-        rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(), // opcional
+        rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']),
+        pickupScheduled: z.string().datetime().or(z.date()),
+        returnScheduled: z.string().datetime().or(z.date()).optional(),
       })
     )
     .min(1, 'At least one item is required'),
@@ -23,13 +25,15 @@ export const createRentalSchema = z.object({
       })
     )
     .optional(),
-  dates: z.object({
-    pickupScheduled: z.string().datetime().or(z.date()),
-    returnScheduled: z.string().datetime().or(z.date()),
-    billingCycle: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
-    lastBillingDate: z.string().datetime().or(z.date()).optional(),
-    nextBillingDate: z.string().datetime().or(z.date()).optional(),
-  }),
+  dates: z
+    .object({
+      pickupScheduled: z.string().datetime().or(z.date()).optional(),
+      returnScheduled: z.string().datetime().or(z.date()).optional(),
+      billingCycle: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
+      lastBillingDate: z.string().datetime().or(z.date()).optional(),
+      nextBillingDate: z.string().datetime().or(z.date()).optional(),
+    })
+    .optional(),
   workAddress: z
     .object({
       street: z.string(),
@@ -55,15 +59,57 @@ export const createRentalSchema = z.object({
 
 export const updateRentalSchema = z.object({
   notes: z.string().optional(),
-  pricing: z
+  items: z
+    .array(
+      z.object({
+        itemId: z.string().min(1, 'Item ID is required'),
+        unitId: z.string().optional(),
+        quantity: z.number().int().min(1).optional(),
+        rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
+        pickupScheduled: z.string().datetime().or(z.date()).optional(),
+        returnScheduled: z.string().datetime().or(z.date()).optional(),
+      })
+    )
+    .optional(),
+  dates: z
     .object({
-      discount: z.number().min(0).optional(),
+      pickupScheduled: z.string().datetime().or(z.date()).optional(),
+      returnScheduled: z.string().datetime().or(z.date()).optional(),
+    })
+    .optional(),
+  workAddress: z
+    .object({
+      street: z.string(),
+      number: z.string().optional(),
+      complement: z.string().optional(),
+      neighborhood: z.string().optional(),
+      city: z.string(),
+      state: z.string(),
+      zipCode: z.string(),
+      workName: z.string(),
+      workId: z.string().optional(),
     })
     .optional(),
 });
 
 export const updateRentalStatusSchema = z.object({
   status: z.enum(['reserved', 'active', 'overdue', 'completed', 'cancelled']),
+  adjustments: z
+    .object({
+      returnDate: z.string().datetime().or(z.date()).optional(),
+      rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
+      pricingOverride: z
+        .object({
+          equipmentSubtotal: z.number().min(0).optional(),
+          servicesSubtotal: z.number().min(0).optional(),
+          discount: z.number().min(0).optional(),
+          lateFee: z.number().min(0).optional(),
+          total: z.number().min(0).optional(),
+        })
+        .optional(),
+      notes: z.string().optional(),
+    })
+    .optional(),
 });
 
 export const extendRentalSchema = z.object({
@@ -74,4 +120,18 @@ export const updateChecklistSchema = z.object({
   photos: z.array(z.string().url()).optional(),
   conditions: z.record(z.any()).optional(),
   notes: z.string().optional(),
+});
+
+export const requestApprovalSchema = z.object({
+  requestType: z.string().min(1, 'requestType is required'),
+  requestDetails: z.record(z.any()),
+  notes: z.string().optional(),
+});
+
+export const approvalActionSchema = z.object({
+  notes: z.string().optional(),
+});
+
+export const rejectApprovalSchema = z.object({
+  notes: z.string().min(1, 'Notes are required for rejection'),
 });

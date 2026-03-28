@@ -1,32 +1,42 @@
-import { Request, Response, NextFunction } from 'express';
-import { rentalService } from './rental.service';
+import { Request, Response, NextFunction } from "express";
+import { rentalService } from "./rental.service";
 import {
   createRentalSchema,
   updateRentalSchema,
   updateRentalStatusSchema,
   extendRentalSchema,
   updateChecklistSchema,
-} from './rental.validator';
-import { Rental } from './rental.model';
-import { Customer } from '../customers/customer.model';
-import { Types } from 'mongoose';
-
+  requestApprovalSchema,
+  approvalActionSchema,
+  rejectApprovalSchema,
+} from "./rental.validator";
+import { Rental } from "./rental.model";
+import { Customer } from "../customers/customer.model";
+import { Types } from "mongoose";
 
 export class RentalController {
   /**
    * Create a new rental/reservation
    * POST /api/rentals
    */
-  async createRental(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async createRental(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const userId = req.user!._id.toString();
       const validatedData = createRentalSchema.parse(req.body);
-      const rental = await rentalService.createRental(companyId, validatedData, userId);
+      const rental = await rentalService.createRental(
+        companyId,
+        validatedData,
+        userId,
+      );
 
       res.status(201).json({
         success: true,
-        message: 'Rental created successfully',
+        message: "Rental created successfully",
         data: rental,
       });
     } catch (error) {
@@ -38,14 +48,22 @@ export class RentalController {
    * Get all rentals with filters
    * GET /api/rentals
    */
-  async getRentals(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async getRentals(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const filters = {
         status: req.query.status as any,
         customerId: req.query.customerId as string,
-        startDate: req.query.startDate ? new Date(req.query.startDate as string) : undefined,
-        endDate: req.query.endDate ? new Date(req.query.endDate as string) : undefined,
+        startDate: req.query.startDate
+          ? new Date(req.query.startDate as string)
+          : undefined,
+        endDate: req.query.endDate
+          ? new Date(req.query.endDate as string)
+          : undefined,
         search: req.query.search as string,
         page: req.query.page ? parseInt(req.query.page as string) : 1,
         limit: req.query.limit ? parseInt(req.query.limit as string) : 20,
@@ -69,10 +87,82 @@ export class RentalController {
   }
 
   /**
+   * Close rental (finalizar aluguel)
+   * POST /api/rentals/:id/close
+   */
+  async closeRental(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const rentalId = req.params.id;
+
+      const rental = await rentalService.closeRental(
+        companyId,
+        rentalId,
+        userId,
+      );
+
+      res.json({
+        success: true,
+        message: "Rental closed successfully",
+        data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Close rental item (finalizar entrega por equipamento)
+   * POST /api/rentals/:id/items/:itemId/close
+   */
+  async closeRentalItem(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const rentalId = req.params.id;
+      const itemId = req.params.itemId;
+      const returnDate = req.body?.returnDate
+        ? new Date(req.body.returnDate)
+        : undefined;
+      const unitId = req.body?.unitId as string | undefined;
+
+      const rental = await rentalService.closeRentalItem(
+        companyId,
+        rentalId,
+        itemId,
+        userId,
+        returnDate,
+        unitId,
+      );
+
+      res.json({
+        success: true,
+        message: "Item closed successfully",
+        data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Get rental by ID
    * GET /api/rentals/:id
    */
-  async getRentalById(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async getRentalById(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
@@ -81,7 +171,7 @@ export class RentalController {
       if (!rental) {
         res.status(404).json({
           success: false,
-          message: 'Rental not found',
+          message: "Rental not found",
         });
         return;
       }
@@ -95,6 +185,31 @@ export class RentalController {
     }
   }
 
+  async generateRentalPDF(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentalId = req.params.id;
+
+      const pdfBuffer = await rentalService.generateRentalPDF(
+        companyId,
+        rentalId,
+      );
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=rental-${rentalId}.pdf`,
+      );
+      res.send(pdfBuffer);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   /**
    * Update rental status
    * PATCH /api/rentals/:id/status
@@ -102,19 +217,29 @@ export class RentalController {
   async updateRentalStatus(
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
-      const { status } = updateRentalStatusSchema.parse(req.body);
+      const { status, adjustments } = updateRentalStatusSchema.parse(req.body);
+
+      const normalizedAdjustments = adjustments
+        ? {
+            ...adjustments,
+            returnDate: adjustments.returnDate
+              ? new Date(adjustments.returnDate)
+              : undefined,
+          }
+        : undefined;
 
       const result = await rentalService.updateRentalStatus(
         companyId,
         rentalId,
         status,
-        userId
+        userId,
+        normalizedAdjustments,
       );
 
       // se for solicitação de aprovação
@@ -130,14 +255,41 @@ export class RentalController {
     }
   }
 
-  async getClosePreview(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async getClosePreview(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const { id } = req.params;
       const companyId = req.companyId;
 
-      const preview = await rentalService.getClosePreview(
+      const preview = await rentalService.getClosePreview(id, companyId!);
+
+      res.json({
+        success: true,
+        data: preview,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getClosePreviewItem(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const { id, itemId } = req.params;
+      const companyId = req.companyId!;
+      const unitId = req.query.unitId as string | undefined;
+
+      const preview = await rentalService.getClosePreviewItem(
         id,
-        companyId!
+        itemId,
+        companyId,
+        unitId,
       );
 
       res.json({
@@ -149,29 +301,63 @@ export class RentalController {
     }
   }
 
+  async processBillingCycles(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const rentalId = req.params.id;
+
+      const created = await rentalService.processDueBillings(
+        companyId,
+        rentalId,
+        userId,
+      );
+
+      res.json({
+        success: true,
+        data: { created },
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
   /**
    * Extend rental period
    * PATCH /api/rentals/:id/extend
    */
-  async extendRental(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async extendRental(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
       const { newReturnDate } = extendRentalSchema.parse(req.body);
-      const rental = await rentalService.extendRental(companyId, rentalId, new Date(newReturnDate), userId);
+      const rental = await rentalService.extendRental(
+        companyId,
+        rentalId,
+        new Date(newReturnDate),
+        userId,
+      );
 
       if (!rental) {
         res.status(404).json({
           success: false,
-          message: 'Rental not found',
+          message: "Rental not found",
         });
         return;
       }
 
       res.json({
         success: true,
-        message: 'Rental extended successfully',
+        message: "Rental extended successfully",
         data: rental,
       });
     } catch (error) {
@@ -183,25 +369,34 @@ export class RentalController {
    * Update pickup checklist
    * PATCH /api/rentals/:id/checklist/pickup
    */
-  async updatePickupChecklist(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async updatePickupChecklist(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
       const checklist = updateChecklistSchema.parse(req.body);
-      const rental = await rentalService.updatePickupChecklist(companyId, rentalId, checklist, userId);
+      const rental = await rentalService.updatePickupChecklist(
+        companyId,
+        rentalId,
+        checklist,
+        userId,
+      );
 
       if (!rental) {
         res.status(404).json({
           success: false,
-          message: 'Rental not found',
+          message: "Rental not found",
         });
         return;
       }
 
       res.json({
         success: true,
-        message: 'Pickup checklist updated successfully',
+        message: "Pickup checklist updated successfully",
         data: rental,
       });
     } catch (error) {
@@ -213,25 +408,34 @@ export class RentalController {
    * Update return checklist
    * PATCH /api/rentals/:id/checklist/return
    */
-  async updateReturnChecklist(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async updateReturnChecklist(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
       const checklist = updateChecklistSchema.parse(req.body);
-      const rental = await rentalService.updateReturnChecklist(companyId, rentalId, checklist, userId);
+      const rental = await rentalService.updateReturnChecklist(
+        companyId,
+        rentalId,
+        checklist,
+        userId,
+      );
 
       if (!rental) {
         res.status(404).json({
           success: false,
-          message: 'Rental not found',
+          message: "Rental not found",
         });
         return;
       }
 
       res.json({
         success: true,
-        message: 'Return checklist updated successfully',
+        message: "Return checklist updated successfully",
         data: rental,
       });
     } catch (error) {
@@ -243,26 +447,30 @@ export class RentalController {
    * Update rental (general update)
    * PUT /api/rentals/:id
    */
-  async updateRental(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async updateRental(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
       const validatedData = updateRentalSchema.parse(req.body);
-      const rental = await rentalService.updateRental(companyId, rentalId, validatedData, userId);
-
-      if (!rental) {
-        res.status(404).json({
-          success: false,
-          message: 'Rental not found',
-        });
-        return;
-      }
+      const result = await rentalService.updateRental(
+        companyId,
+        rentalId,
+        validatedData,
+        userId,
+      );
 
       res.json({
         success: true,
-        message: 'Rental updated successfully',
-        data: rental,
+        message: result.requiresApproval
+          ? "Solicitação enviada para aprovação"
+          : "Rental updated successfully",
+        data: result.rental,
+        requiresApproval: result.requiresApproval,
       });
     } catch (error) {
       next(error);
@@ -273,7 +481,11 @@ export class RentalController {
    * Check and update overdue rentals
    * POST /api/rentals/check-overdue
    */
-  async checkOverdueRentals(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async checkOverdueRentals(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const count = await rentalService.checkOverdueRentals(companyId);
@@ -292,26 +504,30 @@ export class RentalController {
    * NOVO: Solicitar aprovação
    * POST /api/rentals/:id/request-approval
    */
-  async requestApproval(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async requestApproval(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
-      const { requestType, requestDetails, notes } = req.body;
+      const { requestType, requestDetails, notes } =
+        requestApprovalSchema.parse(req.body);
 
-      if (!requestType || !requestDetails) {
-        res.status(400).json({
-          success: false,
-          message: 'requestType and requestDetails are required',
-        });
-        return;
-      }
-
-      const rental = await rentalService.requestApproval(companyId, rentalId, requestType, requestDetails, userId, notes);
+      const rental = await rentalService.requestApproval(
+        companyId,
+        rentalId,
+        requestType,
+        requestDetails,
+        userId,
+        notes,
+      );
 
       res.status(201).json({
         success: true,
-        message: 'Approval request created successfully',
+        message: "Approval request created successfully",
         data: rental,
       });
     } catch (error) {
@@ -323,19 +539,29 @@ export class RentalController {
    * NOVO: Aprovar solicitação
    * POST /api/rentals/:id/approve/:approvalIndex
    */
-  async approveRequest(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async approveRequest(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
-      const approvalIndex = parseInt(req.params.approvalIndex);
+      const approvalId = req.params.approvalId;
       const userId = req.user!._id.toString();
-      const { notes } = req.body;
+      const { notes } = approvalActionSchema.parse(req.body);
 
-      const rental = await rentalService.approveRequest(companyId, rentalId, approvalIndex, userId, notes);
+      const rental = await rentalService.approveRequest(
+        companyId,
+        rentalId,
+        approvalId,
+        userId,
+        notes,
+      );
 
       res.json({
         success: true,
-        message: 'Approval request approved successfully',
+        message: "Approval request approved successfully",
         data: rental,
       });
     } catch (error) {
@@ -347,27 +573,29 @@ export class RentalController {
    * NOVO: Rejeitar solicitação
    * POST /api/rentals/:id/reject/:approvalIndex
    */
-  async rejectRequest(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async rejectRequest(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
-      const approvalIndex = parseInt(req.params.approvalIndex);
+      const approvalId = req.params.approvalId;
       const userId = req.user!._id.toString();
-      const { notes } = req.body;
+      const { notes } = rejectApprovalSchema.parse(req.body);
 
-      if (!notes) {
-        res.status(400).json({
-          success: false,
-          message: 'Notes are required for rejection',
-        });
-        return;
-      }
-
-      const rental = await rentalService.rejectRequest(companyId, rentalId, approvalIndex, userId, notes);
+      const rental = await rentalService.rejectRequest(
+        companyId,
+        rentalId,
+        approvalId,
+        userId,
+        notes,
+      );
 
       res.json({
         success: true,
-        message: 'Approval request rejected',
+        message: "Approval request rejected",
         data: rental,
       });
     } catch (error) {
@@ -379,7 +607,11 @@ export class RentalController {
    * NOVO: Listar aprovações pendentes
    * GET /api/rentals/pending-approvals
    */
-  async getPendingApprovals(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async getPendingApprovals(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentals = await rentalService.getPendingApprovals(companyId);
@@ -397,37 +629,48 @@ export class RentalController {
    * NOVO: Aplicar desconto
    * POST /api/rentals/:id/discount
    */
-  async applyDiscount(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async applyDiscount(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
       const { discount, discountReason } = req.body;
-      const isAdmin = req.user?.role === 'admin'; // Assumindo que role está disponível no req.user
+      const isAdmin = req.user?.role === "admin"; // Assumindo que role está disponível no req.user
 
       if (!discount || discount < 0) {
         res.status(400).json({
           success: false,
-          message: 'Valid discount amount is required',
+          message: "Valid discount amount is required",
         });
         return;
       }
 
-      const rental = await rentalService.applyDiscount(companyId, rentalId, discount, discountReason || '', userId, isAdmin);
+      const rental = await rentalService.applyDiscount(
+        companyId,
+        rentalId,
+        discount,
+        discountReason || "",
+        userId,
+        isAdmin,
+      );
 
       if (!rental) {
         res.status(404).json({
           success: false,
-          message: 'Rental not found',
+          message: "Rental not found",
         });
         return;
       }
 
       res.json({
         success: true,
-        message: rental.pendingApprovals?.some((a) => a.status === 'pending')
-          ? 'Discount request created, pending approval'
-          : 'Discount applied successfully',
+        message: rental.pendingApprovals?.some((a) => a.status === "pending")
+          ? "Discount request created, pending approval"
+          : "Discount applied successfully",
         data: rental,
       });
     } catch (error) {
@@ -438,37 +681,48 @@ export class RentalController {
    * NOVO: Alterar tipo de aluguel
    * POST /api/rentals/:id/change-rental-type
    */
-  async changeRentalType(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async changeRentalType(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
       const { itemIndex, newRentalType } = req.body;
-      const isAdmin = req.user?.role === 'admin';
+      const isAdmin = req.user?.role === "admin";
 
       if (itemIndex === undefined || !newRentalType) {
         res.status(400).json({
           success: false,
-          message: 'itemIndex and newRentalType are required',
+          message: "itemIndex and newRentalType are required",
         });
         return;
       }
 
-      const rental = await rentalService.changeRentalType(companyId, rentalId, itemIndex, newRentalType, userId, isAdmin);
+      const rental = await rentalService.changeRentalType(
+        companyId,
+        rentalId,
+        itemIndex,
+        newRentalType,
+        userId,
+        isAdmin,
+      );
 
       if (!rental) {
         res.status(404).json({
           success: false,
-          message: 'Rental not found',
+          message: "Rental not found",
         });
         return;
       }
 
       res.json({
         success: true,
-        message: rental.pendingApprovals?.some((a) => a.status === 'pending')
-          ? 'Rental type change request created, pending approval'
-          : 'Rental type changed successfully',
+        message: rental.pendingApprovals?.some((a) => a.status === "pending")
+          ? "Rental type change request created, pending approval"
+          : "Rental type changed successfully",
         data: rental,
       });
     } catch (error) {
@@ -480,7 +734,11 @@ export class RentalController {
    * NOVO: Dashboard de vencimentos
    * GET /api/rentals/expiration-dashboard
    */
-  async getExpirationDashboard(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async getExpirationDashboard(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const dashboard = await rentalService.getExpirationDashboard(companyId);
@@ -488,6 +746,39 @@ export class RentalController {
       res.json({
         success: true,
         data: dashboard,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * NOVO: Histórico de alterações do aluguel
+   * GET /api/rentals/:id/change-history
+   */
+  async getChangeHistory(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const rentalId = req.params.id;
+      const rental = await Rental.findOne({ _id: rentalId, companyId }).select(
+        "changeHistory",
+      );
+
+      if (!rental) {
+        res.status(404).json({
+          success: false,
+          message: "Rental not found",
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: rental.changeHistory || [],
       });
     } catch (error) {
       next(error);

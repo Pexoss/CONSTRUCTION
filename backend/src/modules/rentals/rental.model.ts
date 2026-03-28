@@ -29,6 +29,22 @@ const RentalItemSchema = new Schema<IRentalItem>(
       enum: ['daily', 'weekly', 'biweekly', 'monthly'],
       default: 'daily',
     },
+    pickupScheduled: {
+      type: Date,
+      required: true,
+    },
+    returnScheduled: {
+      type: Date,
+    },
+    returnActual: {
+      type: Date,
+    },
+    lastBillingDate: {
+      type: Date,
+    },
+    nextBillingDate: {
+      type: Date,
+    },
     subtotal: {
       type: Number,
       required: true,
@@ -175,8 +191,7 @@ const RentalPendingApprovalSchema = new Schema<IRentalPendingApproval>(
     },
     approvalDate: Date,
     notes: String,
-  },
-  { _id: false }
+  }
 );
 
 const RentalDatesSchema = new Schema<IRentalDates>(
