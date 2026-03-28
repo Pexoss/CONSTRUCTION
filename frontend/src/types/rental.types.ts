@@ -1,22 +1,21 @@
-import { Item } from './inventory.types';
-import { Customer } from './customer.types';
+import { Item } from "./inventory.types";
+import { Customer } from "./customer.types";
 
-export type RentalStatus = 'reserved' | 'active' | 'overdue' | 'completed' | 'cancelled';
-export type BillingCycle = 'daily' | 'weekly' | 'biweekly' | 'monthly';
+export type RentalStatus =
+  | "reserved"
+  | "active"
+  | "overdue"
+  | "completed"
+  | "ready_to_close"
+  | "cancelled";
+
+export type BillingCycle = "daily" | "weekly" | "biweekly" | "monthly";
 
 // O que o usuário vê na UI
-export type RentalTypeUI =
-  | 'diario'
-  | 'semanal'
-  | 'quinzenal'
-  | 'mensal';
+export type RentalTypeUI = "diario" | "semanal" | "quinzenal" | "mensal";
 
 // O que o backend espera
-export type RentalTypeAPI =
-  | 'daily'
-  | 'weekly'
-  | 'biweekly'
-  | 'monthly';
+export type RentalTypeAPI = "daily" | "weekly" | "biweekly" | "monthly";
 
 export interface RentalItem {
   itemId: string | Item;
@@ -36,7 +35,7 @@ export interface RentalDates {
   pickupActual?: string;
   returnScheduled: string;
   returnActual?: string;
-  billingCycle?: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+  billingCycle?: "daily" | "weekly" | "biweekly" | "monthly";
   lastBillingDate?: string;
   nextBillingDate?: string;
 }
@@ -82,7 +81,7 @@ export interface RentalWorkAddress {
   workId?: string;
 }
 
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+export type ApprovalStatus = "pending" | "approved" | "rejected";
 
 export interface RentalPendingApproval {
   _id: string;
@@ -108,27 +107,26 @@ export interface RentalChangeHistory {
 
 export type RentalStatusChangeApproval =
   | {
-    hasPending: false;
-  }
+      hasPending: false;
+    }
   | {
-    hasPending: true;
-    request: {
-      id: string;
-      fromStatus: string;
-      toStatus: string;
-      requestedBy: {
-        name: string;
+      hasPending: true;
+      request: {
+        id: string;
+        fromStatus: string;
+        toStatus: string;
+        requestedBy: {
+          name: string;
+        };
+        createdAt: string;
       };
-      createdAt: string;
     };
-  };
 
 export interface UpdateRentalStatusResponse {
   rental: Rental;
   requiresApproval?: boolean;
   message?: string;
 }
-
 
 export interface Rental {
   _id: string;
@@ -157,7 +155,7 @@ export interface CreateRentalData {
     itemId: string;
     unitId?: string;
     quantity: number;
-    rentalType: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+    rentalType: "daily" | "weekly" | "biweekly" | "monthly";
     pickupScheduled: string;
     returnScheduled?: string;
   }[];
@@ -187,7 +185,7 @@ export interface UpdateRentalStatusData {
   status: RentalStatus;
   adjustments?: {
     returnDate?: string;
-    rentalType?: 'daily' | 'weekly' | 'biweekly' | 'monthly';
+    rentalType?: "daily" | "weekly" | "biweekly" | "monthly";
     pricingOverride?: {
       equipmentSubtotal?: number;
       servicesSubtotal?: number;
@@ -213,7 +211,7 @@ export interface RentalDashboardItem {
   _id: string;
   rentalNumber?: string;
   status: string;
-  customerId: | string | { name: string; cpfCnpj?: string; };
+  customerId: string | { name: string; cpfCnpj?: string };
   dates: {
     returnScheduled?: string;
     nextBillingDate?: string;

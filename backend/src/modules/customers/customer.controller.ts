@@ -1,8 +1,12 @@
-import { Request, Response, NextFunction } from 'express';
-import { customerService } from './customer.service';
-import { createCustomerSchema, updateCustomerSchema, validateCustomerDocumentSchema } from './customer.validator';
-import { cpfCnpjService } from '../../shared/services/cpfcnpj.service';
-import { Company } from '../companies/company.model';
+import { Request, Response, NextFunction } from "express";
+import { customerService } from "./customer.service";
+import {
+  createCustomerSchema,
+  updateCustomerSchema,
+  validateCustomerDocumentSchema,
+} from "./customer.validator";
+import { cpfCnpjService } from "../../shared/services/cpfcnpj.service";
+import { Company } from "../companies/company.model";
 
 export class CustomerController {
   private async getCompanyCpfCnpjConfig(companyId: string): Promise<{
@@ -11,7 +15,7 @@ export class CustomerController {
     cnpjPackageId?: string;
   }> {
     const company = await Company.findById(companyId).select(
-      'cpfCnpjToken cpfCnpjCpfPackageId cpfCnpjCnpjPackageId'
+      "cpfCnpjToken cpfCnpjCpfPackageId cpfCnpjCnpjPackageId",
     );
     return {
       token: company?.cpfCnpjToken?.trim() || null,
@@ -23,15 +27,22 @@ export class CustomerController {
    * Create a new customer
    * POST /api/customers
    */
-  async createCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async createCustomer(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const validatedData = createCustomerSchema.parse(req.body);
-      const customer = await customerService.createCustomer(companyId, validatedData);
+      const customer = await customerService.createCustomer(
+        companyId,
+        validatedData,
+      );
 
       res.status(201).json({
         success: true,
-        message: 'Customer created successfully',
+        message: "Customer created successfully",
         data: customer,
       });
     } catch (error) {
@@ -43,12 +54,21 @@ export class CustomerController {
    * Get all customers with filters
    * GET /api/customers
    */
-  async getCustomers(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async getCustomers(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const filters = {
         search: req.query.search as string,
-        isBlocked: req.query.isBlocked === 'true' ? true : req.query.isBlocked === 'false' ? false : undefined,
+        isBlocked:
+          req.query.isBlocked === "true"
+            ? true
+            : req.query.isBlocked === "false"
+              ? false
+              : undefined,
         page: req.query.page ? parseInt(req.query.page as string) : 1,
         limit: req.query.limit ? parseInt(req.query.limit as string) : 20,
       };
@@ -74,16 +94,23 @@ export class CustomerController {
    * Get customer by ID
    * GET /api/customers/:id
    */
-  async getCustomerById(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async getCustomerById(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
-      const customer = await customerService.getCustomerById(companyId, customerId);
+      const customer = await customerService.getCustomerById(
+        companyId,
+        customerId,
+      );
 
       if (!customer) {
         res.status(404).json({
           success: false,
-          message: 'Customer not found',
+          message: "Customer not found",
         });
         return;
       }
@@ -101,24 +128,32 @@ export class CustomerController {
    * Update customer
    * PUT /api/customers/:id
    */
-  async updateCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async updateCustomer(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
       const validatedData = updateCustomerSchema.parse(req.body);
-      const customer = await customerService.updateCustomer(companyId, customerId, validatedData);
+      const customer = await customerService.updateCustomer(
+        companyId,
+        customerId,
+        validatedData,
+      );
 
       if (!customer) {
         res.status(404).json({
           success: false,
-          message: 'Customer not found',
+          message: "Customer not found",
         });
         return;
       }
 
       res.json({
         success: true,
-        message: 'Customer updated successfully',
+        message: "Customer updated successfully",
         data: customer,
       });
     } catch (error) {
@@ -130,7 +165,11 @@ export class CustomerController {
    * Delete customer (soft delete by blocking)
    * DELETE /api/customers/:id
    */
-  async deleteCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async deleteCustomer(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
@@ -139,7 +178,7 @@ export class CustomerController {
 
       res.json({
         success: true,
-        message: 'Customer deleted successfully',
+        message: "Customer deleted successfully",
       });
     } catch (error) {
       next(error);
@@ -150,33 +189,41 @@ export class CustomerController {
    * Block/Unblock customer
    * PATCH /api/customers/:id/block
    */
-  async toggleBlockCustomer(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async toggleBlockCustomer(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
       const { isBlocked } = req.body;
 
-      if (typeof isBlocked !== 'boolean') {
+      if (typeof isBlocked !== "boolean") {
         res.status(400).json({
           success: false,
-          message: 'isBlocked must be a boolean',
+          message: "isBlocked must be a boolean",
         });
         return;
       }
 
-      const customer = await customerService.toggleBlockCustomer(companyId, customerId, isBlocked);
+      const customer = await customerService.toggleBlockCustomer(
+        companyId,
+        customerId,
+        isBlocked,
+      );
 
       if (!customer) {
         res.status(404).json({
           success: false,
-          message: 'Customer not found',
+          message: "Customer not found",
         });
         return;
       }
 
       res.json({
         success: true,
-        message: `Customer ${isBlocked ? 'blocked' : 'unblocked'} successfully`,
+        message: `Customer ${isBlocked ? "blocked" : "unblocked"} successfully`,
         data: customer,
       });
     } catch (error) {
@@ -188,15 +235,23 @@ export class CustomerController {
    * NOVO: Adicionar endereço ao cliente
    * POST /api/customers/:id/addresses
    */
-  async addAddress(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async addAddress(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
-      const customer = await customerService.addAddress(companyId, customerId, req.body);
+      const customer = await customerService.addAddress(
+        companyId,
+        customerId,
+        req.body,
+      );
 
       res.status(201).json({
         success: true,
-        message: 'Address added successfully',
+        message: "Address added successfully",
         data: customer,
       });
     } catch (error) {
@@ -208,16 +263,25 @@ export class CustomerController {
    * NOVO: Atualizar endereço do cliente
    * PUT /api/customers/:id/addresses/:index
    */
-  async updateAddress(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async updateAddress(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
       const addressId = req.params.addressId; // antes era req.params.index
-      const customer = await customerService.updateAddressById(companyId, customerId, addressId, req.body);
+      const customer = await customerService.updateAddressById(
+        companyId,
+        customerId,
+        addressId,
+        req.body,
+      );
 
       res.json({
         success: true,
-        message: 'Address updated successfully',
+        message: "Address updated successfully",
         data: customer,
       });
     } catch (error) {
@@ -233,7 +297,11 @@ export class CustomerController {
       const { id: customerId, addressId } = req.params;
       const companyId = req.companyId!; // ou como você pega o tenant
 
-      const customer = await customerService.removeAddressById(companyId, customerId, addressId);
+      const customer = await customerService.removeAddressById(
+        companyId,
+        customerId,
+        addressId,
+      );
 
       res.json({ success: true, customer });
     } catch (error: any) {
@@ -245,15 +313,23 @@ export class CustomerController {
    * NOVO: Adicionar obra ao cliente
    * POST /api/customers/:id/works
    */
-  async addWork(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async addWork(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
-      const customer = await customerService.addWork(companyId, customerId, req.body);
+      const customer = await customerService.addWork(
+        companyId,
+        customerId,
+        req.body,
+      );
 
       res.status(201).json({
         success: true,
-        message: 'Work added successfully',
+        message: "Work added successfully",
         data: customer,
       });
     } catch (error) {
@@ -265,16 +341,25 @@ export class CustomerController {
    * NOVO: Atualizar obra do cliente
    * PUT /api/customers/:id/works/:workId
    */
-  async updateWork(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async updateWork(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
       const workId = req.params.workId;
-      const customer = await customerService.updateWork(companyId, customerId, workId, req.body);
+      const customer = await customerService.updateWork(
+        companyId,
+        customerId,
+        workId,
+        req.body,
+      );
 
       res.json({
         success: true,
-        message: 'Work updated successfully',
+        message: "Work updated successfully",
         data: customer,
       });
     } catch (error) {
@@ -286,16 +371,24 @@ export class CustomerController {
    * NOVO: Remover obra do cliente
    * DELETE /api/customers/:id/works/:workId
    */
-  async removeWork(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async removeWork(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
       const workId = req.params.workId;
-      const customer = await customerService.removeWork(companyId, customerId, workId);
+      const customer = await customerService.removeWork(
+        companyId,
+        customerId,
+        workId,
+      );
 
       res.json({
         success: true,
-        message: 'Work removed successfully',
+        message: "Work removed successfully",
         data: customer,
       });
     } catch (error) {
@@ -307,15 +400,23 @@ export class CustomerController {
    * NOVO: Atualizar dados validados pela Receita
    * POST /api/customers/:id/validate
    */
-  async updateValidatedData(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async updateValidatedData(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
-      const customer = await customerService.updateValidatedData(companyId, customerId, req.body);
+      const customer = await customerService.updateValidatedData(
+        companyId,
+        customerId,
+        req.body,
+      );
 
       res.json({
         success: true,
-        message: 'Validated data updated successfully',
+        message: "Validated data updated successfully",
         data: customer,
       });
     } catch (error) {
@@ -327,30 +428,43 @@ export class CustomerController {
    * NOVO: Validar CPF/CNPJ e retornar nome
    * POST /api/customers/validate-document
    */
-  async validateDocument(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async validateDocument(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const config = await this.getCompanyCpfCnpjConfig(companyId);
       if (!config.token) {
         res.status(403).json({
           success: false,
-          message: 'CPF/CNPJ token is not configured for this company',
+          message: "CPF/CNPJ token is not configured for this company",
         });
         return;
       }
 
+      // 1. O Zod faz o parse (ele aceita vir vazio porque está .optional())
       const { cpfCnpj } = validateCustomerDocumentSchema.parse(req.body);
-      const result = await cpfCnpjService.lookupName(cpfCnpj, config.token, {
-        cpfPackageId: config.cpfPackageId,
-        cnpjPackageId: config.cnpjPackageId,
-      });
 
+      // 2. Criamos uma variável para o resultado
+      let result = null;
+
+      // 3. SÓ chama o lookup se o cpfCnpj existir e não for vazio
+      if (cpfCnpj && cpfCnpj.trim().length > 0) {
+        result = await cpfCnpjService.lookupName(cpfCnpj, config.token, {
+          cpfPackageId: config.cpfPackageId,
+          cnpjPackageId: config.cnpjPackageId,
+        });
+      }
+
+      // 4. Se chegou aqui e o result for null, segue a vida (o CPF é nulo/vazio)
       res.json({
         success: true,
         data: {
-          cpfCnpj: result.cpfCnpj,
-          documentType: result.documentType,
-          name: result.name,
+          cpfCnpj: result?.cpfCnpj,
+          documentType: result?.documentType,
+          name: result?.name,
         },
       });
     } catch (error) {
@@ -362,31 +476,39 @@ export class CustomerController {
    * NOVO: Consultar saldo do pacote CPF/CNPJ
    * GET /api/customers/validate-document/balance?cpfCnpj=...
    */
-  async getDocumentBalance(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async getDocumentBalance(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const config = await this.getCompanyCpfCnpjConfig(companyId);
       if (!config.token) {
         res.status(403).json({
           success: false,
-          message: 'CPF/CNPJ token is not configured for this company',
+          message: "CPF/CNPJ token is not configured for this company",
         });
         return;
       }
 
-      const cpfCnpj = String(req.query.cpfCnpj || '');
+      const cpfCnpj = String(req.query.cpfCnpj || "");
       if (!cpfCnpj) {
         res.status(400).json({
           success: false,
-          message: 'cpfCnpj is required',
+          message: "cpfCnpj is required",
         });
         return;
       }
 
-      const result = await cpfCnpjService.getBalanceByDocument(cpfCnpj, config.token, {
-        cpfPackageId: config.cpfPackageId,
-        cnpjPackageId: config.cnpjPackageId,
-      });
+      const result = await cpfCnpjService.getBalanceByDocument(
+        cpfCnpj,
+        config.token,
+        {
+          cpfPackageId: config.cpfPackageId,
+          cnpjPackageId: config.cnpjPackageId,
+        },
+      );
 
       res.json({
         success: true,
@@ -405,7 +527,11 @@ export class CustomerController {
    * NOVO: Verifica se token CPF/CNPJ está configurado
    * GET /api/customers/validate-document/config
    */
-  async getDocumentConfig(req: Request, res: Response, next: NextFunction): Promise<void> {
+  async getDocumentConfig(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
     try {
       const companyId = req.companyId!;
       const config = await this.getCompanyCpfCnpjConfig(companyId);

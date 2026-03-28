@@ -1,101 +1,135 @@
-import React, { useMemo, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import Layout from '../../components/Layout';
-import { rentalService } from './rental.service';
-import { RentalPendingApproval } from '../../types/rental.types';
+import React, { useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import Layout from "../../components/Layout";
+import { rentalService } from "./rental.service";
+import { RentalPendingApproval } from "../../types/rental.types";
 
 const formatRequestLabel = (type: string) => {
   const map: Record<string, string> = {
-    status_change: 'Alteração de status',
-    rental_type_change: 'Alteração de tipo de aluguel',
-    discount: 'Desconto',
-    extension: 'Extensão de período',
-    service_addition: 'Adição de serviço',
-    close_adjustment: 'Fechamento com ajustes',
-    rental_update: 'Edição de aluguel',
+    status_change: "Alteração de status",
+    rental_type_change: "Alteração de tipo de aluguel",
+    discount: "Desconto",
+    extension: "Extensão de período",
+    service_addition: "Adição de serviço",
+    close_adjustment: "Fechamento com ajustes",
+    rental_update: "Edição de aluguel",
   };
   return map[type] || type;
 };
 
 const formatCurrency = (value?: number) => {
-  if (value === undefined || Number.isNaN(value)) return '-';
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+  if (value === undefined || Number.isNaN(value)) return "-";
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  }).format(value);
 };
 
 const formatDate = (value?: string) => {
-  if (!value) return '-';
+  if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('pt-BR');
+  return date.toLocaleDateString("pt-BR");
 };
 
 const renderRequestDetails = (type: string, details: Record<string, any>) => {
   switch (type) {
-    case 'status_change':
+    case "status_change":
       return (
         <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
-          <div>Status anterior: {details.previousStatus || details.previousValue || '-'}</div>
-          <div>Novo status: {details.newStatus || details.newValue || '-'}</div>
+          <div>
+            Status anterior:{" "}
+            {details.previousStatus || details.previousValue || "-"}
+          </div>
+          <div>Novo status: {details.newStatus || details.newValue || "-"}</div>
         </div>
       );
-    case 'rental_type_change':
+    case "rental_type_change":
       return (
         <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
-          <div>Tipo anterior: {details.previousRentalType || details.previousValue || '-'}</div>
-          <div>Novo tipo: {details.newRentalType || details.newValue || '-'}</div>
+          <div>
+            Tipo anterior:{" "}
+            {details.previousRentalType || details.previousValue || "-"}
+          </div>
+          <div>
+            Novo tipo: {details.newRentalType || details.newValue || "-"}
+          </div>
         </div>
       );
-    case 'discount':
+    case "discount":
       return (
         <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
           <div>Desconto: {formatCurrency(details.discount)}</div>
-          <div>Motivo: {details.reason || '-'}</div>
+          <div>Motivo: {details.reason || "-"}</div>
         </div>
       );
-    case 'extension':
+    case "extension":
       return (
         <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
           <div>Nova devolução: {formatDate(details.newReturnDate)}</div>
         </div>
       );
-    case 'service_addition':
+    case "service_addition":
       return (
         <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
-          <div>Serviço: {details.service?.description || '-'}</div>
-          <div>Categoria: {details.service?.category || '-'}</div>
+          <div>Serviço: {details.service?.description || "-"}</div>
+          <div>Categoria: {details.service?.category || "-"}</div>
           <div>Quantidade: {details.service?.quantity ?? 1}</div>
           <div>Preço: {formatCurrency(details.service?.price)}</div>
           <div>Subtotal: {formatCurrency(details.service?.subtotal)}</div>
         </div>
       );
-    case 'close_adjustment':
+    case "close_adjustment":
       return (
         <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
-          <div>Novo status: {details.newStatus || details.newValue || '-'}</div>
-          <div>Data de devolução: {formatDate(details.adjustments?.returnDate)}</div>
-          <div>Tipo de aluguel: {details.adjustments?.rentalType || '-'}</div>
+          <div>Novo status: {details.newStatus || details.newValue || "-"}</div>
           <div>
-            Subtotal equipamentos: {formatCurrency(details.adjustments?.pricingOverride?.equipmentSubtotal)}
+            Data de devolução: {formatDate(details.adjustments?.returnDate)}
+          </div>
+          <div>Tipo de aluguel: {details.adjustments?.rentalType || "-"}</div>
+          <div>
+            Subtotal equipamentos:{" "}
+            {formatCurrency(
+              details.adjustments?.pricingOverride?.equipmentSubtotal,
+            )}
           </div>
           <div>
-            Subtotal serviços: {formatCurrency(details.adjustments?.pricingOverride?.servicesSubtotal)}
+            Subtotal serviços:{" "}
+            {formatCurrency(
+              details.adjustments?.pricingOverride?.servicesSubtotal,
+            )}
           </div>
-          <div>Desconto: {formatCurrency(details.adjustments?.pricingOverride?.discount)}</div>
-          <div>Multa: {formatCurrency(details.adjustments?.pricingOverride?.lateFee)}</div>
-          <div>Total: {formatCurrency(details.adjustments?.pricingOverride?.total)}</div>
-          <div>Observações: {details.adjustments?.notes || '-'}</div>
+          <div>
+            Desconto:{" "}
+            {formatCurrency(details.adjustments?.pricingOverride?.discount)}
+          </div>
+          <div>
+            Multa:{" "}
+            {formatCurrency(details.adjustments?.pricingOverride?.lateFee)}
+          </div>
+          <div>
+            Total: {formatCurrency(details.adjustments?.pricingOverride?.total)}
+          </div>
+          <div>Observações: {details.adjustments?.notes || "-"}</div>
         </div>
       );
-    case 'rental_update':
+    case "rental_update":
       return (
         <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
-          <div>Notas: {details.previousNotes || '-'} → {details.newNotes || '-'}</div>
-          <div>Desconto: {formatCurrency(details.previousDiscount)} → {formatCurrency(details.newDiscount)}</div>
           <div>
-            Retirada: {formatDate(details.previousPickupScheduled)} → {formatDate(details.newPickupScheduled)}
+            Notas: {details.previousNotes || "-"} → {details.newNotes || "-"}
           </div>
           <div>
-            Devolução: {formatDate(details.previousReturnScheduled)} → {formatDate(details.newReturnScheduled)}
+            Desconto: {formatCurrency(details.previousDiscount)} →{" "}
+            {formatCurrency(details.newDiscount)}
+          </div>
+          <div>
+            Retirada: {formatDate(details.previousPickupScheduled)} →{" "}
+            {formatDate(details.newPickupScheduled)}
+          </div>
+          <div>
+            Devolução: {formatDate(details.previousReturnScheduled)} →{" "}
+            {formatDate(details.newReturnScheduled)}
           </div>
         </div>
       );
@@ -110,66 +144,85 @@ const renderRequestDetails = (type: string, details: Record<string, any>) => {
 
 const RentalApprovalsPage: React.FC = () => {
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
   const { data: rentals = [], isLoading } = useQuery({
-    queryKey: ['rental-approvals'],
+    queryKey: ["rental-approvals"],
     queryFn: () => rentalService.getPendingApprovals(),
   });
 
   const approveMutation = useMutation({
-    mutationFn: ({ rentalId, approvalId, notes }: { rentalId: string; approvalId: string; notes?: string }) =>
-      rentalService.approveApproval(rentalId, approvalId, notes),
+    mutationFn: ({
+      rentalId,
+      approvalId,
+      notes,
+    }: {
+      rentalId: string;
+      approvalId: string;
+      notes?: string;
+    }) => rentalService.approveApproval(rentalId, approvalId, notes),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['rental-approvals'] });
-      queryClient.invalidateQueries({ queryKey: ['rentals'] });
+      queryClient.invalidateQueries({ queryKey: ["rental-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
     },
   });
 
   const rejectMutation = useMutation({
-    mutationFn: ({ rentalId, approvalId, notes }: { rentalId: string; approvalId: string; notes: string }) =>
-      rentalService.rejectApproval(rentalId, approvalId, notes),
+    mutationFn: ({
+      rentalId,
+      approvalId,
+      notes,
+    }: {
+      rentalId: string;
+      approvalId: string;
+      notes: string;
+    }) => rentalService.rejectApproval(rentalId, approvalId, notes),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['rental-approvals'] });
-      queryClient.invalidateQueries({ queryKey: ['rentals'] });
+      queryClient.invalidateQueries({ queryKey: ["rental-approvals"] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
     },
   });
 
   const approvals = rentals.flatMap((rental) =>
     (rental.pendingApprovals || [])
-      .filter((approval) => approval.status === 'pending')
-      .map((approval) => ({ rental, approval }))
+      .filter((approval) => approval.status === "pending")
+      .map((approval) => ({ rental, approval })),
   );
 
   const filteredApprovals = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
     return approvals.filter(({ rental, approval }) => {
-      if (typeFilter !== 'all' && approval.requestType !== typeFilter) return false;
+      if (typeFilter !== "all" && approval.requestType !== typeFilter)
+        return false;
       if (!normalizedSearch) return true;
 
       const customer =
-        typeof rental.customerId === 'object' ? rental.customerId.name : rental.customerId;
-      const haystack = [
-        rental.rentalNumber,
-        customer,
-        approval.requestType,
-      ]
+        typeof rental.customerId === "object"
+          ? rental.customerId.name
+          : rental.customerId;
+      const haystack = [rental.rentalNumber, customer, approval.requestType]
         .filter(Boolean)
-        .join(' ')
+        .join(" ")
         .toLowerCase();
 
       return haystack.includes(normalizedSearch);
     });
   }, [approvals, search, typeFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredApprovals.length / pageSize));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredApprovals.length / pageSize),
+  );
   const currentPage = Math.min(page, totalPages);
   const startIndex = (currentPage - 1) * pageSize;
-  const paginatedApprovals = filteredApprovals.slice(startIndex, startIndex + pageSize);
+  const paginatedApprovals = filteredApprovals.slice(
+    startIndex,
+    startIndex + pageSize,
+  );
 
   return (
     <Layout title="Aprovações de Aluguel" backTo="/dashboard">
@@ -226,7 +279,9 @@ const RentalApprovalsPage: React.FC = () => {
         </div>
 
         {isLoading ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">Carregando...</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Carregando...
+          </p>
         ) : filteredApprovals.length === 0 ? (
           <div className="border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center text-sm text-gray-600 dark:text-gray-400">
             Nenhuma solicitação pendente.
@@ -236,7 +291,9 @@ const RentalApprovalsPage: React.FC = () => {
             {paginatedApprovals.map(({ rental, approval }) => {
               const approvalId = (approval as RentalPendingApproval)._id;
               const customer =
-                typeof rental.customerId === 'object' ? rental.customerId.name : rental.customerId;
+                typeof rental.customerId === "object"
+                  ? rental.customerId.name
+                  : rental.customerId;
 
               return (
                 <div
@@ -252,7 +309,8 @@ const RentalApprovalsPage: React.FC = () => {
                         Aluguel: {rental.rentalNumber} • Cliente: {customer}
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Solicitado em: {new Date(approval.requestDate).toLocaleString('pt-BR')}
+                        Solicitado em:{" "}
+                        {new Date(approval.requestDate).toLocaleString("pt-BR")}
                       </div>
                     </div>
 
@@ -260,8 +318,15 @@ const RentalApprovalsPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => {
-                          const notes = window.prompt('Observações para aprovação (opcional):') || undefined;
-                          approveMutation.mutate({ rentalId: rental._id, approvalId, notes });
+                          const notes =
+                            window.prompt(
+                              "Observações para aprovação (opcional):",
+                            ) || undefined;
+                          approveMutation.mutate({
+                            rentalId: rental._id,
+                            approvalId,
+                            notes,
+                          });
                         }}
                         className="px-3 py-2 text-xs bg-green-600 hover:bg-green-700 text-white rounded-md"
                       >
@@ -270,9 +335,15 @@ const RentalApprovalsPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => {
-                          const notes = window.prompt('Informe o motivo da rejeição:');
+                          const notes = window.prompt(
+                            "Informe o motivo da rejeição:",
+                          );
                           if (!notes) return;
-                          rejectMutation.mutate({ rentalId: rental._id, approvalId, notes });
+                          rejectMutation.mutate({
+                            rentalId: rental._id,
+                            approvalId,
+                            notes,
+                          });
                         }}
                         className="px-3 py-2 text-xs bg-red-600 hover:bg-red-700 text-white rounded-md"
                       >
@@ -282,7 +353,10 @@ const RentalApprovalsPage: React.FC = () => {
                   </div>
 
                   <div className="mt-3 bg-gray-50 dark:bg-gray-900/50 p-2 rounded">
-                    {renderRequestDetails(approval.requestType, approval.requestDetails)}
+                    {renderRequestDetails(
+                      approval.requestType,
+                      approval.requestDetails,
+                    )}
                   </div>
                 </div>
               );
@@ -290,7 +364,8 @@ const RentalApprovalsPage: React.FC = () => {
 
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
               <span className="text-xs text-gray-500 dark:text-gray-400">
-                {filteredApprovals.length} solicitações • página {currentPage} de {totalPages}
+                {filteredApprovals.length} solicitações • página {currentPage}{" "}
+                de {totalPages}
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -303,7 +378,9 @@ const RentalApprovalsPage: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                  onClick={() =>
+                    setPage((prev) => Math.min(totalPages, prev + 1))
+                  }
                   disabled={currentPage === totalPages}
                   className="px-3 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 disabled:opacity-50"
                 >

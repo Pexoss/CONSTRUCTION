@@ -18,6 +18,7 @@ router.get('/rentals', rentalController.getRentals.bind(rentalController));
 router.get('/rentals/:id', rentalController.getRentalById.bind(rentalController));
 router.post('/rentals/:id/close',rentalController.closeRental.bind(rentalController));
 router.post('/rentals/:id/items/:itemId/close', rentalController.closeRentalItem.bind(rentalController));
+router.post('/rentals/:id/confirm-closure', rentalController.confirmRentalClosure.bind(rentalController));
 router.get('/rentals/:id/items/:itemId/close-preview', rentalController.getClosePreviewItem.bind(rentalController));
 router.get('/rentals/:id/pdf', rentalController.generateRentalPDF.bind(rentalController));
 router.put('/rentals/:id', rentalController.updateRental.bind(rentalController));

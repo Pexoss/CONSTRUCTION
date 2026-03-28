@@ -6,6 +6,7 @@ export type RentalStatus =
   | "active"
   | "overdue"
   | "completed"
+  | "ready_to_close" 
   | "cancelled";
 export type RentalType = "daily" | "weekly" | "biweekly" | "monthly";
 export type BillingCycle = "daily" | "weekly" | "biweekly" | "monthly";
@@ -75,6 +76,7 @@ export interface IRentalItem {
   pickupScheduled: Date;
   returnScheduled?: Date;
   returnActual?: Date;
+  usedDays?: number;
   lastBillingDate?: Date;
   nextBillingDate?: Date;
   subtotal: number;

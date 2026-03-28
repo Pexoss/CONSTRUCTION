@@ -32,7 +32,7 @@ export interface Customer {
   _id: string;
   companyId: string;
   name: string;
-  cpfCnpj: string;
+  cpfCnpj?: string;
   validated?: {
     isValidated: boolean;
     validatedAt?: string;
@@ -53,7 +53,7 @@ export interface Customer {
 
 export interface CreateCustomerData {
   name?: string;
-  cpfCnpj: string;
+  cpfCnpj?: string;
   validateDocument?: boolean;
   email?: string;
   phone?: string;

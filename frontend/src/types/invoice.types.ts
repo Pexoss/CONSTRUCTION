@@ -30,8 +30,8 @@ export interface Invoice {
   pdfPath?: string;
   sentAt?: string;
   createdBy: string | { name: string; email: string };
-  createdAt?: string;
-  updatedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CreateInvoiceFromRentalData {

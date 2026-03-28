@@ -36,31 +36,30 @@ const CreateCustomerPage: React.FC = () => {
       customerService.createCustomer(data),
 
     onSuccess: (customer) => {
-      console.log("✅ Cliente criado:", customer);
-      console.log("🆔 ID:", customer._id);
-
       setCreatedCustomerId(customer._id);
       setShowAddressModal(true);
     },
 
     onError: (error: any) => {
-      console.error("❌ Erro ao criar cliente:", error);
+      console.error("Erro ao criar cliente:", error);
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    console.log("📝 Submit acionado");
-    console.log("📦 FormData atual:", formData);
-
     const payload: CreateCustomerData = { ...formData };
-    if (payload.validateDocument) {
+    const cpfLimpo = (payload.cpfCnpj || "").replace(/\D/g, "");
+    if (payload.validateDocument && cpfLimpo.length > 0) {
       delete payload.name;
-    } else if (payload.name) {
-      payload.name = payload.name.trim();
+    } else {
+      payload.validateDocument = false;
+      if (payload.name) {
+        payload.name = payload.name.trim();
+      }
     }
 
+    console.log("🚀 Enviando Payload:", payload);
     createMutation.mutate(payload);
   };
 
@@ -103,7 +102,7 @@ const CreateCustomerPage: React.FC = () => {
   }, []);
 
   React.useEffect(() => {
-    const cpfCnpjDigits = formData.cpfCnpj.replace(/\D/g, "");
+    const cpfCnpjDigits = (formData.cpfCnpj || "").replace(/\D/g, "");
     const shouldCheckBalance =
       cpfCnpjEnabled &&
       formData.validateDocument &&
@@ -130,7 +129,8 @@ const CreateCustomerPage: React.FC = () => {
         })
         .catch((error: any) => {
           const message =
-            error?.response?.data?.message || "Não foi possível consultar o saldo";
+            error?.response?.data?.message ||
+            "Não foi possível consultar o saldo";
           setBalanceError(message);
           setBalanceInfo(null);
         })
@@ -147,9 +147,7 @@ const CreateCustomerPage: React.FC = () => {
   ) => {
     const { name, value, type } = e.target;
     const nextValue =
-      type === "checkbox"
-        ? (e.target as HTMLInputElement).checked
-        : value;
+      type === "checkbox" ? (e.target as HTMLInputElement).checked : value;
 
     console.log(`✏️ Campo alterado: ${name}`, nextValue);
 
@@ -271,7 +269,8 @@ const CreateCustomerPage: React.FC = () => {
                 />
                 {formData.validateDocument && (
                   <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    Nome será preenchido automaticamente pela validação do CPF/CNPJ.
+                    Nome será preenchido automaticamente pela validação do
+                    CPF/CNPJ.
                   </p>
                 )}
               </div>
@@ -282,13 +281,12 @@ const CreateCustomerPage: React.FC = () => {
                   htmlFor="cpfCnpj"
                   className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                 >
-                  CPF/CNPJ *
+                  CPF/CNPJ(Opcional)
                 </label>
                 <input
                   type="text"
                   id="cpfCnpj"
                   name="cpfCnpj"
-                  required
                   value={formData.cpfCnpj}
                   onChange={handleChange}
                   placeholder="000.000.000-00"
@@ -315,7 +313,8 @@ const CreateCustomerPage: React.FC = () => {
                     {balanceLoading && <span>Consultando saldo...</span>}
                     {!balanceLoading && balanceInfo && (
                       <span>
-                        Saldo disponível ({balanceInfo.documentType.toUpperCase()}):{" "}
+                        Saldo disponível (
+                        {balanceInfo.documentType.toUpperCase()}):{" "}
                         {balanceInfo.balance}
                       </span>
                     )}
@@ -341,7 +340,7 @@ const CreateCustomerPage: React.FC = () => {
                     htmlFor="email"
                     className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
-                    Email
+                    Email(Opcional)
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">

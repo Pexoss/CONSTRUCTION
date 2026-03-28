@@ -360,7 +360,7 @@ const RentalSchema = new Schema<IRental>(
     },
     status: {
       type: String,
-      enum: ['reserved', 'active', 'overdue', 'completed', 'cancelled'],
+      enum: ['reserved', 'active', 'overdue', 'completed', 'cancelled', 'ready_to_close'],
       default: 'reserved',
       index: true,
     },
