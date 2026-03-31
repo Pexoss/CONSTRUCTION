@@ -10,7 +10,8 @@ export const registerCompanySchema = z.object({
     .transform((value) => value.replace(/\D/g, ''))
     .refine((value) => value.length === 14, {
       message: 'CNPJ must have exactly 14 digits',
-    }),
+    })
+    .optional(),
 
   email: z.string().email('Invalid email format'),
 
