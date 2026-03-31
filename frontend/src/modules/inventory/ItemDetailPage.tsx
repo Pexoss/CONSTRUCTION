@@ -463,7 +463,8 @@ const ItemDetailPage: React.FC = () => {
                     Preços e Valores
                   </h2>
                 </div>
-
+                
+                {/* Quinzenal ta aqui */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
                     <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
