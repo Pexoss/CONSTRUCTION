@@ -65,6 +65,7 @@ export const rentalService = {
         usedDays: number;
         contractedDays: number;
         rentalType: string;
+        rentalTotalAfterClose: number;
       };
     }>(`/rentals/${rentalId}/items/${itemId}/close-preview${params}`);
 

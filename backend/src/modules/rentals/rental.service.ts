@@ -110,11 +110,11 @@ class RentalService {
     endDate: Date,
     rentalType?: RentalType,
   ): number {
-    const days = Math.ceil(
-      (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
-    );
+    const diffTime = endDate.getTime() - startDate.getTime();
+    if (diffTime <= 0) return 0;
 
-    if (days <= 0) return 0;
+    // Cálculo de dias com proporcionalidade (não arredonda)
+    const days = diffTime / (1000 * 60 * 60 * 24);
 
     if (!rentalType) {
       throw new Error("RentalType é obrigatório para cálculo do aluguel");
@@ -128,19 +128,22 @@ class RentalService {
         if (!weeklyRate) {
           throw new Error("WeeklyRate não configurado");
         }
-        return Math.ceil(days / 7) * weeklyRate;
+        // Cálculo proporcional: taxa semanal dividida por 7, multiplicada pelos dias reais
+        return (weeklyRate / 7) * days;
 
       case "biweekly":
         if (!biweeklyRate) {
           throw new Error("BiweeklyRate não configurado");
         }
-        return Math.ceil(days / 15) * biweeklyRate;
+        // Cálculo proporcional: taxa quinzenal dividida por 15, multiplicada pelos dias reais
+        return (biweeklyRate / 15) * days;
 
       case "monthly":
         if (!monthlyRate) {
           throw new Error("MonthlyRate não configurado");
         }
-        return Math.ceil(days / 30) * monthlyRate;
+        // Cálculo proporcional: taxa mensal dividida por 30, multiplicada pelos dias reais
+        return (monthlyRate / 30) * days;
 
       default:
         throw new Error(`RentalType inválido: ${rentalType}`);
@@ -428,25 +431,25 @@ class RentalService {
 
       let unitPrice = 0;
 
+      // Cálculo proporcional correto para cada tipo de aluguel
       switch (rentalType) {
         case "daily":
           unitPrice = (inventoryItem.pricing.dailyRate || 0) * usedDays;
           break;
 
         case "weekly":
-          unitPrice =
-            (inventoryItem.pricing.weeklyRate || 0) * Math.ceil(usedDays / 7);
+          // Taxa semanal dividida pelos 7 dias, multiplicada pelo uso real
+          unitPrice = ((inventoryItem.pricing.weeklyRate || 0) / 7) * usedDays;
           break;
 
         case "biweekly":
-          unitPrice =
-            (inventoryItem.pricing.biweeklyRate || 0) *
-            Math.ceil(usedDays / 15);
+          // Taxa quinzenal dividida pelos 15 dias, multiplicada pelo uso real
+          unitPrice = ((inventoryItem.pricing.biweeklyRate || 0) / 15) * usedDays;
           break;
 
         case "monthly":
-          unitPrice =
-            (inventoryItem.pricing.monthlyRate || 0) * Math.ceil(usedDays / 30);
+          // Taxa mensal dividida pelos 30 dias, multiplicada pelo uso real
+          unitPrice = ((inventoryItem.pricing.monthlyRate || 0) / 30) * usedDays;
           break;
 
         default:
@@ -473,7 +476,7 @@ class RentalService {
     const lateFee = 0;
 
     //Total final
-    const total = equipmentSubtotal + servicesSubtotal - discount + lateFee;
+    const total = equipmentSubtotal + servicesSubtotal + totalDeposit - discount + lateFee;
 
     //Atualiza pricing
     rental.pricing.equipmentSubtotal = equipmentSubtotal;
@@ -618,12 +621,35 @@ class RentalService {
 
     const recalculatedTotal = proportional * targetItem.quantity;
 
+    // Calcula o total do aluguel APÓS fechar este item
+    let rentalTotalAfterClose = 0;
+    for (const item of rental.items) {
+      if (item.itemId.toString() === itemId && (!unitId || item.unitId === unitId)) {
+        // Este é o item que está sendo fechado - usa o valor recalculado
+        rentalTotalAfterClose += recalculatedTotal;
+      } else {
+        // Outros itens - usa o valor atual (pode estar já fechado ou não)
+        rentalTotalAfterClose += item.subtotal || 0;
+      }
+    }
+
+    // Adiciona serviços, desconto, taxa de atraso e caução
+    const servicesSubtotal =
+      rental.services?.reduce((acc, s) => acc + s.subtotal, 0) || 0;
+    rentalTotalAfterClose +=
+      servicesSubtotal +
+      (rental.pricing.deposit || 0) -
+      (rental.pricing.discount || 0) +
+      (rental.pricing.lateFee || 0);
+    rentalTotalAfterClose = Math.max(0, rentalTotalAfterClose);
+
     return {
       originalTotal,
       recalculatedTotal,
       usedDays,
       contractedDays,
       rentalType,
+      rentalTotalAfterClose,
     };
   }
 
@@ -754,14 +780,18 @@ class RentalService {
     }
 
     // =========================
-    // 3. RECALCULAR ITEM
+    // 3. RECALCULAR ITEM - USANDO PERÍODO DESDE ÚLTIMA COBRANÇA
     // =========================
-    const startDate =
-      targetItem.pickupScheduled || rental.dates.pickupScheduled;
+    // IMPORTANTE: Usar lastBillingDate se disponível para evitar duplicação
+    const startDate = targetItem.lastBillingDate
+      ? this.addDays(targetItem.lastBillingDate, 1)
+      : targetItem.pickupScheduled || rental.dates.pickupScheduled;
 
     const diffTime = finalReturnDate.getTime() - new Date(startDate).getTime();
 
-    const usedDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    // Cálculo proporcional de dias (não arredonda para cima)
+    const usedDaysExact = diffTime / (1000 * 60 * 60 * 24);
+    const usedDays = Math.max(1, usedDaysExact);
 
     const rentalType = targetItem.rentalType || "daily";
 
@@ -778,7 +808,7 @@ class RentalService {
     }
 
     targetItem.subtotal = proportional * targetItem.quantity;
-    targetItem.usedDays = usedDays;
+    targetItem.usedDays = Math.ceil(usedDays);
 
     // =========================
     // 4. RECALCULAR TOTAL DO ALUGUEL
@@ -794,13 +824,14 @@ class RentalService {
 
     const total =
       equipmentSubtotal +
-      servicesSubtotal -
+      servicesSubtotal +
+      (rental.pricing.deposit || 0) -
       (rental.pricing.discount || 0) +
       (rental.pricing.lateFee || 0);
 
     rental.pricing.equipmentSubtotal = equipmentSubtotal;
     rental.pricing.subtotal = equipmentSubtotal + servicesSubtotal;
-    rental.pricing.total = total;
+    rental.pricing.total = Math.max(0, total);
 
     // =========================
     // 5. VERIFICA SE TODOS FORAM DEVOLVIDOS
@@ -1328,11 +1359,12 @@ class RentalService {
       (equipmentSubtotal + rental.pricing.servicesSubtotal).toFixed(2),
     );
     rental.pricing.total = Number(
-      (
+      Math.max(
+        0,
         rental.pricing.subtotal +
-        rental.pricing.deposit -
-        rental.pricing.discount +
-        rental.pricing.lateFee
+          rental.pricing.deposit -
+          rental.pricing.discount +
+          rental.pricing.lateFee,
       ).toFixed(2),
     );
   }
@@ -1495,11 +1527,12 @@ class RentalService {
       );
 
       rental.pricing.total = Number(
-        (
+        Math.max(
+          0,
           rental.pricing.subtotal +
-          rental.pricing.deposit -
-          rental.pricing.discount +
-          rental.pricing.lateFee
+            rental.pricing.deposit -
+            rental.pricing.discount +
+            rental.pricing.lateFee,
         ).toFixed(2),
       );
 
@@ -1656,6 +1689,9 @@ class RentalService {
     /**
      * READY_TO_CLOSE → COMPLETED
      * Transição final do aluguel após todos os itens serem devolvidos
+     * 
+     * IMPORTANTE: Os valores de preço já foram calculados no closeRentalItem
+     * para cada item individual. NÃO devemos recalcular aqui.
      */
     if (oldStatus === "ready_to_close" && newStatus === "completed") {
       // Marca data de conclusão
@@ -1667,6 +1703,10 @@ class RentalService {
           item.returnActual = rental.dates.returnActual;
         }
       }
+
+      // Os valores de pricing já foram recalculados em closeRentalItem
+      // Apenas garantimos que o total não seja negativo (proteção contra erros)
+      rental.pricing.total = Math.max(0, rental.pricing.total || 0);
 
       // Nota: As unidades já foram retornadas por closeRentalItem
       // apenas confirmamos que o aluguel está finalizado
@@ -1950,7 +1990,7 @@ class RentalService {
     }
 
     rental.pricing.subtotal = totalSubtotal;
-    rental.pricing.total = totalSubtotal - rental.pricing.discount;
+    rental.pricing.total = Math.max(0, totalSubtotal + (rental.pricing.deposit || 0) - rental.pricing.discount);
 
     await rental.save();
     return rental;
@@ -2884,10 +2924,12 @@ class RentalService {
         rental.pricing.discount = requestDetails.discount || 0;
         rental.pricing.discountReason = requestDetails.reason;
         rental.pricing.discountApprovedBy = new mongoose.Types.ObjectId(userId);
-        rental.pricing.total =
+        rental.pricing.total = Math.max(
+          0,
           rental.pricing.subtotal -
-          rental.pricing.discount +
-          rental.pricing.lateFee;
+            rental.pricing.discount +
+            rental.pricing.lateFee,
+        );
         break;
 
       case "extension":
@@ -2910,10 +2952,12 @@ class RentalService {
         rental.pricing.servicesSubtotal += requestDetails.service.subtotal;
         rental.pricing.subtotal =
           rental.pricing.equipmentSubtotal + rental.pricing.servicesSubtotal;
-        rental.pricing.total =
+        rental.pricing.total = Math.max(
+          0,
           rental.pricing.subtotal -
-          rental.pricing.discount +
-          rental.pricing.lateFee;
+            rental.pricing.discount +
+            rental.pricing.lateFee,
+        );
         break;
 
       case "status_change":
@@ -3196,7 +3240,7 @@ class RentalService {
     rental.pricing.discountApprovedBy = isAdmin
       ? new mongoose.Types.ObjectId(userId)
       : undefined;
-    rental.pricing.total = subtotal - discount + rental.pricing.lateFee;
+    rental.pricing.total = Math.max(0, subtotal - discount + rental.pricing.lateFee);
 
     // Registrar no histórico
     await this.addChangeHistory(

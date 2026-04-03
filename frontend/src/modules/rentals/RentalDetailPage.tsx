@@ -84,6 +84,7 @@ const RentalDetailPage: React.FC = () => {
     usedDays: number;
     contractedDays: number;
     rentalType: string;
+    rentalTotalAfterClose: number;
   } | null>(null);
   const [closeItemLoading, setCloseItemLoading] = useState(false);
   const [selectedCloseItem, setSelectedCloseItem] = useState<{
@@ -3249,6 +3250,16 @@ const RentalDetailPage: React.FC = () => {
                     <span className="font-medium text-gray-900 dark:text-white">
                       R$ {closeItemPreview.recalculatedTotal.toFixed(2)}
                     </span>
+                  </div>
+                  <div className="border-t border-gray-300 dark:border-gray-600 pt-2 mt-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400 font-semibold">
+                        Total do aluguel:
+                      </span>
+                      <span className="font-bold text-gray-900 dark:text-white text-base">
+                        R$ {closeItemPreview.rentalTotalAfterClose.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ) : null}
