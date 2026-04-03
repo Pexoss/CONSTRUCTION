@@ -44,6 +44,18 @@ const InvoiceSchema = new Schema<IInvoice>(
       ref: 'Rental',
       index: true,
     },
+    billingIds: {
+      type: [{ type: Schema.Types.ObjectId, ref: 'Billing' }],
+      default: undefined,
+    },
+    paymentMethod: {
+      type: String,
+      trim: true,
+    },
+    obraDescription: {
+      type: String,
+      trim: true,
+    },
     customerId: {
       type: Schema.Types.ObjectId,
       ref: 'Customer',
@@ -128,15 +140,15 @@ InvoiceSchema.index({ companyId: 1, rentalId: 1 });
 InvoiceSchema.index({ companyId: 1, issueDate: 1 });
 // invoiceNumber index is automatically created by unique: true
 
-// Pre-save hook to generate invoice number if not provided
-InvoiceSchema.pre('save', async function (next) {
+// Gera número antes da validação (validate roda antes de save; pre('save') era tarde demais)
+InvoiceSchema.pre('validate', async function (next) {
   if (!this.invoiceNumber && this.companyId) {
     try {
       const InvoiceModel = mongoose.model<IInvoice>('Invoice');
       const count = await InvoiceModel.countDocuments({ companyId: this.companyId });
       const year = new Date().getFullYear();
       this.invoiceNumber = `INV-${year}-${String(count + 1).padStart(6, '0')}`;
-    } catch (error) {
+    } catch {
       this.invoiceNumber = `INV-${Date.now()}`;
     }
   }

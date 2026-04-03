@@ -10,6 +10,7 @@ export interface BillingCalculation {
   subtotal: number;
   discount: number;
   total: number;
+  discountReason?: string;
 }
 
 export interface BillingItem {

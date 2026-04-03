@@ -14,8 +14,11 @@ export interface Invoice {
   _id: string;
   companyId: string;
   invoiceNumber: string;
+  billingIds?: string[];
   rentalId?: string | Rental;
   customerId: string | Customer;
+  paymentMethod?: string;
+  obraDescription?: string;
   items: InvoiceItem[];
   subtotal: number;
   tax?: number;
@@ -40,6 +43,18 @@ export interface CreateInvoiceFromRentalData {
   discount?: number;
   terms?: string;
   notes?: string;
+}
+
+export interface CreateInvoiceFromBillingsData {
+  billingIds: string[];
+  tax?: number;
+  discount?: number;
+  terms?: string;
+  notes?: string;
+  paymentMethod?: string;
+  obraDescription?: string;
+  issueDate?: string;
+  dueDate?: string;
 }
 
 export interface InvoiceFilters {

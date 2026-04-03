@@ -1,6 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { invoiceService } from './invoice.service';
-import { createInvoiceFromRentalSchema, updateInvoiceSchema } from './invoice.validator';
+import {
+  createInvoiceFromRentalSchema,
+  createInvoiceFromBillingsSchema,
+  updateInvoiceSchema,
+} from './invoice.validator';
 
 export class InvoiceController {
   /**
@@ -23,6 +27,27 @@ export class InvoiceController {
           notes: validatedData.notes,
         }
       );
+
+      res.status(201).json({
+        success: true,
+        message: 'Invoice created successfully',
+        data: invoice,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * POST /api/invoices/from-billings
+   * Cria fatura agrupando fechamentos (billings) selecionados
+   */
+  async createInvoiceFromBillings(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const validatedData = createInvoiceFromBillingsSchema.parse(req.body);
+      const invoice = await invoiceService.createInvoiceFromBillings(companyId, userId, validatedData);
 
       res.status(201).json({
         success: true,

@@ -38,6 +38,7 @@ import EditMaintenancePage from "./modules/maintenance/EditMaintenancePage";
 import MaintenanceDetailPage from "./modules/maintenance/MaintenanceDetailPage";
 import FinancialDashboardPage from "./modules/transactions/FinancialDashboardPage";
 import InvoicesPage from "./modules/invoices/InvoicesPage";
+import CreateInvoicePage from "./modules/invoices/CreateInvoicePage";
 import ReportsPage from "./modules/reports/ReportsPage";
 import AdminPage from "./modules/subscriptions/AdminPage";
 import CompanySettingsPage from "./modules/company/CompanySettingsPage";
@@ -249,6 +250,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <InvoicesPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/invoices/new"
+                element={
+                  <ProtectedRoute>
+                    <CreateInvoicePage />
                   </ProtectedRoute>
                 }
               />

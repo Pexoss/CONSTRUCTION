@@ -13,6 +13,7 @@ import {
   BarChart3,
   DollarSign,
   Clock,
+  PlusCircle,
 } from "lucide-react";
 
 const InvoicesPage: React.FC = () => {
@@ -155,7 +156,7 @@ const InvoicesPage: React.FC = () => {
         {/* Header */}
         <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-            <div className="flex justify-between items-start">
+            <div className="flex justify-between items-start gap-4 flex-wrap">
               <div>
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
                   Faturas
@@ -164,6 +165,13 @@ const InvoicesPage: React.FC = () => {
                   Gerencie todas as faturas emitidas
                 </p>
               </div>
+              <Link
+                to="/invoices/new"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold shadow-sm hover:bg-indigo-700 transition-colors"
+              >
+                <PlusCircle className="w-5 h-5" />
+                Nova fatura
+              </Link>
             </div>
           </div>
         </div>
@@ -275,8 +283,17 @@ const InvoicesPage: React.FC = () => {
               <p className="text-gray-600 dark:text-gray-400">
                 {searchTerm || statusFilter
                   ? "Tente ajustar seus filtros"
-                  : "Comece criando uma nova fatura"}
+                  : "Comece criando uma nova fatura a partir dos fechamentos."}
               </p>
+              {!searchTerm && !statusFilter && (
+                <Link
+                  to="/invoices/new"
+                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  Nova fatura
+                </Link>
+              )}
             </div>
           ) : (
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">

@@ -11,6 +11,7 @@ router.use(tenantMiddleware);
 
 // Invoice routes
 router.post('/invoices/from-rental', invoiceController.createInvoiceFromRental.bind(invoiceController));
+router.post('/invoices/from-billings', invoiceController.createInvoiceFromBillings.bind(invoiceController));
 router.get('/invoices', invoiceController.getInvoices.bind(invoiceController));
 router.get('/invoices/:id', invoiceController.getInvoiceById.bind(invoiceController));
 router.get('/invoices/:id/pdf', invoiceController.generateInvoicePDF.bind(invoiceController));

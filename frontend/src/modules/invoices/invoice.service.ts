@@ -1,10 +1,24 @@
 import api from '../../config/api';
-import { Invoice, CreateInvoiceFromRentalData, InvoiceFilters, InvoiceStatus } from '../../types/invoice.types';
+import {
+  Invoice,
+  CreateInvoiceFromRentalData,
+  CreateInvoiceFromBillingsData,
+  InvoiceFilters,
+  InvoiceStatus,
+} from '../../types/invoice.types';
 
 export const invoiceService = {
   createInvoiceFromRental: async (data: CreateInvoiceFromRentalData) => {
     const response = await api.post<{ success: boolean; message: string; data: Invoice }>(
       '/invoices/from-rental',
+      data
+    );
+    return response.data;
+  },
+
+  createInvoiceFromBillings: async (data: CreateInvoiceFromBillingsData) => {
+    const response = await api.post<{ success: boolean; message: string; data: Invoice }>(
+      '/invoices/from-billings',
       data
     );
     return response.data;
