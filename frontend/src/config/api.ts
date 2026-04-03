@@ -71,9 +71,10 @@ api.interceptors.response.use(
       const refreshToken = localStorage.getItem('refreshToken');
 
       if (!refreshToken) {
-        // sem refresh token, força logout
+        // sem refresh token, força logout (inclui persist do zustand em auth-storage)
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
+        localStorage.removeItem('auth-storage');
         window.location.href = '/login';
         return Promise.reject(error);
       }
@@ -99,9 +100,10 @@ api.interceptors.response.use(
         processQueue(refreshError as AxiosError, null);
         isRefreshing = false;
 
-        // refresh falhou, logout
+        // refresh falhou, logout (inclui persist do zustand em auth-storage)
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
+        localStorage.removeItem('auth-storage');
         window.location.href = '/login';
 
         return Promise.reject(refreshError);
