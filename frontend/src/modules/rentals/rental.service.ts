@@ -147,6 +147,7 @@ export const rentalService = {
       success: boolean;
       message: string;
       data: Rental;
+      requiresApproval?: boolean;
     }>(`/rentals/${id}/status`, data);
     return response.data;
   },

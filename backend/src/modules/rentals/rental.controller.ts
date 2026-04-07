@@ -341,7 +341,7 @@ export class RentalController {
       const userId = req.user!._id.toString();
       const rentalId = req.params.id;
 
-      const created = await rentalService.processDueBillings(
+      const result = await rentalService.processDueBillings(
         companyId,
         rentalId,
         userId,
@@ -349,7 +349,7 @@ export class RentalController {
 
       res.json({
         success: true,
-        data: { created },
+        data: result,
       });
     } catch (error: any) {
       next(error);
