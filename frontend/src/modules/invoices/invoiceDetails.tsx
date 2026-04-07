@@ -91,6 +91,32 @@ const InvoiceDetails = () => {
     return Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   };
 
+  // Extrair período da descrição (formato: "...  (DD/M/YYYY a DD/M/YYYY)..." ou "(D/M/YYYY a D/M/YYYY)...")
+  const extractPeriod = (description: string): string => {
+    const match = description.match(/\((\d{1,2}\/\d{1,2}\/\d{4}\s+a\s+\d{1,2}\/\d{1,2}\/\d{4})\)/);
+    if (match) {
+      // Converte "6/4/2026 a 5/5/2026" em "06/04 a 05/05"
+      const parts = match[1].split(" a ");
+      const start = parts[0].split("/");
+      const end = parts[1].split("/");
+      const startFormatted = `${String(start[0]).padStart(2, "0")}/${String(start[1]).padStart(2, "0")}`;
+      const endFormatted = `${String(end[0]).padStart(2, "0")}/${String(end[1]).padStart(2, "0")}`;
+      return `${startFormatted} a ${endFormatted}`;
+    }
+    return "-";
+  };
+
+  // Limpar descrição removendo período e detalhes de quantidade
+  const cleanDescription = (description: string): string => {
+    // Remove "- Qtd: X" no final
+    let cleaned = description.replace(/\s*-\s*Qtd:\s*\d+$/, "");
+    // Remove o período entre parênteses (com datas flexíveis)
+    cleaned = cleaned.replace(/\s*\(\d{1,2}\/\d{1,2}\/\d{4}\s+a\s+\d{1,2}\/\d{1,2}\/\d{4}\)/, "");
+    // Remove "- Locação" se estiver no final
+    cleaned = cleaned.replace(/\s*-\s*Locação\s*$/, "");
+    return cleaned.trim();
+  };
+
   if (isLoading) {
     return (
       <Layout title="Fatura" backTo="/invoices">
@@ -340,6 +366,9 @@ const InvoiceDetails = () => {
                     <th className="text-left py-3 font-semibold text-gray-700 dark:text-gray-300">
                       Descrição
                     </th>
+                    <th className="text-center py-3 font-semibold text-gray-700 dark:text-gray-300">
+                      Período
+                    </th>
                     <th className="text-right py-3 font-semibold text-gray-700 dark:text-gray-300">
                       Quantidade
                     </th>
@@ -355,7 +384,10 @@ const InvoiceDetails = () => {
                   {invoice.items.map((item: any, index: number) => (
                     <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                       <td className="py-3 text-gray-900 dark:text-white">
-                        {item.description || "Item"}
+                        {cleanDescription(item.description || "Item")}
+                      </td>
+                      <td className="text-center py-3 text-gray-600 dark:text-gray-400 text-xs font-mono">
+                        {extractPeriod(item.description || "")}
                       </td>
                       <td className="text-right py-3 text-gray-600 dark:text-gray-400">
                         {item.quantity || 1}

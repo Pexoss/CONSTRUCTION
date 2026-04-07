@@ -31,13 +31,13 @@ function resolveSicoobLogoPath(): string {
   return path.join(__dirname, "../../shared/imagens/sicoob.png");
 }
 
-const INVOICE_FOOTER_PIX = "PIX  CNPJ 28408479000119";
+const INVOICE_FOOTER_PIX = "Chave PIX: CNPJ 28.408.479/0001-19";
 
 const INVOICE_FOOTER_BANK_LINES = [
-  "Transferência: Alugue Equipamentos para Construção",
-  "Bco 756 - Sicoob",
-  "Ag 3125",
-  "Cc 935338-0",
+  "Banco: 756 - Sicoob",
+  "Agência: 3125",
+  "Conta: 935338-0",
+  "Titularidade: Alugue Equipamentos",
 ];
 
 class InvoiceService {
@@ -165,7 +165,7 @@ class InvoiceService {
           itemDoc && typeof itemDoc === "object" && "name" in itemDoc && itemDoc.name
             ? String(itemDoc.name)
             : "Item";
-        const desc = `${name} — ${bill.billingNumber} (${periodLabel})`;
+        const desc = `${name} - Locação (${periodLabel}) - Qtd: ${line.quantity}`;
         items.push({
           description: desc,
           quantity: line.quantity,
@@ -176,7 +176,7 @@ class InvoiceService {
 
       for (const svc of bill.services || []) {
         items.push({
-          description: `${svc.description} — ${bill.billingNumber} (${periodLabel})`,
+          description: `${svc.description} - Locação (${periodLabel})`,
           quantity: svc.quantity,
           unitPrice: svc.price,
           total: svc.subtotal,
@@ -185,7 +185,7 @@ class InvoiceService {
 
       if ((!bill.items || bill.items.length === 0) && (!bill.services || bill.services.length === 0)) {
         items.push({
-          description: `Fechamento ${bill.billingNumber} (${periodLabel})`,
+          description: `Aluguel - Período: ${periodLabel}`,
           quantity: 1,
           unitPrice: bill.calculation.total,
           total: bill.calculation.total,
@@ -211,15 +211,7 @@ class InvoiceService {
       dueDate.setDate(dueDate.getDate() + 30);
     }
 
-    const autoObs =
-      "Períodos dos fechamentos: " +
-      billings
-        .map(
-          (b) =>
-            `${b.billingNumber} (${new Date(b.periodStart).toLocaleDateString("pt-BR")} a ${new Date(b.periodEnd).toLocaleDateString("pt-BR")})`,
-        )
-        .join("; ");
-    const notesCombined = [data.notes, autoObs].filter((x) => x && String(x).trim()).join("\n\n");
+    const notesCombined = data.notes ? String(data.notes).trim() : "";
 
     const invoice = await Invoice.create({
       companyId,
@@ -592,6 +584,23 @@ class InvoiceService {
       doc.moveTo(left, y).lineTo(right, y).stroke();
       y += 10;
 
+      doc.font("Helvetica").fontSize(8.5);
+      doc.text("Subtotal:", colDesc, y, { width: colTot - colDesc - 8, align: "right" });
+      doc.text(fmtMoney(invoice.subtotal), colTot, y, { width: 70, align: "right" });
+      y += 12;
+
+      if (invoice.discount && invoice.discount > 0) {
+        doc.text("Desconto:", colDesc, y, { width: colTot - colDesc - 8, align: "right" });
+        doc.text(`-${fmtMoney(invoice.discount)}`, colTot, y, { width: 70, align: "right" });
+        y += 12;
+      }
+      if (invoice.tax && invoice.tax > 0) {
+        doc.text("Impostos/Taxas:", colDesc, y, { width: colTot - colDesc - 8, align: "right" });
+        doc.text(`+${fmtMoney(invoice.tax)}`, colTot, y, { width: 70, align: "right" });
+        y += 12;
+      }
+
+      y += 4;
       doc.font("Helvetica-Bold").fontSize(9);
       doc.text("Valor Total da Fatura:", colDesc, y, {
         width: colTot - colDesc - 8,
@@ -599,16 +608,6 @@ class InvoiceService {
       });
       doc.text(fmtMoney(invoice.total), colTot, y, { width: 70, align: "right" });
       y += 16;
-
-      if (invoice.discount && invoice.discount > 0) {
-        doc.font("Helvetica").fontSize(8);
-        doc.text(`Desconto: ${fmtMoney(invoice.discount)}`, left, y);
-        y += 12;
-      }
-      if (invoice.tax && invoice.tax > 0) {
-        doc.text(`Impostos: ${fmtMoney(invoice.tax)}`, left, y);
-        y += 12;
-      }
 
       y += 6;
       doc.font("Helvetica").fontSize(7).fillColor("#222222");
@@ -627,9 +626,11 @@ class InvoiceService {
       const rightColW = right - rightColX;
       const footerTop = y;
 
+      doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#000000");
+      doc.text("Forma de Pagamento", left, footerTop);
       doc.font("Helvetica").fontSize(8).fillColor("#000000");
-      doc.text(INVOICE_FOOTER_PIX, left, footerTop, { width: leftColW });
-      const yLeft = doc.y;
+      doc.text(INVOICE_FOOTER_PIX, left, footerTop + 14, { width: leftColW });
+      const yLeft = doc.y + 8;
 
       const sicoobPath = resolveSicoobLogoPath();
       let yRight = footerTop;
@@ -641,6 +642,8 @@ class InvoiceService {
           yRight = footerTop;
         }
       }
+      doc.font("Helvetica-Bold").fontSize(8).fillColor("#000000");
+      doc.text("Dados Bancários", rightColX, footerTop);
       doc.font("Helvetica").fontSize(7.5);
       for (const line of INVOICE_FOOTER_BANK_LINES) {
         doc.text(line, rightColX, yRight, { width: rightColW });

@@ -53,6 +53,8 @@ const rentalTypeMap: Record<
 const CreateRentalPage: React.FC = () => {
   const navigate = useNavigate();
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
   const [services, setServices] = useState<RentalService[]>([]);
   const [workAddress, setWorkAddress] = useState<RentalWorkAddress | null>(
@@ -92,6 +94,27 @@ const CreateRentalPage: React.FC = () => {
   });
 
   const { data: itemsData } = useItems({ isActive: true, limit: 100 });
+
+  const allCustomers = useMemo(() => {
+    const list = customersData?.data ?? [];
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  }, [customersData]);
+
+  const filteredCustomers = useMemo(() => {
+    if (!customerSearch.trim()) return [];
+    const search = customerSearch.toLowerCase().trim();
+    return allCustomers.filter((customer) => {
+      const matchesName = customer.name.toLowerCase().includes(search);
+      const matchesCnpj = customer.cpfCnpj?.toLowerCase().includes(search);
+      return matchesName || matchesCnpj;
+    });
+  }, [allCustomers, customerSearch]);
+
+  const selectedCustomerData = useMemo(
+    () => allCustomers.find((c) => c._id === selectedCustomer) ?? null,
+    [allCustomers, selectedCustomer],
+  );
+  
   const createMutation = useMutation({
     mutationFn: (data: CreateRentalData) => rentalService.createRental(data),
     onSuccess: async (response) => {
@@ -391,6 +414,14 @@ const CreateRentalPage: React.FC = () => {
     setServices(services.filter((_, i) => i !== index));
   };
 
+  const handleCustomerChange = (newCustomerId: string) => {
+    setSelectedCustomer(newCustomerId);
+    setShowCustomerDropdown(false);
+    setCustomerSearch("");
+    setSelectedWorkAddressId("");
+    setWorkAddress(null);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -551,9 +582,6 @@ const CreateRentalPage: React.FC = () => {
 
   const totals = calculateTotals();
   const items = itemsData?.data || [];
-  const customers = customersData?.data || [];
-  const selectedCustomerData =
-    customers.find((c) => c._id === selectedCustomer) ?? null;
 
   const customerAddresses = selectedCustomerData?.addresses ?? [];
 
@@ -726,33 +754,78 @@ const CreateRentalPage: React.FC = () => {
                   </span>
                 </div>
                 <div className="relative">
-                  <select
-                    value={selectedCustomer}
-                    onChange={(e) => setSelectedCustomer(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm appearance-none"
-                  >
-                    <option value="">Selecione um cliente</option>
-                    {customers.map((customer) => (
-                      <option key={customer._id} value={customer._id}>
-                        {customer.name} - {customer.cpfCnpj}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3">
-                    <svg
-                      className="h-5 w-5 text-gray-400 dark:text-gray-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={1.5}
-                        d="M19 9l-7 7-7-7"
-                      />
-                    </svg>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Buscar por nome ou CNPJ
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Digite o nome ou CNPJ do cliente"
+                      value={selectedCustomer ? (selectedCustomerData?.name || "") : customerSearch}
+                      onChange={(e) => {
+                        setCustomerSearch(e.target.value);
+                        if (!selectedCustomer) {
+                          setShowCustomerDropdown(true);
+                        }
+                      }}
+                      onFocus={() => {
+                        if (!selectedCustomer) {
+                          setShowCustomerDropdown(true);
+                        }
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => setShowCustomerDropdown(false), 200);
+                      }}
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+
+                    {selectedCustomer && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCustomer("");
+                          setCustomerSearch("");
+                          setSelectedWorkAddressId("");
+                          setWorkAddress(null);
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-lg leading-none"
+                      >
+                        ✕
+                      </button>
+                    )}
+
+                    {showCustomerDropdown && !selectedCustomer && filteredCustomers.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-10 max-h-64 overflow-y-auto">
+                        {filteredCustomers.slice(0, 20).map((customer) => (
+                          <button
+                            key={customer._id}
+                            type="button"
+                            onClick={() => handleCustomerChange(customer._id)}
+                            className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 border-b border-gray-100 dark:border-gray-600 last:border-b-0 transition-colors"
+                          >
+                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                              {customer.name}
+                            </div>
+                            {customer.cpfCnpj && (
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                {customer.cpfCnpj}
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {showCustomerDropdown &&
+                      !selectedCustomer &&
+                      customerSearch.trim() &&
+                      filteredCustomers.length === 0 && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-10 p-4">
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            Nenhum cliente encontrado
+                          </p>
+                        </div>
+                      )}
                   </div>
                 </div>
                 {selectedCustomer && selectedCustomerData && (

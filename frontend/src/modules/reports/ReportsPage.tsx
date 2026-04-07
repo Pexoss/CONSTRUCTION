@@ -118,6 +118,17 @@ const ReportsPage: React.FC = () => {
     }
   };
 
+  const getBillingStatusLabel = (status: string): string => {
+    const labels: Record<string, string> = {
+      paid: "Pago",
+      approved: "A receber",
+      pending_approval: "Pendente",
+      cancelled: "Cancelado",
+      draft: "Rascunho",
+    };
+    return labels[status] || status;
+  };
+
   const handleExportPdf = async () => {
     try {
       let blob: Blob | undefined;
@@ -883,7 +894,7 @@ const ReportsPage: React.FC = () => {
                                 : "—"}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
-                              {row.status}
+                              {getBillingStatusLabel(row.status)}
                             </td>
                           </tr>
                         ))

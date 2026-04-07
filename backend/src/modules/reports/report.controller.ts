@@ -5,6 +5,21 @@ import { buildPdfReport } from "./report-pdf.util";
 
 export class ReportController {
   /**
+   * Translate billing status to Portuguese
+   */
+  private getStatusLabel(status: string): string {
+    const labels: Record<string, string> = {
+      paid: "Pago",
+      approved: "A receber",
+      pending_approval: "Pendente",
+      cancelled: "Cancelado",
+      draft: "Rascunho",
+      sent: "Enviado",
+    };
+    return labels[status] || status;
+  }
+
+  /**
    * Get rentals report
    * GET /api/reports/rentals
    */
@@ -698,7 +713,7 @@ export class ReportController {
           ref: row.referenceDate
             ? new Date(row.referenceDate).toLocaleDateString("pt-BR")
             : "—",
-          st: row.status,
+          st: this.getStatusLabel(row.status),
           rental: row.rentalNumber ?? "—",
         });
       }
@@ -830,7 +845,7 @@ export class ReportController {
               row.dueDate
                 ? new Date(row.dueDate).toLocaleDateString("pt-BR")
                 : "—",
-              row.status,
+              this.getStatusLabel(row.status),
             ]),
           },
         ],

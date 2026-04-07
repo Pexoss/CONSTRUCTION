@@ -420,6 +420,20 @@ const RentalDetailPage: React.FC = () => {
     return date.toLocaleDateString("pt-BR");
   };
 
+  const getChangeTypeLabel = (changeType: string): string => {
+    const labels: Record<string, string> = {
+      status_change: "Mudança de Status",
+      rental_update: "Atualização do Aluguel",
+      discount: "Alteração de Desconto",
+      rental_type_change: "Mudança de Tipo",
+      date_extended: "Prorrogação de Datas",
+      "discount_request": "Solicitação de Desconto",
+      "extension_request": "Solicitação de Prorrogação",
+      "status_change_request": "Solicitação de Mudança de Status",
+    };
+    return labels[changeType] || changeType;
+  };
+
   const handleDownloadBillingPDF = async (billingId: string) => {
     try {
       const blob = await billingService.generateBillingPDF(billingId);
@@ -2166,7 +2180,7 @@ const RentalDetailPage: React.FC = () => {
                           {new Date(history.date).toLocaleString("pt-BR")}
                         </div>
                         <div className="text-sm font-medium text-gray-900 dark:text-white">
-                          {history.changeType}
+                          {getChangeTypeLabel(history.changeType)}
                         </div>
                         <div className="text-xs text-gray-600 dark:text-gray-400">
                           {history.previousValue} → {history.newValue}
