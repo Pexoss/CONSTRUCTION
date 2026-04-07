@@ -1,6 +1,6 @@
 export interface ItemUnit {
   unitId: string;
-  status: "available" | "rented" | "maintenance" | "damaged";
+  status: "available" | "reserved" | "rented" | "maintenance" | "damaged";
   currentRental?: string;
   currentCustomer?: string;
   maintenanceDetails?: {
@@ -172,10 +172,13 @@ export interface EditItemData {
   sku?: string;
   barcode?: string;
   customId?: string;
+  trackingType?: "unit" | "quantity";
+  units?: ItemUnit[];
   photos?: string[];
   specifications?: Record<string, any>;
   quantity?: {
     total?: number;
+    available?: number;
     rented?: number;
     maintenance?: number;
     damaged?: number;

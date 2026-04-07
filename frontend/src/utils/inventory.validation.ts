@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
-const itemUnitStatusValues = new Set(['available', 'rented', 'maintenance', 'damaged']);
+const itemUnitStatusValues = new Set([
+  'available',
+  'reserved',
+  'rented',
+  'maintenance',
+  'damaged',
+]);
 const trackingTypeValues = new Set(['unit', 'quantity']);
 
 const itemUnitSchema = z.object({

@@ -7,7 +7,7 @@ import {
   TopCustomer,
   MaintenanceReport,
   InventoryReport,
-  InvoicesReport,
+  ReceivablesReport,
 } from "../../types/report.types";
 
 export const reportService = {
@@ -80,9 +80,12 @@ export const reportService = {
     return response.data;
   },
 
-  getInvoicesReport: async (startDate: string, endDate: string) => {
-    const response = await api.get<{ success: boolean; data: InvoicesReport }>(
-      `/reports/invoices?startDate=${startDate}&endDate=${endDate}`,
+  getReceivablesReport: async (startDate: string, endDate: string) => {
+    const response = await api.get<{
+      success: boolean;
+      data: ReceivablesReport;
+    }>(
+      `/reports/receivables?startDate=${startDate}&endDate=${endDate}`,
     );
     return response.data;
   },
@@ -124,13 +127,52 @@ export const reportService = {
     return response.data;
   },
 
-  exportInvoicesReport: async (startDate: string, endDate: string) => {
+  exportReceivablesReport: async (startDate: string, endDate: string) => {
     const response = await api.get(
-      `/reports/invoices/export?startDate=${startDate}&endDate=${endDate}`,
+      `/reports/receivables/export?startDate=${startDate}&endDate=${endDate}`,
       {
         responseType: "blob",
       },
     );
+    return response.data;
+  },
+
+  exportReceivablesReportPdf: async (startDate: string, endDate: string) => {
+    const response = await api.get(
+      `/reports/receivables/export-pdf?startDate=${startDate}&endDate=${endDate}`,
+      { responseType: "blob" },
+    );
+    return response.data;
+  },
+
+  exportRentalsReportPdf: async (startDate: string, endDate: string) => {
+    const response = await api.get(
+      `/reports/rentals/export-pdf?startDate=${startDate}&endDate=${endDate}`,
+      { responseType: "blob" },
+    );
+    return response.data;
+  },
+
+  exportFinancialReportPdf: async (startDate: string, endDate: string) => {
+    const response = await api.get(
+      `/reports/financial/export-pdf?startDate=${startDate}&endDate=${endDate}`,
+      { responseType: "blob" },
+    );
+    return response.data;
+  },
+
+  exportMaintenanceReportPdf: async (startDate: string, endDate: string) => {
+    const response = await api.get(
+      `/reports/maintenance/export-pdf?startDate=${startDate}&endDate=${endDate}`,
+      { responseType: "blob" },
+    );
+    return response.data;
+  },
+
+  exportInventoryReportPdf: async () => {
+    const response = await api.get(`/reports/inventory/export-pdf`, {
+      responseType: "blob",
+    });
     return response.data;
   },
 

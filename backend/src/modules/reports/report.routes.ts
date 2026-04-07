@@ -19,8 +19,15 @@ router.get('/reports/most-rented-items', reportController.getMostRentedItems.bin
 router.get('/reports/occupancy-rate', reportController.getOccupancyRate.bind(reportController));
 router.get('/reports/top-customers', reportController.getTopCustomers.bind(reportController));
 router.get('/reports/maintenance', reportController.getMaintenanceReport.bind(reportController));
+router.get('/reports/receivables', reportController.getReceivablesReport.bind(reportController));
 router.get('/reports/rentals/export', reportController.exportRentalsReport.bind(reportController));
 router.get('/reports/financial/export', reportController.exportFinancialReport.bind(reportController));
 router.get('/reports/inventory/export', reportController.exportInventoryReport.bind(reportController));
 router.get('/reports/maintenance/export', reportController.exportMaintenanceReport.bind(reportController));
+router.get('/reports/receivables/export', reportController.exportReceivablesReport.bind(reportController));
+router.get('/reports/receivables/export-pdf', reportController.exportReceivablesReportPdf.bind(reportController));
+router.get('/reports/rentals/export-pdf', reportController.exportRentalsReportPdf.bind(reportController));
+router.get('/reports/financial/export-pdf', reportController.exportFinancialReportPdf.bind(reportController));
+router.get('/reports/maintenance/export-pdf', reportController.exportMaintenanceReportPdf.bind(reportController));
+router.get('/reports/inventory/export-pdf', reportController.exportInventoryReportPdf.bind(reportController));
 export default router;

@@ -7,7 +7,7 @@ import {
   useSubcategories,
 } from "../../hooks/useInventory";
 import { updateItemSchema } from "../../utils/inventory.validation";
-import { EditItemData } from "../../types/inventory.types";
+import { EditItemData, ItemUnit } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
 
 const EditItemPage: React.FC = () => {
@@ -26,6 +26,7 @@ const EditItemPage: React.FC = () => {
     depreciation: null,
   } as EditItemData);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [units, setUnits] = useState<ItemUnit[]>([]);
 
   useEffect(() => {
     if (!itemData?.data) return;
@@ -40,10 +41,12 @@ const EditItemPage: React.FC = () => {
       sku: item.sku,
       barcode: item.barcode,
       customId: item.customId,
+      trackingType: item.trackingType,
       photos: item.photos,
       specifications: item.specifications,
       quantity: {
         total: item.quantity.total,
+        available: item.quantity.available,
         rented: item.quantity.rented,
         maintenance: item.quantity.maintenance,
         damaged: item.quantity.damaged,
@@ -61,6 +64,17 @@ const EditItemPage: React.FC = () => {
 
     const category = categoriesData?.data.find((c) => c.name === item.category);
     if (category) setSelectedCategoryId(category._id);
+
+    setUnits(
+      item.units?.length
+        ? item.units.map((u) => ({
+            unitId: u.unitId,
+            status: u.status,
+            location: u.location,
+            notes: u.notes,
+          }))
+        : [],
+    );
   }, [itemData, categoriesData]);
 
   const handleChange = (
@@ -125,7 +139,39 @@ const EditItemPage: React.FC = () => {
         delete dataToSend.depreciation;
       }
 
-      const validatedData = updateItemSchema.parse(dataToSend);
+      const tt = formData.trackingType ?? "quantity";
+      if (tt === "unit") {
+        const unitsToSend =
+          units.length > 0
+            ? units
+            : formData.customId?.trim()
+              ? [
+                  {
+                    unitId: formData.customId.trim(),
+                    status: "available" as const,
+                  },
+                ]
+              : [];
+        if (!unitsToSend.length) {
+          setErrors({ units: "Item unitário precisa de ao menos uma unidade" });
+          return;
+        }
+        dataToSend.units = unitsToSend.map((u) => ({
+          unitId: u.unitId.trim(),
+          status: u.status,
+          location: u.location,
+          notes: u.notes,
+        }));
+        dataToSend.trackingType = "unit";
+        delete dataToSend.quantity;
+      } else {
+        dataToSend.trackingType = "quantity";
+        delete dataToSend.units;
+      }
+
+      const validatedData = updateItemSchema.parse(
+        dataToSend,
+      ) as EditItemData;
 
       await updateItem.mutateAsync({
         id,
@@ -357,66 +403,229 @@ const EditItemPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Quantidades */}
-              <div>
+              {/* Tipo de controle + estoque */}
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-                  Quantidades
+                  Tipo de controle de estoque
                 </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                  <div>
-                    <label
-                      htmlFor="quantity.total"
-                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                    >
-                      Total
-                    </label>
+                <div className="space-y-4 mb-6">
+                  <div className="flex items-start">
                     <input
-                      id="quantity.total"
-                      name="quantity.total"
-                      type="number"
-                      min="0"
-                      value={formData.quantity?.total || 0}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      type="radio"
+                      name="trackingType"
+                      value="quantity"
+                      checked={formData.trackingType === "quantity"}
+                      onChange={() => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          trackingType: "quantity",
+                        }));
+                        setUnits([]);
+                      }}
+                      className="mt-1 mr-3 h-4 w-4"
                     />
+                    <div>
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Quantitativo
+                      </span>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        Contagem por quantidade (ex.: 30 escoramentos).
+                      </p>
+                    </div>
                   </div>
-
-                  <div>
-                    <label
-                      htmlFor="quantity.available"
-                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                    >
-                      Disponível
-                    </label>
+                  <div className="flex items-start">
                     <input
-                      id="quantity.available"
-                      name="quantity.available"
-                      type="number"
-                      min="0"
-                      value={itemData?.data?.quantity?.available ?? 0}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      type="radio"
+                      name="trackingType"
+                      value="unit"
+                      checked={formData.trackingType === "unit"}
+                      onChange={() =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          trackingType: "unit",
+                        }))
+                      }
+                      className="mt-1 mr-3 h-4 w-4"
                     />
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor="lowStockThreshold"
-                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                    >
-                      Alerta de Estoque Baixo
-                    </label>
-                    <input
-                      id="lowStockThreshold"
-                      name="lowStockThreshold"
-                      type="number"
-                      min="0"
-                      value={formData.lowStockThreshold || 0}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                    />
+                    <div>
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Por unidade (ID individual)
+                      </span>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        Cada peça com identificação (ex.: BM023, F421).
+                      </p>
+                    </div>
                   </div>
                 </div>
+
+                {formData.trackingType === "unit" && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-base font-medium text-gray-900 dark:text-white">
+                        Unidades
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setUnits([
+                            ...units,
+                            { unitId: "", status: "available" },
+                          ])
+                        }
+                        className="text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800"
+                      >
+                        + Adicionar unidade
+                      </button>
+                    </div>
+                    {errors.units && (
+                      <p className="text-sm text-red-600">{errors.units}</p>
+                    )}
+                    <div className="space-y-3">
+                      {units.map((unit, index) => (
+                        <div
+                          key={index}
+                          className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900/50"
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                                ID da unidade *
+                              </label>
+                              <input
+                                type="text"
+                                value={unit.unitId}
+                                onChange={(e) => {
+                                  const next = [...units];
+                                  next[index] = {
+                                    ...next[index],
+                                    unitId: e.target.value,
+                                  };
+                                  setUnits(next);
+                                }}
+                                className="w-full px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                                Status
+                              </label>
+                              <select
+                                value={unit.status}
+                                onChange={(e) => {
+                                  const next = [...units];
+                                  next[index] = {
+                                    ...next[index],
+                                    status: e.target.value as ItemUnit["status"],
+                                  };
+                                  setUnits(next);
+                                }}
+                                className="w-full px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600"
+                              >
+                                <option value="available">Disponível</option>
+                                <option value="reserved">Reservado</option>
+                                <option value="rented">Alugado</option>
+                                <option value="maintenance">Manutenção</option>
+                                <option value="damaged">Danificado</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                                Localização
+                              </label>
+                              <input
+                                type="text"
+                                value={unit.location || ""}
+                                onChange={(e) => {
+                                  const next = [...units];
+                                  next[index] = {
+                                    ...next[index],
+                                    location: e.target.value,
+                                  };
+                                  setUnits(next);
+                                }}
+                                className="w-full px-3 py-2 border rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600"
+                              />
+                            </div>
+                            <div className="flex items-end">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setUnits(units.filter((_, i) => i !== index))
+                                }
+                                className="w-full py-2 text-sm border border-red-200 text-red-700 rounded-lg dark:border-red-900 dark:text-red-400"
+                              >
+                                Remover
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {formData.trackingType === "quantity" && (
+                  <div>
+                    <h4 className="text-base font-medium text-gray-900 dark:text-white mb-4">
+                      Quantidades
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                      <div>
+                        <label
+                          htmlFor="quantity.total"
+                          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                        >
+                          Total
+                        </label>
+                        <input
+                          id="quantity.total"
+                          name="quantity.total"
+                          type="number"
+                          min="0"
+                          value={formData.quantity?.total ?? 0}
+                          onChange={handleChange}
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="quantity.available"
+                          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                        >
+                          Disponível
+                        </label>
+                        <input
+                          id="quantity.available"
+                          name="quantity.available"
+                          type="number"
+                          min="0"
+                          value={formData.quantity?.available ?? 0}
+                          onChange={handleChange}
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          htmlFor="lowStockThreshold"
+                          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                        >
+                          Alerta de estoque baixo
+                        </label>
+                        <input
+                          id="lowStockThreshold"
+                          name="lowStockThreshold"
+                          type="number"
+                          min="0"
+                          value={formData.lowStockThreshold || 0}
+                          onChange={handleChange}
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Depreciação */}

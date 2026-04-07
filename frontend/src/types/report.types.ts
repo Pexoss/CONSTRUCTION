@@ -89,17 +89,46 @@ export interface InventoryReport {
     totalValue: number;
   }[];
 }
-export interface InvoicesReport {
-  totalInvoices: number;
-  totalPaid: number;
-  totalPending: number;
-  totalOverdue: number;
-  invoices: {
-    invoiceId: string;
+export interface ReceivablesReport {
+  period: { startDate: string; endDate: string };
+  summary: {
+    fechamento: {
+      receivedInPeriod: number;
+      pendingTotal: number;
+      paidCountInPeriod: number;
+      pendingCount: number;
+    };
+    fatura: {
+      receivedInPeriod: number;
+      pendingTotal: number;
+      paidCountInPeriod: number;
+      pendingCount: number;
+    };
+    totals: {
+      receivedInPeriod: number;
+      pendingTotal: number;
+    };
+  };
+  paidInPeriod: Array<{
+    kind: "fechamento" | "fatura";
+    id: string;
+    documentNumber: string;
     customerName: string;
-    issueDate: string;
-    dueDate: string;
     amount: number;
+    paymentDate: string | null;
+    paymentMethod: string | null;
+    rentalNumber?: string;
+    dueDate: string | null;
+  }>;
+  pending: Array<{
+    kind: "fechamento" | "fatura";
+    id: string;
+    documentNumber: string;
+    customerName: string;
+    amount: number;
+    dueDate: string | null;
+    referenceDate: string | null;
     status: string;
-  }[];
+    rentalNumber?: string;
+  }>;
 }

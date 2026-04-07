@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { reportService } from "./report.service";
 import ExcelJS from "exceljs";
+import { buildPdfReport } from "./report-pdf.util";
 
 export class ReportController {
   /**
@@ -541,6 +542,624 @@ export class ReportController {
         success: true,
         data: report,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/reports/receivables — faturas e fechamentos: recebido no período e a receber
+   */
+  async getReceivablesReport(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getReceivablesReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+
+      res.json({
+        success: true,
+        data: report,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/reports/receivables/export — Excel
+   */
+  async exportReceivablesReport(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getReceivablesReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+
+      const money = (n: number) =>
+        n.toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+      const workbook = new ExcelJS.Workbook();
+      const summarySheet = workbook.addWorksheet("Resumo");
+      summarySheet.columns = [
+        { header: "Tipo", key: "tipo", width: 18 },
+        { header: "Recebido no período (R$)", key: "rec", width: 26 },
+        { header: "A receber — pendências (R$)", key: "pend", width: 28 },
+        { header: "Qtd pagos no período", key: "qPaid", width: 22 },
+        { header: "Qtd pendentes", key: "qPen", width: 16 },
+      ];
+      summarySheet.addRow({
+        tipo: "Fechamento",
+        rec: money(report.summary.fechamento.receivedInPeriod),
+        pend: money(report.summary.fechamento.pendingTotal),
+        qPaid: report.summary.fechamento.paidCountInPeriod,
+        qPen: report.summary.fechamento.pendingCount,
+      });
+      summarySheet.addRow({
+        tipo: "Fatura",
+        rec: money(report.summary.fatura.receivedInPeriod),
+        pend: money(report.summary.fatura.pendingTotal),
+        qPaid: report.summary.fatura.paidCountInPeriod,
+        qPen: report.summary.fatura.pendingCount,
+      });
+      summarySheet.addRow({
+        tipo: "Total geral",
+        rec: money(report.summary.totals.receivedInPeriod),
+        pend: money(report.summary.totals.pendingTotal),
+        qPaid: "",
+        qPen: "",
+      });
+
+      const paidSheet = workbook.addWorksheet("Pagos no período");
+      paidSheet.columns = [
+        { header: "Tipo", key: "tipo", width: 14 },
+        { header: "Documento", key: "doc", width: 22 },
+        { header: "Cliente", key: "cust", width: 32 },
+        { header: "Valor (R$)", key: "amt", width: 16 },
+        { header: "Data pagamento", key: "pdate", width: 16 },
+        { header: "Forma", key: "pm", width: 18 },
+        { header: "Vencimento", key: "due", width: 14 },
+        { header: "Aluguel", key: "rental", width: 14 },
+      ];
+      for (const row of report.paidInPeriod) {
+        paidSheet.addRow({
+          tipo: row.kind === "fechamento" ? "Fechamento" : "Fatura",
+          doc: row.documentNumber,
+          cust: row.customerName,
+          amt: money(row.amount),
+          pdate: row.paymentDate
+            ? new Date(row.paymentDate).toLocaleDateString("pt-BR")
+            : "—",
+          pm: row.paymentMethod ?? "—",
+          due: row.dueDate
+            ? new Date(row.dueDate).toLocaleDateString("pt-BR")
+            : "—",
+          rental: row.rentalNumber ?? "—",
+        });
+      }
+
+      const pendSheet = workbook.addWorksheet("Pendências");
+      pendSheet.columns = [
+        { header: "Tipo", key: "tipo", width: 14 },
+        { header: "Documento", key: "doc", width: 22 },
+        { header: "Cliente", key: "cust", width: 32 },
+        { header: "Valor (R$)", key: "amt", width: 16 },
+        { header: "Vencimento", key: "due", width: 14 },
+        { header: "Emissão / ref.", key: "ref", width: 14 },
+        { header: "Status", key: "st", width: 12 },
+        { header: "Aluguel", key: "rental", width: 14 },
+      ];
+      for (const row of report.pending) {
+        pendSheet.addRow({
+          tipo: row.kind === "fechamento" ? "Fechamento" : "Fatura",
+          doc: row.documentNumber,
+          cust: row.customerName,
+          amt: money(row.amount),
+          due: row.dueDate
+            ? new Date(row.dueDate).toLocaleDateString("pt-BR")
+            : "—",
+          ref: row.referenceDate
+            ? new Date(row.referenceDate).toLocaleDateString("pt-BR")
+            : "—",
+          st: row.status,
+          rental: row.rentalNumber ?? "—",
+        });
+      }
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=relatorio-recebiveis-${Date.now()}.xlsx`,
+      );
+
+      await workbook.xlsx.write(res);
+      res.end();
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/reports/receivables/export-pdf
+   */
+  async exportReceivablesReportPdf(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getReceivablesReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+
+      const money = (n: number) =>
+        n.toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+      const subtitle = `Período: ${new Date(report.period.startDate).toLocaleDateString("pt-BR")} a ${new Date(report.period.endDate).toLocaleDateString("pt-BR")}`;
+
+      const pdf = await buildPdfReport({
+        title: "Recebíveis — fechamentos e faturas",
+        subtitle,
+        sections: [
+          {
+            title: "Resumo por tipo",
+            headers: [
+              "Tipo",
+              "Recebido no período (R$)",
+              "A receber (R$)",
+              "Qtd pagos",
+              "Qtd pendentes",
+            ],
+            rows: [
+              [
+                "Fechamento",
+                money(report.summary.fechamento.receivedInPeriod),
+                money(report.summary.fechamento.pendingTotal),
+                String(report.summary.fechamento.paidCountInPeriod),
+                String(report.summary.fechamento.pendingCount),
+              ],
+              [
+                "Fatura",
+                money(report.summary.fatura.receivedInPeriod),
+                money(report.summary.fatura.pendingTotal),
+                String(report.summary.fatura.paidCountInPeriod),
+                String(report.summary.fatura.pendingCount),
+              ],
+              [
+                "Total geral",
+                money(report.summary.totals.receivedInPeriod),
+                money(report.summary.totals.pendingTotal),
+                "—",
+                "—",
+              ],
+            ],
+          },
+          {
+            title: "Pagos no período (data de pagamento)",
+            headers: [
+              "Tipo",
+              "Documento",
+              "Cliente",
+              "Valor (R$)",
+              "Data pag.",
+              "Forma",
+            ],
+            rows: report.paidInPeriod.map((row) => [
+              row.kind === "fechamento" ? "Fechamento" : "Fatura",
+              row.documentNumber,
+              row.customerName,
+              money(row.amount),
+              row.paymentDate
+                ? new Date(row.paymentDate).toLocaleDateString("pt-BR")
+                : "—",
+              row.paymentMethod ?? "—",
+            ]),
+          },
+          {
+            title: "Pendências (a receber)",
+            headers: [
+              "Tipo",
+              "Documento",
+              "Cliente",
+              "Valor (R$)",
+              "Venc.",
+              "Status",
+            ],
+            rows: report.pending.map((row) => [
+              row.kind === "fechamento" ? "Fechamento" : "Fatura",
+              row.documentNumber,
+              row.customerName,
+              money(row.amount),
+              row.dueDate
+                ? new Date(row.dueDate).toLocaleDateString("pt-BR")
+                : "—",
+              row.status,
+            ]),
+          },
+        ],
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=relatorio-recebiveis-${Date.now()}.pdf`,
+      );
+      res.send(pdf);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/reports/rentals/export-pdf
+   */
+  async exportRentalsReportPdf(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getRentalsReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+      const { Rental } = await import("../rentals/rental.model");
+      const rentals = await Rental.find({
+        companyId,
+        createdAt: { $gte: startDate, $lte: endDate },
+      })
+        .populate("customerId", "name cpfCnpj")
+        .populate("items.itemId", "name sku")
+        .lean();
+
+      const money = (n: number) =>
+        n.toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+      const pdf = await buildPdfReport({
+        title: "Relatório de aluguéis",
+        subtitle: `${startDate.toLocaleDateString("pt-BR")} a ${endDate.toLocaleDateString("pt-BR")}`,
+        sections: [
+          {
+            title: "Resumo",
+            headers: ["Total de aluguéis", "Receita total (R$)"],
+            rows: [
+              [String(report.totalRentals), money(report.totalRevenue)],
+            ],
+          },
+          {
+            title: "Detalhe",
+            headers: [
+              "Nº",
+              "Cliente",
+              "Reserva",
+              "Retirada",
+              "Devolução",
+              "Status",
+              "Total (R$)",
+            ],
+            rows: rentals.map((r) => {
+              const c = r.customerId as { name?: string } | undefined;
+              return [
+                String(r.rentalNumber),
+                c?.name ?? "—",
+                new Date(r.dates.reservedAt).toLocaleDateString("pt-BR"),
+                new Date(r.dates.pickupScheduled).toLocaleDateString("pt-BR"),
+                new Date(r.dates.returnScheduled).toLocaleDateString("pt-BR"),
+                r.status,
+                money(r.pricing?.total ?? 0),
+              ];
+            }),
+          },
+        ],
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=relatorio-alugueis-${Date.now()}.pdf`,
+      );
+      res.send(pdf);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/reports/financial/export-pdf
+   */
+  async exportFinancialReportPdf(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getFinancialReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+      const transactions = await (
+        await import("../transactions/transaction.model")
+      ).Transaction.find({
+        companyId,
+        createdAt: { $gte: startDate, $lte: endDate },
+      })
+        .sort({ createdAt: 1 })
+        .lean();
+
+      const money = (n: number) =>
+        n.toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+      const pdf = await buildPdfReport({
+        title: "Relatório financeiro (lançamentos)",
+        subtitle: `${startDate.toLocaleDateString("pt-BR")} a ${endDate.toLocaleDateString("pt-BR")}`,
+        sections: [
+          {
+            title: "Resumo",
+            headers: ["Receitas", "Despesas", "Lucro (R$)"],
+            rows: [
+              [
+                money(report.totalIncome),
+                money(report.totalExpenses),
+                money(report.profit),
+              ],
+            ],
+          },
+          {
+            title: "Lançamentos",
+            headers: ["Data", "Tipo", "Categoria", "Descrição", "Valor (R$)", "Status"],
+            rows: transactions.map((t) => [
+              new Date(t.createdAt || new Date()).toLocaleDateString("pt-BR"),
+              t.type === "income" ? "Receita" : "Despesa",
+              t.category,
+              t.description ?? "—",
+              money(t.amount),
+              t.status,
+            ]),
+          },
+        ],
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=relatorio-financeiro-${Date.now()}.pdf`,
+      );
+      res.send(pdf);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/reports/maintenance/export-pdf
+   */
+  async exportMaintenanceReportPdf(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getMaintenanceReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+
+      const money = (n: number) =>
+        n.toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+      const pdf = await buildPdfReport({
+        title: "Relatório de manutenções",
+        subtitle: `${startDate.toLocaleDateString("pt-BR")} a ${endDate.toLocaleDateString("pt-BR")}`,
+        sections: [
+          {
+            title: "Resumo",
+            headers: [
+              "Qtd total",
+              "Custo total",
+              "Agend.",
+              "Em and.",
+              "Concl.",
+            ],
+            rows: [
+              [
+                String(report.totalMaintenances),
+                money(report.totalCost),
+                String(report.byStatus.scheduled),
+                String(report.byStatus.in_progress),
+                String(report.byStatus.completed),
+              ],
+            ],
+          },
+          {
+            title: "Por mês",
+            headers: ["Mês", "Quantidade", "Custo (R$)"],
+            rows: report.byMonth.map((m) => [
+              m.month,
+              String(m.count),
+              money(m.cost),
+            ]),
+          },
+        ],
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=relatorio-manutencoes-${Date.now()}.pdf`,
+      );
+      res.send(pdf);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/reports/inventory/export-pdf
+   */
+  async exportInventoryReportPdf(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+
+      const report = await reportService.getInventoryReport(companyId);
+
+      const money = (n: number) =>
+        n.toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+      const pdf = await buildPdfReport({
+        title: "Relatório de inventário",
+        subtitle: "Posição consolidada",
+        sections: [
+          {
+            title: "Totais",
+            headers: [
+              "Itens",
+              "Ativos",
+              "Estoque",
+              "Dispon.",
+              "Alugados",
+              "Reserv.",
+              "Manut.",
+              "Danif.",
+            ],
+            rows: [
+              [
+                String(report.totalItems),
+                String(report.activeItems),
+                String(report.totalStock),
+                String(report.totalAvailable),
+                String(report.totalRented),
+                String(report.totalReserved),
+                String(report.totalMaintenance),
+                String(report.totalDamaged),
+              ],
+            ],
+          },
+          {
+            title: "Receita aluguéis concluídos (referência)",
+            headers: ["Valor (R$)"],
+            rows: [[money(report.totalCompletedRevenue)]],
+          },
+        ],
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=relatorio-inventario-${Date.now()}.pdf`,
+      );
+      res.send(pdf);
     } catch (error) {
       next(error);
     }

@@ -28,8 +28,6 @@ import billingService from "../billings/billing.service";
 import { Billing } from "../billings/billing.model";
 import { NOTFOUND } from "dns";
 import PDFDocument from "pdfkit";
-import { Invoice } from "../invoices/invoice.model";
-import { invoiceService } from "../invoices/invoice.service";
 class RentalService {
   private getPeriodLengthDays(rentalType: RentalType): number {
     const periodDays: Record<RentalType, number> = {
@@ -1904,21 +1902,6 @@ class RentalService {
       userId,
       adjustments,
     );
-
-    if (status === "active" && oldStatus !== "active") {
-      const existingInvoice = await Invoice.findOne({
-        rentalId: rental._id,
-        companyId,
-      });
-
-      if (!existingInvoice) {
-        await invoiceService.createInvoiceFromRental(
-          companyId,
-          rental._id.toString(),
-          userId,
-        );
-      }
-    }
 
     if (status === "completed") {
       await this.processDueBillings(companyId, rentalId, userId);

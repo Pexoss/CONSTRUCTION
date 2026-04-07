@@ -238,15 +238,38 @@ BillingSchema.index({ companyId: 1, billingDate: 1 });
 // billingNumber index is automatically created by unique: true
 
 const assignBillingNumber = async (doc: any) => {
-  if (!doc.billingNumber && doc.companyId) {
-    try {
-      const BillingModel = mongoose.model<IBilling>('Billing');
-      const count = await BillingModel.countDocuments({ companyId: doc.companyId });
-      const year = new Date().getFullYear();
-      doc.billingNumber = `FCH-${year}-${String(count + 1).padStart(6, '0')}`;
-    } catch (error) {
-      doc.billingNumber = `FCH-${Date.now()}`;
-    }
+  if (doc.billingNumber || !doc.companyId) return;
+
+  const BillingModel = mongoose.model<IBilling>('Billing');
+  const year = new Date().getFullYear();
+  const prefix = `FCH-${year}-`;
+
+  try {
+    const companyId =
+      doc.companyId instanceof mongoose.Types.ObjectId
+        ? doc.companyId
+        : new mongoose.Types.ObjectId(String(doc.companyId));
+
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const [agg] = await BillingModel.aggregate([
+      {
+        $match: {
+          companyId,
+          billingNumber: { $regex: `^${escaped}\\d{6}$` },
+        },
+      },
+      {
+        $addFields: {
+          seq: { $toInt: { $substrCP: ['$billingNumber', prefix.length, 6] } },
+        },
+      },
+      { $group: { _id: null, maxSeq: { $max: '$seq' } } },
+    ]);
+
+    const nextSeq = (agg?.maxSeq ?? 0) + 1;
+    doc.billingNumber = `${prefix}${String(nextSeq).padStart(6, '0')}`;
+  } catch {
+    doc.billingNumber = `FCH-${year}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 };
 

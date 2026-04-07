@@ -213,6 +213,18 @@ const ItemDetailPage: React.FC = () => {
                           ID: {item.customId}
                         </span>
                       )}
+
+                      <span
+                        className={`inline-flex items-center px-3 py-1 rounded-md text-sm border ${
+                          item.trackingType === "unit"
+                            ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-200 border-indigo-200 dark:border-indigo-800"
+                            : "bg-slate-50 dark:bg-slate-900/30 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700"
+                        }`}
+                      >
+                        {item.trackingType === "unit"
+                          ? "Estoque por unidade"
+                          : "Estoque quantitativo"}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -350,6 +362,41 @@ const ItemDetailPage: React.FC = () => {
                 </div>
               </div>
 
+              {item.trackingType === "unit" &&
+                item.units &&
+                item.units.length > 0 && (
+                  <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+                      Unidades individuais
+                    </h2>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-gray-500 dark:text-gray-400">
+                            <th className="py-2 pr-4">ID</th>
+                            <th className="py-2 pr-4">Status</th>
+                            <th className="py-2 pr-4">Local</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {item.units.map((u, idx) => (
+                            <tr
+                              key={`${u.unitId}-${idx}`}
+                              className="border-b border-gray-100 dark:border-gray-700/80 text-gray-900 dark:text-white"
+                            >
+                              <td className="py-2 pr-4 font-medium">{u.unitId}</td>
+                              <td className="py-2 pr-4 capitalize">{u.status}</td>
+                              <td className="py-2 pr-4">
+                                {u.location || "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
               {/* Quantidades - Card Aprimorado */}
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
                 <div className="flex items-center mb-6">
@@ -369,11 +416,19 @@ const ItemDetailPage: React.FC = () => {
                     </svg>
                   </div>
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                    Quantidades
+                    {item.trackingType === "unit"
+                      ? "Resumo por status"
+                      : "Quantidades"}
                   </h2>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div
+                  className={`grid grid-cols-2 gap-4 ${
+                    item.trackingType === "unit"
+                      ? "md:grid-cols-6"
+                      : "md:grid-cols-5"
+                  }`}
+                >
                   {[
                     {
                       label: "Total",
@@ -389,6 +444,17 @@ const ItemDetailPage: React.FC = () => {
                       textColor: "text-gray-900 dark:text-white",
                       icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
                     },
+                    ...(item.trackingType === "unit"
+                      ? [
+                          {
+                            label: "Reservado",
+                            value: item.quantity.reserved ?? 0,
+                            bgColor: "bg-gray-50 dark:bg-gray-900/50",
+                            textColor: "text-gray-900 dark:text-white",
+                            icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
+                          },
+                        ]
+                      : []),
                     {
                       label: "Alugada",
                       value: item.quantity.rented,

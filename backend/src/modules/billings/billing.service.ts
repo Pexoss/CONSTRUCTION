@@ -65,6 +65,31 @@ function addPeriod(date: Date, rentalType: RentalType): Date {
   return next;
 }
 
+/** Evita E11000 quando vários fechamentos são criados em sequência (count+1 gerava o mesmo número). */
+async function createBillingWithRetry(payload: Record<string, unknown>): Promise<IBilling> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const data: Record<string, unknown> = { ...payload };
+    delete data.billingNumber;
+    try {
+      const created = await Billing.create(data);
+      return created;
+    } catch (err: any) {
+      lastErr = err;
+      const dupBilling =
+        err?.code === 11000 &&
+        err?.keyPattern &&
+        Object.prototype.hasOwnProperty.call(err.keyPattern, 'billingNumber');
+      if (!dupBilling) {
+        throw err;
+      }
+    }
+  }
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error('Não foi possível gerar um número de fechamento único.');
+}
+
 class BillingService {
   private async buildBillingItems(
     rental: any,
@@ -183,7 +208,7 @@ class BillingService {
       total,
     };
 
-    const billing = await Billing.create({
+    const billing = await createBillingWithRetry({
       companyId,
       rentalId,
       customerId: rental.customerId,
@@ -261,7 +286,7 @@ class BillingService {
       total,
     };
 
-    const billing = await Billing.create({
+    const billing = await createBillingWithRetry({
       companyId,
       rentalId: rental._id,
       customerId: rental.customerId,
@@ -386,7 +411,7 @@ class BillingService {
     const approvalRequired = appliedDiscount > subtotal * 0.1 || (isEarly && earlyReturn ? earlyReturn.discountApplied > 0 : false);
 
     // Criar fechamento
-    const billing = await Billing.create({
+    const billing = await createBillingWithRetry({
       companyId,
       rentalId,
       customerId: rental.customerId,

@@ -185,8 +185,25 @@ class ItemService {
       throw new Error('Item not found');
     }
 
-    // If quantity is being updated, recalculate available
-    if (data.quantity) {
+    if (data.trackingType !== undefined) {
+      item.trackingType = data.trackingType;
+      delete data.trackingType;
+      if (item.trackingType === 'quantity') {
+        item.units = undefined;
+      }
+    }
+
+    if (data.units !== undefined) {
+      if (item.trackingType === 'unit') {
+        item.units = data.units;
+        item.markModified('units');
+        delete data.quantity;
+      }
+      delete data.units;
+    }
+
+    // Ajuste manual de quantidade só para itens quantitativos (unitários recalculam no pre-save)
+    if (data.quantity && item.trackingType === 'quantity') {
       const previousQuantity = {
         total: item.quantity.total,
         available: item.quantity.available,
@@ -195,13 +212,11 @@ class ItemService {
         damaged: item.quantity.damaged,
       };
 
-      // Update quantities
       if (data.quantity.total !== undefined) item.quantity.total = data.quantity.total;
       if (data.quantity.rented !== undefined) item.quantity.rented = data.quantity.rented;
       if (data.quantity.maintenance !== undefined) item.quantity.maintenance = data.quantity.maintenance;
       if (data.quantity.damaged !== undefined) item.quantity.damaged = data.quantity.damaged;
 
-      // Recalculate available
       item.quantity.available =
         item.quantity.total - item.quantity.rented - item.quantity.maintenance - item.quantity.damaged;
 
@@ -209,7 +224,6 @@ class ItemService {
         throw new Error('Available quantity cannot be negative');
       }
 
-      // Register quantity change movement
       await this.registerMovement({
         companyId: new mongoose.Types.ObjectId(companyId),
         itemId: item._id as mongoose.Types.ObjectId,
@@ -228,6 +242,8 @@ class ItemService {
       });
 
       data.quantity = item.quantity;
+    } else if (data.quantity && item.trackingType === 'unit') {
+      delete data.quantity;
     }
     // Handle depreciation update safely
     if ('depreciation' in data) {

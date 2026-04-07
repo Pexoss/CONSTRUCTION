@@ -74,13 +74,8 @@ export const createItemSchema = itemSchemaBase.refine((data) => {
   path: ['units'],
 });
 
-// Schema de atualização (partial, sem refine)
-export const updateItemSchema = itemSchemaBase
-  .omit({
-    trackingType: true,
-    units: true,
-  })
-  .partial();
+// Atualização: todos os campos opcionais, incluindo tipo de rastreio e unidades
+export const updateItemSchema = itemSchemaBase.partial();
 
 export const createCategorySchema = z.object({
   name: z.string().min(1, 'Category name is required'),

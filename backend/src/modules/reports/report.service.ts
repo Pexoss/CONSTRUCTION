@@ -3,7 +3,52 @@ import { Transaction } from "../transactions/transaction.model";
 import { Maintenance } from "../maintenance/maintenance.model";
 import { Item } from "../inventory/item.model";
 import { Customer } from "../customers/customer.model";
-import mongoose from "mongoose";
+import { Billing } from "../billings/billing.model";
+import { Invoice } from "../invoices/invoice.model";
+
+export type ReceivablesReport = {
+  period: { startDate: string; endDate: string };
+  summary: {
+    fechamento: {
+      receivedInPeriod: number;
+      pendingTotal: number;
+      paidCountInPeriod: number;
+      pendingCount: number;
+    };
+    fatura: {
+      receivedInPeriod: number;
+      pendingTotal: number;
+      paidCountInPeriod: number;
+      pendingCount: number;
+    };
+    totals: {
+      receivedInPeriod: number;
+      pendingTotal: number;
+    };
+  };
+  paidInPeriod: Array<{
+    kind: "fechamento" | "fatura";
+    id: string;
+    documentNumber: string;
+    customerName: string;
+    amount: number;
+    paymentDate: string | null;
+    paymentMethod: string | null;
+    rentalNumber?: string;
+    dueDate: string | null;
+  }>;
+  pending: Array<{
+    kind: "fechamento" | "fatura";
+    id: string;
+    documentNumber: string;
+    customerName: string;
+    amount: number;
+    dueDate: string | null;
+    referenceDate: string | null;
+    status: string;
+    rentalNumber?: string;
+  }>;
+};
 
 class ReportService {
   /**
@@ -415,6 +460,170 @@ class ReportService {
       byMonth,
     };
   }
+
+  private normalizeReportRange(startDate: Date, endDate: Date) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  /**
+   * Recebimentos no período (data de pagamento) e pendências (fechamentos aprovados não pagos + faturas em rascunho/enviadas).
+   */
+  async getReceivablesReport(
+    companyId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<ReceivablesReport> {
+    const { start, end } = this.normalizeReportRange(startDate, endDate);
+
+    const [paidBillings, pendingBillings, paidInvoices, pendingInvoices] =
+      await Promise.all([
+        Billing.find({
+          companyId,
+          status: "paid",
+          paymentDate: { $gte: start, $lte: end },
+        })
+          .populate("customerId", "name")
+          .populate("rentalId", "rentalNumber")
+          .lean(),
+        Billing.find({
+          companyId,
+          status: "approved",
+        })
+          .populate("customerId", "name")
+          .populate("rentalId", "rentalNumber")
+          .lean(),
+        Invoice.find({
+          companyId,
+          status: "paid",
+          paidDate: { $gte: start, $lte: end },
+        })
+          .populate("customerId", "name")
+          .lean(),
+        Invoice.find({
+          companyId,
+          status: { $in: ["draft", "sent"] },
+        })
+          .populate("customerId", "name")
+          .lean(),
+      ]);
+
+    const customerName = (c: unknown) =>
+      c && typeof c === "object" && c !== null && "name" in c
+        ? String((c as { name?: string }).name || "—")
+        : "—";
+
+    const fechReceived = paidBillings.reduce(
+      (s, b) => s + (b.calculation?.total ?? 0),
+      0,
+    );
+    const fechPending = pendingBillings.reduce(
+      (s, b) => s + (b.calculation?.total ?? 0),
+      0,
+    );
+
+    const fatReceived = paidInvoices.reduce((s, i) => s + (i.total ?? 0), 0);
+    const fatPending = pendingInvoices.reduce((s, i) => s + (i.total ?? 0), 0);
+
+    const rentalNum = (rentalId: unknown) =>
+      rentalId &&
+      typeof rentalId === "object" &&
+      rentalId !== null &&
+      "rentalNumber" in rentalId
+        ? String((rentalId as { rentalNumber?: string }).rentalNumber ?? "")
+        : undefined;
+
+    const paidInPeriod: ReceivablesReport["paidInPeriod"] = [
+      ...paidBillings.map((b) => ({
+        kind: "fechamento" as const,
+        id: String(b._id),
+        documentNumber: b.billingNumber,
+        customerName: customerName(b.customerId),
+        amount: b.calculation?.total ?? 0,
+        paymentDate: b.paymentDate
+          ? new Date(b.paymentDate).toISOString()
+          : null,
+        paymentMethod: b.paymentMethod ?? null,
+        rentalNumber: rentalNum(b.rentalId),
+        dueDate: null,
+      })),
+      ...paidInvoices.map((inv) => ({
+        kind: "fatura" as const,
+        id: String(inv._id),
+        documentNumber: inv.invoiceNumber,
+        customerName: customerName(inv.customerId),
+        amount: inv.total ?? 0,
+        paymentDate: inv.paidDate
+          ? new Date(inv.paidDate).toISOString()
+          : null,
+        paymentMethod: inv.paymentMethod ?? null,
+        dueDate: inv.dueDate ? new Date(inv.dueDate).toISOString() : null,
+      })),
+    ].sort((a, b) =>
+      String(b.paymentDate ?? "").localeCompare(String(a.paymentDate ?? "")),
+    );
+
+    const pending: ReceivablesReport["pending"] = [
+      ...pendingBillings.map((b) => ({
+        kind: "fechamento" as const,
+        id: String(b._id),
+        documentNumber: b.billingNumber,
+        customerName: customerName(b.customerId),
+        amount: b.calculation?.total ?? 0,
+        dueDate: null,
+        referenceDate: b.billingDate
+          ? new Date(b.billingDate).toISOString()
+          : null,
+        status: b.status,
+        rentalNumber: rentalNum(b.rentalId),
+      })),
+      ...pendingInvoices.map((inv) => ({
+        kind: "fatura" as const,
+        id: String(inv._id),
+        documentNumber: inv.invoiceNumber,
+        customerName: customerName(inv.customerId),
+        amount: inv.total ?? 0,
+        dueDate: inv.dueDate ? new Date(inv.dueDate).toISOString() : null,
+        referenceDate: inv.issueDate
+          ? new Date(inv.issueDate).toISOString()
+          : null,
+        status: inv.status,
+      })),
+    ].sort((a, b) =>
+      String(a.dueDate ?? "").localeCompare(String(b.dueDate ?? "")),
+    );
+
+    return {
+      period: {
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+      },
+      summary: {
+        fechamento: {
+          receivedInPeriod: fechReceived,
+          pendingTotal: fechPending,
+          paidCountInPeriod: paidBillings.length,
+          pendingCount: pendingBillings.length,
+        },
+        fatura: {
+          receivedInPeriod: fatReceived,
+          pendingTotal: fatPending,
+          paidCountInPeriod: paidInvoices.length,
+          pendingCount: pendingInvoices.length,
+        },
+        totals: {
+          receivedInPeriod: fechReceived + fatReceived,
+          pendingTotal: fechPending + fatPending,
+        },
+      },
+      paidInPeriod,
+      pending,
+    };
+  }
+
   async getInventoryReport(companyId: string) {
     const items = await Item.find({ companyId });
 

@@ -21,7 +21,7 @@ const ReportsPage: React.FC = () => {
     | "financial"
     | "maintenance"
     | "inventory"
-    | "invoices";
+    | "receivables";
 
   const [reportType, setReportType] = useState<ReportType>("rentals");
   const [startDate, setStartDate] = useState(
@@ -67,10 +67,10 @@ const ReportsPage: React.FC = () => {
     enabled: reportType === "inventory",
   });
 
-  const { data: invoicesReport, isLoading: invoicesLoading } = useQuery({
-    queryKey: ["invoices-report", startDate, endDate],
-    queryFn: () => reportService.getInvoicesReport(startDate, endDate),
-    enabled: reportType === "invoices",
+  const { data: receivablesReport, isLoading: receivablesLoading } = useQuery({
+    queryKey: ["receivables-report", startDate, endDate],
+    queryFn: () => reportService.getReceivablesReport(startDate, endDate),
+    enabled: reportType === "receivables",
   });
 
   const handleExport = async () => {
@@ -93,8 +93,11 @@ const ReportsPage: React.FC = () => {
           );
           break;
 
-        case "invoices":
-          blob = await reportService.exportInvoicesReport(startDate, endDate);
+        case "receivables":
+          blob = await reportService.exportReceivablesReport(
+            startDate,
+            endDate,
+          );
           break;
 
         case "inventory":
@@ -112,6 +115,50 @@ const ReportsPage: React.FC = () => {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error("Erro ao exportar:", error);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    try {
+      let blob: Blob | undefined;
+
+      switch (reportType) {
+        case "rentals":
+          blob = await reportService.exportRentalsReportPdf(startDate, endDate);
+          break;
+        case "financial":
+          blob = await reportService.exportFinancialReportPdf(
+            startDate,
+            endDate,
+          );
+          break;
+        case "maintenance":
+          blob = await reportService.exportMaintenanceReportPdf(
+            startDate,
+            endDate,
+          );
+          break;
+        case "receivables":
+          blob = await reportService.exportReceivablesReportPdf(
+            startDate,
+            endDate,
+          );
+          break;
+        case "inventory":
+          blob = await reportService.exportInventoryReportPdf();
+          break;
+      }
+
+      if (!blob) return;
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `relatorio-${reportType}-${Date.now()}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Erro ao exportar PDF:", error);
     }
   };
 
@@ -144,7 +191,9 @@ const ReportsPage: React.FC = () => {
                 <option value="financial">Financeiro</option>
                 <option value="maintenance">Manutenções</option>
                 <option value="inventory">Inventário</option>
-                <option value="invoices">Faturas</option>
+                <option value="receivables">
+                  Recebíveis (fechamentos e faturas)
+                </option>
               </select>
               <input
                 type="date"
@@ -158,8 +207,9 @@ const ReportsPage: React.FC = () => {
                 onChange={(e) => setEndDate(e.target.value)}
                 className="px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
               />
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
+                  type="button"
                   onClick={handleExport}
                   className="inline-flex items-center justify-center px-4 py-2.5 bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 gap-2"
                 >
@@ -177,6 +227,26 @@ const ReportsPage: React.FC = () => {
                     />
                   </svg>
                   Exportar Excel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportPdf}
+                  className="inline-flex items-center justify-center px-4 py-2.5 bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 gap-2"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    strokeWidth="1.5"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+                    />
+                  </svg>
+                  Exportar PDF
                 </button>
               </div>
             </div>
@@ -545,6 +615,282 @@ const ReportsPage: React.FC = () => {
                     <Bar dataKey="cost" fill="#10B981" name="Custo (R$)" />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Recebíveis — fechamentos e faturas */}
+          {reportType === "receivables" && receivablesLoading && (
+            <p className="text-center text-gray-600 dark:text-gray-400 py-8">
+              Carregando relatório…
+            </p>
+          )}
+          {reportType === "receivables" && receivablesReport?.data && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-5">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                    Fechamentos — recebido no período
+                  </p>
+                  <p className="mt-2 text-2xl font-bold text-green-600 dark:text-green-400">
+                    R${" "}
+                    {receivablesReport.data.summary.fechamento.receivedInPeriod.toLocaleString(
+                      "pt-BR",
+                      {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      },
+                    )}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {receivablesReport.data.summary.fechamento.paidCountInPeriod}{" "}
+                    baixa(s)
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-amber-200 dark:border-amber-800 shadow-sm p-5">
+                  <p className="text-xs font-medium text-amber-800 dark:text-amber-300 uppercase tracking-wide">
+                    Fechamentos — a receber
+                  </p>
+                  <p className="mt-2 text-2xl font-bold text-amber-700 dark:text-amber-400">
+                    R${" "}
+                    {receivablesReport.data.summary.fechamento.pendingTotal.toLocaleString(
+                      "pt-BR",
+                      {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      },
+                    )}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {receivablesReport.data.summary.fechamento.pendingCount}{" "}
+                    pendente(s)
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-5">
+                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                    Faturas — recebido no período
+                  </p>
+                  <p className="mt-2 text-2xl font-bold text-green-600 dark:text-green-400">
+                    R${" "}
+                    {receivablesReport.data.summary.fatura.receivedInPeriod.toLocaleString(
+                      "pt-BR",
+                      {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      },
+                    )}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {receivablesReport.data.summary.fatura.paidCountInPeriod}{" "}
+                    baixa(s)
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-amber-200 dark:border-amber-800 shadow-sm p-5">
+                  <p className="text-xs font-medium text-amber-800 dark:text-amber-300 uppercase tracking-wide">
+                    Faturas — a receber
+                  </p>
+                  <p className="mt-2 text-2xl font-bold text-amber-700 dark:text-amber-400">
+                    R${" "}
+                    {receivablesReport.data.summary.fatura.pendingTotal.toLocaleString(
+                      "pt-BR",
+                      {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      },
+                    )}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {receivablesReport.data.summary.fatura.pendingCount}{" "}
+                    pendente(s)
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-emerald-200 dark:border-emerald-800 p-5">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Total recebido no período (fechamentos + faturas)
+                  </p>
+                  <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+                    R${" "}
+                    {receivablesReport.data.summary.totals.receivedInPeriod.toLocaleString(
+                      "pt-BR",
+                      {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      },
+                    )}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-orange-200 dark:border-orange-900 p-5">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Total ainda a receber (pendências)
+                  </p>
+                  <p className="text-3xl font-bold text-orange-600 dark:text-orange-400 mt-1">
+                    R${" "}
+                    {receivablesReport.data.summary.totals.pendingTotal.toLocaleString(
+                      "pt-BR",
+                      {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      },
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  Pagos no período (por data de pagamento)
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-900/50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Tipo
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Documento
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Cliente
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Valor
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Pagamento
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Forma
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {receivablesReport.data.paidInPeriod.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={6}
+                            className="px-4 py-6 text-sm text-gray-500 text-center"
+                          >
+                            Nenhum pagamento no período selecionado.
+                          </td>
+                        </tr>
+                      ) : (
+                        receivablesReport.data.paidInPeriod.map((row) => (
+                          <tr key={`${row.kind}-${row.id}`}>
+                            <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap">
+                              {row.kind === "fechamento"
+                                ? "Fechamento"
+                                : "Fatura"}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
+                              {row.documentNumber}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
+                              {row.customerName}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right text-green-600 dark:text-green-400 whitespace-nowrap">
+                              R${" "}
+                              {row.amount.toLocaleString("pt-BR", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                              {row.paymentDate
+                                ? new Date(row.paymentDate).toLocaleDateString(
+                                    "pt-BR",
+                                  )
+                                : "—"}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                              {row.paymentMethod ?? "—"}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  Pendências (fechamentos aprovados e faturas não pagas)
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-900/50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Tipo
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Documento
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Cliente
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Valor
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Vencimento
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Status
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {receivablesReport.data.pending.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={6}
+                            className="px-4 py-6 text-sm text-gray-500 text-center"
+                          >
+                            Nenhuma pendência.
+                          </td>
+                        </tr>
+                      ) : (
+                        receivablesReport.data.pending.map((row) => (
+                          <tr key={`${row.kind}-p-${row.id}`}>
+                            <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap">
+                              {row.kind === "fechamento"
+                                ? "Fechamento"
+                                : "Fatura"}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
+                              {row.documentNumber}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
+                              {row.customerName}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                              R${" "}
+                              {row.amount.toLocaleString("pt-BR", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                              {row.dueDate
+                                ? new Date(row.dueDate).toLocaleDateString(
+                                    "pt-BR",
+                                  )
+                                : "—"}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                              {row.status}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}

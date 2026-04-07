@@ -5,8 +5,6 @@ import { rentalService } from "./rental.service";
 import { RentalFilters, RentalStatus } from "../../types/rental.types";
 import { CheckCircle } from "lucide-react";
 import Layout from "../../components/Layout";
-import { invoiceService } from "modules/invoices/invoice.service";
-
 const RentalsPage: React.FC = () => {
   const location = useLocation();
   const [filters, setFilters] = useState<RentalFilters>({
@@ -78,8 +76,6 @@ const RentalsPage: React.FC = () => {
   };
 
   const queryClient = useQueryClient();
-  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [invoiceRental, setInvoiceRental] = useState<any>(null);
 
   const updateStatusMutation = useMutation({
     mutationFn: (data: { rentalId: string; status: RentalStatus }) =>
@@ -87,28 +83,9 @@ const RentalsPage: React.FC = () => {
         status: data.status,
       }),
 
-    onSuccess: async (_, variables) => {
+    onSuccess: () => {
       setShowModal(false);
       queryClient.invalidateQueries({ queryKey: ["rentals"] });
-
-      if (variables.status === "active") {
-        try {
-          //busca fatura recem criada
-          const response = await invoiceService.getInvoices({
-            rentalId: variables.rentalId,
-            limit: 1,
-          });
-
-          const invoice = response.data?.[0];
-
-          if (invoice) {
-            setInvoiceRental(invoice);
-            setShowInvoiceModal(true);
-          }
-        } catch (err) {
-          console.error("Erro ao buscar fatura:", err);
-        }
-      }
     },
   });
 
@@ -596,32 +573,6 @@ const RentalsPage: React.FC = () => {
                 Depois eu faço isso
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showInvoiceModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
-          <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg w-[400px]">
-            <h2 className="text-lg font-semibold">Fatura criada !</h2>
-
-            <p className="mt-2 text-sm">
-              A fatura do aluguel foi gerada com sucesso.
-            </p>
-
-            <Link
-              to={`/invoices/${invoiceRental._id}`}
-              className="flex-1 flex items-center justify-center bg-green-600 text-white py-2 rounded-md hover:bg-green-700"
-            >
-              Ver fatura
-            </Link>
-
-            <button
-              onClick={() => setShowInvoiceModal(false)}
-              className="mt-4 w-full bg-gray-900 text-white py-2 rounded-md"
-            >
-              Fechar
-            </button>
           </div>
         </div>
       )}
