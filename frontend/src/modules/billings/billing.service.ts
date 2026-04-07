@@ -19,9 +19,14 @@ export const billingService = {
   },
 
   processRentalBilling: async (rentalId: string) => {
-    const response = await api.post<{ success: boolean; data: { created: number } }>(
-      `/rentals/${rentalId}/process-billing`
-    );
+    const response = await api.post<{
+      success: boolean;
+      data: {
+        created: number;
+        draftsCreated: number;
+        skipReason?: "rental_not_active";
+      };
+    }>(`/rentals/${rentalId}/process-billing`);
     return response.data;
   },
 

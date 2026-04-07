@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
@@ -145,37 +145,68 @@ const RentalDetailPage: React.FC = () => {
 
   const { user } = useAuth();
   const isAdminUser = ["admin", "superadmin"].includes(user?.role || "");
-  const autoBillingProcessedRef = useRef(false);
 
   const [showSuccessToast, setShowSuccessToast] = useState(false);
 
   const processBillingMutation = useMutation({
     mutationFn: () => billingService.processRentalBilling(id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rental-billings", id] });
-    },
   });
+
+  const runProcessBillingFeedback = (
+    payload: Awaited<ReturnType<typeof billingService.processRentalBilling>>,
+  ) => {
+    const d = payload?.data;
+    if (!d || typeof d !== "object") {
+      toast.error(
+        "Resposta inválida do servidor ao processar fechamentos. Tente novamente.",
+      );
+      return;
+    }
+    if (d.skipReason === "rental_not_active") {
+      toast.warning(
+        "Só é possível gerar fechamentos quando o aluguel estiver ativo ou em atraso. Se você pediu alteração de status, aguarde a aprovação de um administrador.",
+      );
+      return;
+    }
+    const parts: string[] = [];
+    if (d.created > 0) {
+      parts.push(
+        `${d.created} fechamento${d.created === 1 ? "" : "s"} gerado${d.created === 1 ? "" : "s"}`,
+      );
+    }
+    if (d.draftsCreated > 0) {
+      parts.push(
+        `${d.draftsCreated} fechamento${d.draftsCreated === 1 ? "" : "s"} previsto${d.draftsCreated === 1 ? "" : "s"} em rascunho`,
+      );
+    }
+    if (parts.length > 0) {
+      toast.success(parts.join(". ") + ".");
+    } else {
+      toast.info(
+        "Nenhum fechamento novo neste momento. Verifique datas de retirada/devolução e o tipo de cobrança.",
+      );
+    }
+  };
+
+  const handleAtualizarFechamentos = async () => {
+    if (!id) return;
+    try {
+      const payload = await processBillingMutation.mutateAsync();
+      queryClient.invalidateQueries({ queryKey: ["rental-billings", id] });
+      runProcessBillingFeedback(payload);
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message ?? "Não foi possível atualizar os fechamentos.";
+      toast.error(message);
+    }
+  };
 
   const { data: billingsData, isLoading: billingsLoading } = useQuery({
     queryKey: ["rental-billings", id],
     queryFn: () => billingService.getBillings({ rentalId: id!, limit: 200 }),
     enabled: !!id,
   });
-
-  useEffect(() => {
-    autoBillingProcessedRef.current = false;
-  }, [id]);
-
-  useEffect(() => {
-    if (!id || !data?.data) return;
-    if (
-      !autoBillingProcessedRef.current &&
-      ["active", "overdue"].includes(data.data.status)
-    ) {
-      autoBillingProcessedRef.current = true;
-      processBillingMutation.mutate();
-    }
-  }, [id, data?.data?.status, processBillingMutation]);
 
   const updateStatusMutation = useMutation({
     mutationFn: (data: { status: RentalStatus; adjustments?: any }) =>
@@ -187,20 +218,29 @@ const RentalDetailPage: React.FC = () => {
       setModalFinalizarAluguel(false);
       setClosePreview(null);
 
-      // Se a alteração precisa de aprovação, mostra o toast
-      if ("requiresApproval" in response) {
+      if (response.requiresApproval) {
         setShowSuccessToast(true);
-
-        // Fecha o toast automaticamente após 5s
         setTimeout(() => setShowSuccessToast(false), 5000);
+        toast.info(
+          "Solicitação enviada. O status só muda após aprovação de um administrador.",
+          { autoClose: 8000 },
+        );
+        queryClient.invalidateQueries({ queryKey: ["rental", id] });
         return;
       }
 
-      // status alterado de verdade
       queryClient.invalidateQueries({ queryKey: ["rental", id] });
       queryClient.invalidateQueries({ queryKey: ["rentals"] });
       queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
+      toast.success(response.message || "Status atualizado.");
+    },
+    onError: (err: unknown) => {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message ?? "Não foi possível alterar o status.";
+      setServerError(message);
+      toast.error(message);
     },
   });
 
@@ -1266,6 +1306,15 @@ const RentalDetailPage: React.FC = () => {
                 >
                   {getStatusLabel(rental.status)}
                 </span>
+                {pendingApprovals.length > 0 && !isAdminUser && (
+                  <div
+                    className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-100"
+                    role="status"
+                  >
+                    Existe solicitação de alteração pendente de aprovação. O
+                    status exibido só muda depois que um administrador aprovar.
+                  </div>
+                )}
               </div>
               <div className="flex gap-2">
                 <button
@@ -1666,10 +1715,13 @@ const RentalDetailPage: React.FC = () => {
                     </h2>
                     <button
                       type="button"
-                      onClick={() => processBillingMutation.mutate()}
-                      className="ml-auto text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                      disabled={processBillingMutation.isPending}
+                      onClick={() => void handleAtualizarFechamentos()}
+                      className="ml-auto text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Atualizar fechamentos
+                      {processBillingMutation.isPending
+                        ? "Atualizando…"
+                        : "Atualizar fechamentos"}
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400 mb-4">

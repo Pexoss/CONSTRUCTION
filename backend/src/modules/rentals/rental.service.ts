@@ -847,18 +847,23 @@ class RentalService {
     companyId: string,
     rentalId: string,
     userId: string,
-  ): Promise<number> {
+  ): Promise<{
+    created: number;
+    draftsCreated: number;
+    skipReason?: "rental_not_active";
+  }> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
     if (!rental) {
       throw new Error("Rental not found");
     }
 
     if (rental.status !== "active" && rental.status !== "overdue") {
-      return 0;
+      return { created: 0, draftsCreated: 0, skipReason: "rental_not_active" };
     }
 
     const now = this.normalizeDate(new Date());
     let createdCount = 0;
+    let draftsCreated = 0;
     let includeServicesAvailable =
       (await Billing.countDocuments({
         companyId,
@@ -976,12 +981,13 @@ class RentalService {
               status: "draft",
             },
           );
+          draftsCreated += 1;
         }
       }
     }
 
     await rental.save();
-    return createdCount;
+    return { created: createdCount, draftsCreated };
   }
 
   /**
