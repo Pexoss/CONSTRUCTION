@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from "express";
 import { reportService } from "./report.service";
 import ExcelJS from "exceljs";
 import { buildPdfReport } from "./report-pdf.util";
+import { Rental } from "../rentals/rental.model";
+import { Transaction } from "../transactions/transaction.model";
 
 export class ReportController {
   /**
@@ -264,7 +266,6 @@ export class ReportController {
         startDate,
         endDate,
       );
-      const { Rental } = await import("../rentals/rental.model");
       const rentals = await Rental.find({
         companyId,
         createdAt: { $gte: startDate, $lte: endDate },
@@ -354,9 +355,7 @@ export class ReportController {
         startDate,
         endDate,
       );
-      const transactions = await (
-        await import("../transactions/transaction.model")
-      ).Transaction.find({
+      const transactions = await Transaction.find({
         companyId,
         createdAt: { $gte: startDate, $lte: endDate },
       });
@@ -888,7 +887,6 @@ export class ReportController {
         startDate,
         endDate,
       );
-      const { Rental } = await import("../rentals/rental.model");
       const rentals = await Rental.find({
         companyId,
         createdAt: { $gte: startDate, $lte: endDate },
@@ -978,9 +976,7 @@ export class ReportController {
         startDate,
         endDate,
       );
-      const transactions = await (
-        await import("../transactions/transaction.model")
-      ).Transaction.find({
+      const transactions = await Transaction.find({
         companyId,
         createdAt: { $gte: startDate, $lte: endDate },
       })
