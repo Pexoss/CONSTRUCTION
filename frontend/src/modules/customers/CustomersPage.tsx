@@ -4,6 +4,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { customerService } from "./customer.service";
 import { CustomerFilters } from "../../types/customer.types";
 import Layout from "../../components/Layout";
+import {
+  formatDocumentForDisplay,
+  formatPhoneForDisplay,
+} from "../../utils/formatters";
 
 const CustomersPage: React.FC = () => {
   const [filters, setFilters] = useState<CustomerFilters>({
@@ -322,7 +326,7 @@ const CustomersPage: React.FC = () => {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-900 dark:text-white font-mono">
-                              {customer.cpfCnpj}
+                              {formatDocumentForDisplay(customer.cpfCnpj)}
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
@@ -334,7 +338,7 @@ const CustomersPage: React.FC = () => {
                               )}
                               {customer.phone && (
                                 <div className="text-sm text-gray-600 dark:text-gray-400">
-                                  {customer.phone}
+                                  {formatPhoneForDisplay(customer.phone)}
                                 </div>
                               )}
                             </div>
@@ -470,7 +474,7 @@ const CustomersPage: React.FC = () => {
                               {customer.name}
                             </div>
                             <div className="text-sm font-mono text-gray-600 dark:text-gray-400 mt-1">
-                              {customer.cpfCnpj}
+                              {formatDocumentForDisplay(customer.cpfCnpj)}
                             </div>
                           </div>
                         </div>
@@ -519,7 +523,7 @@ const CustomersPage: React.FC = () => {
                                 d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z"
                               />
                             </svg>
-                            {customer.phone}
+                            {formatPhoneForDisplay(customer.phone)}
                           </div>
                         )}
                       </div>

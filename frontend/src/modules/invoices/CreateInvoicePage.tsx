@@ -8,6 +8,7 @@ import { invoiceService } from "./invoice.service";
 import { toast } from "react-toastify";
 import { ArrowLeft, FilePlus2 } from "lucide-react";
 import type { CustomerAddress } from "../../types/customer.types";
+import { formatDocumentForDisplay } from "../../utils/formatters";
 
 const CreateInvoicePage: React.FC = () => {
   const navigate = useNavigate();
@@ -154,8 +155,9 @@ const CreateInvoicePage: React.FC = () => {
       work: "Obra",
       other: "Outro",
     };
-    const typeLabel = typeMap[addr.type] || addr.type;
-    const name = addr.addressName || addr.workName || addr.street;
+    const addressType = addr.type || "other";
+    const typeLabel = typeMap[addressType] || addressType;
+    const name = addr.addressName || addr.workName || addr.street || "Sem identificação";
     return `${typeLabel} - ${name}`;
   };
 
@@ -293,7 +295,7 @@ const CreateInvoicePage: React.FC = () => {
                       </div>
                       {customer.cpfCnpj && (
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {customer.cpfCnpj}
+                          {formatDocumentForDisplay(customer.cpfCnpj)}
                         </div>
                       )}
                     </button>

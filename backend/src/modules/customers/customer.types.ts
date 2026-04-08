@@ -5,15 +5,15 @@ import mongoose from 'mongoose';
 export interface ICustomerAddress {
   _id?: string;
   addressName?: string;
-  type: 'main' | 'billing' | 'work' | 'other';
-  street: string;
+  type?: 'main' | 'billing' | 'work' | 'other';
+  street?: string;
   number?: string;
   complement?: string;
   neighborhood?: string;
-  city: string;
-  state: string;
-  zipCode: string;
-  isDefault: boolean;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  isDefault?: boolean;
   notes?: string;
 }
 

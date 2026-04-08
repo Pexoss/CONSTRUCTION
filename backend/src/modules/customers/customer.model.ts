@@ -44,36 +44,19 @@ const CustomerSchema = new Schema<ICustomer>(
 
     // NOVO: Array de endereços (substitui o campo address único)
     addresses: [{
-      addressName: {
-        type: String,
-        required: function () {
-          return this.type === 'work';
-        },
-      },
+      addressName: String,
       type: {
         type: String,
         enum: ['main', 'billing', 'work', 'other'],
         required: true,
       },
-      street: {
-        type: String,
-        required: true,
-      },
+      street: String,
       number: String,
       complement: String,
       neighborhood: String,
-      city: {
-        type: String,
-        required: true,
-      },
-      state: {
-        type: String,
-        required: true,
-      },
-      zipCode: {
-        type: String,
-        required: true,
-      },
+      city: String,
+      state: String,
+      zipCode: String,
       isDefault: {
         type: Boolean,
         default: false,

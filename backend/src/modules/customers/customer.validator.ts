@@ -9,13 +9,18 @@ const customerBaseSchema = z.object({
   addresses: z
     .array(
       z.object({
-        addressName: z.string().min(1, "Nome do endereço é obrigatório"),
+        addressName: z.string().optional(),
+        type: z.enum(["main", "billing", "work", "other"]).optional(),
         street: z.string().optional(),
+        number: z.string().optional(),
+        complement: z.string().optional(),
+        neighborhood: z.string().optional(),
         city: z.string().optional(),
         state: z.string().optional(),
         zipCode: z.string().optional(),
         country: z.string().optional(),
         isDefault: z.boolean().optional(),
+        notes: z.string().optional(),
         _id: z.string().optional(),
       }),
     )

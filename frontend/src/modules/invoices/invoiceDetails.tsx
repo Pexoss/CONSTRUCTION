@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoiceService } from "./invoice.service";
 import Layout from "../../components/Layout";
 import { toast } from "react-toastify";
+import { formatPhoneForDisplay } from "../../utils/formatters";
 
 const InvoiceDetails = () => {
   const { id } = useParams();
@@ -272,7 +273,7 @@ const InvoiceDetails = () => {
                   )}
                   {customer?.phone && (
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                      {customer.phone}
+                      {formatPhoneForDisplay(customer.phone)}
                     </p>
                   )}
                 </div>

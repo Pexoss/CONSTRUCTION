@@ -1,17 +1,17 @@
 export interface CustomerAddress {
   _id?: string;
   addressName?: string;
-  type: 'main' | 'billing' | 'work' | 'other';
+  type?: 'main' | 'billing' | 'work' | 'other';
   workName?: string;
-  street: string;
+  street?: string;
   number?: string;
   complement?: string;
   neighborhood?: string;
-  city: string;
-  state: string;
-  country: 'Brasil';
-  zipCode: string;
-  isDefault: boolean;
+  city?: string;
+  state?: string;
+  country?: 'Brasil';
+  zipCode?: string;
+  isDefault?: boolean;
   notes?: string;
   _isSaved?: boolean;
 }

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { subscriptionService } from "./subscription.service";
 import Layout from "../../components/Layout";
+import { formatDocumentForDisplay } from "../../utils/formatters";
 
 type Plan = "basic" | "pro" | "enterprise";
 
@@ -617,7 +618,7 @@ const AdminPage: React.FC = () => {
                       </option>
                       {companies.map((company) => (
                         <option key={company._id} value={company._id}>
-                          {company.name} — {company.cnpj}
+                          {company.name} — {formatDocumentForDisplay(company.cnpj)}
                         </option>
                       ))}
                     </select>

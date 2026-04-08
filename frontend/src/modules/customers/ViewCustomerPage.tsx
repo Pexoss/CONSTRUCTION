@@ -5,6 +5,10 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import Layout from "../../components/Layout";
 import { customerService } from "./customer.service";
 import { Customer, CustomerAddress } from "../../types/customer.types";
+import {
+  formatDocumentForDisplay,
+  formatPhoneForDisplay,
+} from "../../utils/formatters";
 
 const ViewCustomerPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -204,7 +208,7 @@ const ViewCustomerPage: React.FC = () => {
                       CPF/CNPJ
                     </p>
                     <p className="font-medium text-gray-900 dark:text-white font-mono">
-                      {customer.cpfCnpj}
+                      {formatDocumentForDisplay(customer.cpfCnpj)}
                     </p>
                   </div>
                   <div>
@@ -220,7 +224,7 @@ const ViewCustomerPage: React.FC = () => {
                       Telefone
                     </p>
                     <p className="font-medium text-gray-900 dark:text-white">
-                      {customer.phone || "-"}
+                      {formatPhoneForDisplay(customer.phone) || "-"}
                     </p>
                   </div>
                   <div>
