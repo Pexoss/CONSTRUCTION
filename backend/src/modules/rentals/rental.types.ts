@@ -76,6 +76,8 @@ export interface IRentalItem {
   pickupScheduled: Date;
   returnScheduled?: Date;
   returnActual?: Date;
+  /** Devolução prevista no passado, equipamento ainda em campo: gerar fechamentos até hoje */
+  retroactiveOpenBilling?: boolean;
   usedDays?: number;
   lastBillingDate?: Date;
   nextBillingDate?: Date;

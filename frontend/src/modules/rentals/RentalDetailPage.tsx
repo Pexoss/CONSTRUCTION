@@ -24,7 +24,40 @@ const RentalDetailPage: React.FC = () => {
   const rentalTypeApiToUi: Record<string, RentalTypeUI> = {
     daily: "diario",
     weekly: "semanal",
+    biweekly: "quinzenal",
     monthly: "mensal",
+  };
+
+  const computeReturnFromPickupAndType = (
+    pickup: string,
+    type: RentalTypeUI,
+  ): string => {
+    if (!pickup) return "";
+    const [y, m, d] = pickup.split("-").map(Number);
+    const start = new Date(y, m - 1, d);
+    let add = 1;
+    switch (type) {
+      case "diario":
+        add = 1;
+        break;
+      case "semanal":
+        add = 7;
+        break;
+      case "quinzenal":
+        add = 15;
+        break;
+      case "mensal":
+        add = 30;
+        break;
+      default:
+        add = 1;
+    }
+    const end = new Date(start);
+    end.setDate(end.getDate() + add);
+    const yy = end.getFullYear();
+    const mm = String(end.getMonth() + 1).padStart(2, "0");
+    const dd = String(end.getDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
   };
   const rentalTypeUiToApi: Record<RentalTypeUI, string> = {
     diario: "daily",
@@ -105,6 +138,9 @@ const RentalDetailPage: React.FC = () => {
       rentalType: RentalTypeUI;
       pickupDate: string;
       returnDate: string;
+      returnActualDate?: string;
+      historicalDelivery?: boolean;
+      recalculateOnSave?: boolean;
     }>,
     workAddress: {
       street: "",
@@ -802,10 +838,18 @@ const RentalDetailPage: React.FC = () => {
                                 type="date"
                                 value={item.returnDate}
                                 onChange={(e) => {
+                                  const v = e.target.value;
+                                  const todayStr = new Date()
+                                    .toISOString()
+                                    .split("T")[0];
                                   const updated = [...editForm.items];
                                   updated[index] = {
                                     ...updated[index],
-                                    returnDate: e.target.value,
+                                    returnDate: v,
+                                    historicalDelivery:
+                                      v && v < todayStr
+                                        ? updated[index].historicalDelivery
+                                        : undefined,
                                   };
                                   setEditForm({
                                     ...editForm,
@@ -815,6 +859,61 @@ const RentalDetailPage: React.FC = () => {
                                 className="w-full px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                               />
                             </div>
+                          </div>
+                          <div className="mt-2 space-y-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = [...editForm.items];
+                                const cur = updated[index];
+                                updated[index] = {
+                                  ...cur,
+                                  returnDate: computeReturnFromPickupAndType(
+                                    cur.pickupDate,
+                                    cur.rentalType,
+                                  ),
+                                  recalculateOnSave: true,
+                                };
+                                setEditForm({
+                                  ...editForm,
+                                  items: updated,
+                                });
+                              }}
+                              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                              Recalcular devolução a partir do tipo e da
+                              retirada
+                            </button>
+                            {item.returnDate &&
+                              item.returnDate <
+                                new Date().toISOString().split("T")[0] &&
+                              !item.returnActualDate && (
+                                <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.historicalDelivery === true}
+                                    onChange={(e) => {
+                                      const updated = [...editForm.items];
+                                      updated[index] = {
+                                        ...updated[index],
+                                        historicalDelivery: e.target.checked
+                                          ? true
+                                          : undefined,
+                                      };
+                                      setEditForm({
+                                        ...editForm,
+                                        items: updated,
+                                      });
+                                    }}
+                                    className="mt-0.5 rounded border-gray-300"
+                                  />
+                                  <span>
+                                    Item já entregue nesta data (somente
+                                    histórico). Se desmarcado, serão gerados
+                                    fechamentos até hoje conforme o tipo.
+                                  </span>
+                                </label>
+                              )}
                           </div>
                         </div>
                       );
@@ -1111,6 +1210,8 @@ const RentalDetailPage: React.FC = () => {
                           | "monthly";
                         pickupScheduled?: string;
                         returnScheduled?: string;
+                        historicalDelivery?: boolean;
+                        recalculateScheduledReturn?: boolean;
                       }>;
                     } = {
                       notes: editForm.notes,
@@ -1154,22 +1255,52 @@ const RentalDetailPage: React.FC = () => {
                         );
                         return;
                       }
-                      payload.items = editForm.items.map((item) => ({
-                        itemId: item.itemId,
-                        unitId: item.unitId || undefined,
-                        quantity: item.quantity,
-                        rentalType: rentalTypeUiToApi[item.rentalType] as
-                          | "daily"
-                          | "weekly"
-                          | "biweekly"
-                          | "monthly",
-                        pickupScheduled: item.pickupDate
-                          ? new Date(item.pickupDate).toISOString()
-                          : undefined,
-                        returnScheduled: item.returnDate
-                          ? new Date(item.returnDate).toISOString()
-                          : undefined,
-                      }));
+                      const todayStr = new Date()
+                        .toISOString()
+                        .split("T")[0];
+                      payload.items = editForm.items.map((item) => {
+                        const row: {
+                          itemId: string;
+                          unitId?: string;
+                          quantity: number;
+                          rentalType:
+                            | "daily"
+                            | "weekly"
+                            | "biweekly"
+                            | "monthly";
+                          pickupScheduled?: string;
+                          returnScheduled?: string;
+                          historicalDelivery?: boolean;
+                          recalculateScheduledReturn?: boolean;
+                        } = {
+                          itemId: item.itemId,
+                          unitId: item.unitId || undefined,
+                          quantity: item.quantity,
+                          rentalType: rentalTypeUiToApi[item.rentalType] as
+                            | "daily"
+                            | "weekly"
+                            | "biweekly"
+                            | "monthly",
+                          pickupScheduled: item.pickupDate
+                            ? new Date(item.pickupDate).toISOString()
+                            : undefined,
+                          returnScheduled: item.returnDate
+                            ? new Date(item.returnDate).toISOString()
+                            : undefined,
+                        };
+                        if (item.recalculateOnSave && item.pickupDate) {
+                          row.recalculateScheduledReturn = true;
+                        }
+                        if (
+                          item.returnDate &&
+                          item.returnDate < todayStr &&
+                          !item.returnActualDate &&
+                          item.historicalDelivery === true
+                        ) {
+                          row.historicalDelivery = true;
+                        }
+                        return row;
+                      });
                     }
 
                     updateRentalMutation.mutate(payload);
@@ -1283,22 +1414,33 @@ const RentalDetailPage: React.FC = () => {
                       returnDate: rental.dates.returnScheduled
                         ? rental.dates.returnScheduled.split("T")[0]
                         : "",
-                      items: rental.items.map((item: any) => ({
-                        itemId:
-                          typeof item.itemId === "string"
-                            ? item.itemId
-                            : item.itemId._id,
-                        unitId: item.unitId,
-                        quantity: item.quantity,
-                        rentalType:
-                          rentalTypeApiToUi[item.rentalType] || "diario",
-                        pickupDate: item.pickupScheduled
-                          ? item.pickupScheduled.split("T")[0]
-                          : "",
-                        returnDate: item.returnScheduled
-                          ? item.returnScheduled.split("T")[0]
-                          : "",
-                      })),
+                      items: rental.items.map((item: any) => {
+                        const ra = item.returnActual
+                          ? String(item.returnActual).split("T")[0]
+                          : "";
+                        const rs = item.returnScheduled
+                          ? String(item.returnScheduled).split("T")[0]
+                          : "";
+                        return {
+                          itemId:
+                            typeof item.itemId === "string"
+                              ? item.itemId
+                              : item.itemId._id,
+                          unitId: item.unitId,
+                          quantity: item.quantity,
+                          rentalType:
+                            rentalTypeApiToUi[item.rentalType] || "diario",
+                          pickupDate: item.pickupScheduled
+                            ? item.pickupScheduled.split("T")[0]
+                            : "",
+                          returnDate: item.returnScheduled
+                            ? item.returnScheduled.split("T")[0]
+                            : "",
+                          returnActualDate: ra || undefined,
+                          historicalDelivery: !!(ra && rs && ra === rs),
+                          recalculateOnSave: false,
+                        };
+                      }),
                       workAddress: {
                         street: workAddress.street || "",
                         number: workAddress.number || "",
@@ -2597,6 +2739,8 @@ const RentalDetailPage: React.FC = () => {
                           | "monthly";
                         pickupScheduled?: string;
                         returnScheduled?: string;
+                        historicalDelivery?: boolean;
+                        recalculateScheduledReturn?: boolean;
                       }>;
                     } = {
                       notes: editForm.notes,
@@ -2640,22 +2784,52 @@ const RentalDetailPage: React.FC = () => {
                         );
                         return;
                       }
-                      payload.items = editForm.items.map((item) => ({
-                        itemId: item.itemId,
-                        unitId: item.unitId || undefined,
-                        quantity: item.quantity,
-                        rentalType: rentalTypeUiToApi[item.rentalType] as
-                          | "daily"
-                          | "weekly"
-                          | "biweekly"
-                          | "monthly",
-                        pickupScheduled: item.pickupDate
-                          ? new Date(item.pickupDate).toISOString()
-                          : undefined,
-                        returnScheduled: item.returnDate
-                          ? new Date(item.returnDate).toISOString()
-                          : undefined,
-                      }));
+                      const todayStr = new Date()
+                        .toISOString()
+                        .split("T")[0];
+                      payload.items = editForm.items.map((item) => {
+                        const row: {
+                          itemId: string;
+                          unitId?: string;
+                          quantity: number;
+                          rentalType:
+                            | "daily"
+                            | "weekly"
+                            | "biweekly"
+                            | "monthly";
+                          pickupScheduled?: string;
+                          returnScheduled?: string;
+                          historicalDelivery?: boolean;
+                          recalculateScheduledReturn?: boolean;
+                        } = {
+                          itemId: item.itemId,
+                          unitId: item.unitId || undefined,
+                          quantity: item.quantity,
+                          rentalType: rentalTypeUiToApi[item.rentalType] as
+                            | "daily"
+                            | "weekly"
+                            | "biweekly"
+                            | "monthly",
+                          pickupScheduled: item.pickupDate
+                            ? new Date(item.pickupDate).toISOString()
+                            : undefined,
+                          returnScheduled: item.returnDate
+                            ? new Date(item.returnDate).toISOString()
+                            : undefined,
+                        };
+                        if (item.recalculateOnSave && item.pickupDate) {
+                          row.recalculateScheduledReturn = true;
+                        }
+                        if (
+                          item.returnDate &&
+                          item.returnDate < todayStr &&
+                          !item.returnActualDate &&
+                          item.historicalDelivery === true
+                        ) {
+                          row.historicalDelivery = true;
+                        }
+                        return row;
+                      });
                     }
 
                     updateRentalMutation.mutate(payload);

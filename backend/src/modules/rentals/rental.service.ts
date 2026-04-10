@@ -27,6 +27,8 @@ import { User } from "../users/user.model";
 import billingService from "../billings/billing.service";
 import { Billing } from "../billings/billing.model";
 import { NOTFOUND } from "dns";
+import fs from "fs";
+import path from "path";
 import PDFDocument from "pdfkit";
 class RentalService {
   private getPeriodLengthDays(rentalType: RentalType): number {
@@ -71,10 +73,85 @@ class RentalService {
       case "biweekly":
         return this.addDays(normalizedStart, 15);
       case "monthly":
-        return this.addMonthsKeepingDay(normalizedStart, 1);
+        return this.addDays(normalizedStart, 30);
       default:
         return this.addDays(normalizedStart, 1);
     }
+  }
+
+  /** Até quando pode haver fechamento automático “aprovado” (não ultrapassa hoje nem a devolução real). */
+  private getBillingHorizonForItem(item: IRentalItem, today: Date): Date {
+    const t = this.normalizeDate(today);
+    if (item.returnActual) {
+      const a = this.normalizeDate(item.returnActual);
+      return a.getTime() <= t.getTime() ? a : t;
+    }
+    if (
+      item.retroactiveOpenBilling &&
+      item.returnScheduled &&
+      this.normalizeDate(item.returnScheduled) < t
+    ) {
+      return t;
+    }
+    if (!item.returnScheduled) {
+      return t;
+    }
+    const s = this.normalizeDate(item.returnScheduled);
+    if (s.getTime() > t.getTime()) {
+      return t;
+    }
+    return s;
+  }
+
+  /** Limite superior para rascunho de próximo período (null = sem data de devolução prevista). */
+  private getContractualReturnForDraft(item: IRentalItem): Date | null {
+    if (item.returnActual) {
+      return this.normalizeDate(item.returnActual);
+    }
+    if (item.retroactiveOpenBilling) {
+      return null;
+    }
+    if (item.returnScheduled) {
+      return this.normalizeDate(item.returnScheduled);
+    }
+    return null;
+  }
+
+  /**
+   * Devolução prevista no passado: ou marca entrega histórica (returnActual) ou cobrança em aberto até hoje.
+   */
+  private finalizeRetroactiveFlagsForItem(
+    item: IRentalItem,
+    historicalDelivery: boolean | undefined,
+    today: Date,
+  ) {
+    const t = this.normalizeDate(today);
+    const ret = item.returnScheduled
+      ? this.normalizeDate(item.returnScheduled)
+      : null;
+
+    if (!ret || ret.getTime() >= t.getTime()) {
+      item.retroactiveOpenBilling = false;
+      return;
+    }
+
+    if (item.returnActual) {
+      item.retroactiveOpenBilling = false;
+      return;
+    }
+
+    if (historicalDelivery === true) {
+      item.returnActual = ret;
+      item.retroactiveOpenBilling = false;
+      return;
+    }
+
+    if (historicalDelivery === false) {
+      item.retroactiveOpenBilling = true;
+      return;
+    }
+
+    item.retroactiveOpenBilling = true;
   }
 
   private getPeriodEnd(startDate: Date, rentalType: RentalType): Date {
@@ -133,7 +210,7 @@ class RentalService {
         if (!biweeklyRate) {
           throw new Error("BiweeklyRate não configurado");
         }
-        // Cálculo proporcional: taxa quinzenal dividida por 15, multiplicada pelos dias reais
+        // Cálculo proporcional: taxa quinzenal dividida por 15 dias, multiplicada pelos dias reais
         return (biweeklyRate / 15) * days;
 
       case "monthly":
@@ -224,9 +301,11 @@ class RentalService {
           return fullWeeks * (weeklyRate || dailyRate) + extraDays * dailyRate;
         }
         case "biweekly": {
-          const fullWeeks = Math.floor(days / 15);
+          const fullPeriods = Math.floor(days / 15);
           const extraDays = days % 15;
-          return fullWeeks * (weeklyRate || dailyRate) + extraDays * dailyRate;
+          return (
+            fullPeriods * (biweeklyRate || dailyRate) + extraDays * dailyRate
+          );
         }
         case "monthly": {
           const fullMonths = Math.floor(days / 30);
@@ -266,15 +345,32 @@ class RentalService {
     const pickupDates: Date[] = [];
     const returnDates: Date[] = [];
 
+    const today = this.normalizeDate(new Date());
+
     for (const item of data.items) {
       const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
       if (!inventoryItem) continue;
 
-      const rentalType = getRentalTypeFromItem(inventoryItem);
+      const rentalType: RentalType =
+        item.rentalType && ["daily", "weekly", "biweekly", "monthly"].includes(item.rentalType)
+          ? item.rentalType
+          : getRentalTypeFromItem(inventoryItem);
       const pickupScheduled = new Date(item.pickupScheduled);
       const returnScheduled = item.returnScheduled
         ? new Date(item.returnScheduled)
         : this.getPricingEndDate(pickupScheduled, rentalType);
+
+      const retNorm = this.normalizeDate(returnScheduled);
+      let returnActual: Date | undefined;
+      let retroactiveOpenBilling = false;
+
+      if (retNorm.getTime() < today.getTime()) {
+        if (item.historicalDelivery === true) {
+          returnActual = retNorm;
+        } else {
+          retroactiveOpenBilling = true;
+        }
+      }
 
       pickupDates.push(pickupScheduled);
       returnDates.push(returnScheduled);
@@ -301,6 +397,8 @@ class RentalService {
         rentalType,
         pickupScheduled,
         returnScheduled,
+        returnActual,
+        retroactiveOpenBilling,
         subtotal,
       });
 
@@ -944,8 +1042,8 @@ class RentalService {
       }
       const cycle: RentalType = item.rentalType || "daily";
       const pickupBase = this.normalizeDate(item.pickupScheduled);
-      const itemReturn = item.returnActual || item.returnScheduled;
-      const limitDate = itemReturn ? this.normalizeDate(itemReturn) : now;
+      const horizon = this.getBillingHorizonForItem(item, now);
+      const draftCap = this.getContractualReturnForDraft(item);
 
       const itemFilter: any = {
         companyId,
@@ -957,11 +1055,11 @@ class RentalService {
       }
 
       if (cycle === "daily") {
-        if (itemReturn && limitDate <= now) {
+        if (horizon.getTime() >= pickupBase.getTime() && horizon <= now) {
           const existing = await Billing.findOne({
             ...itemFilter,
             periodStart: pickupBase,
-            periodEnd: limitDate,
+            periodEnd: horizon,
           }).lean();
           if (!existing) {
             await billingService.createPeriodicBillingForItem(
@@ -969,7 +1067,7 @@ class RentalService {
               rental,
               item,
               pickupBase,
-              limitDate,
+              horizon,
               userId,
               {
                 includeServices: includeServicesAvailable,
@@ -979,7 +1077,7 @@ class RentalService {
             includeServicesAvailable = false;
             createdCount += 1;
           }
-          item.lastBillingDate = limitDate;
+          item.lastBillingDate = horizon;
           item.nextBillingDate = undefined;
         }
         continue;
@@ -993,7 +1091,7 @@ class RentalService {
         ? this.normalizeDate(item.nextBillingDate)
         : this.getPeriodEnd(periodStart, cycle);
 
-      while (nextBillingDate <= now && nextBillingDate <= limitDate) {
+      while (nextBillingDate <= now && nextBillingDate <= horizon) {
         const existing = await Billing.findOne({
           ...itemFilter,
           periodStart: this.normalizeDate(periodStart),
@@ -1025,7 +1123,7 @@ class RentalService {
 
       if (
         nextBillingDate > now &&
-        (!itemReturn || nextBillingDate <= limitDate)
+        (draftCap === null || nextBillingDate <= draftCap)
       ) {
         const existingFuture = await Billing.findOne({
           ...itemFilter,
@@ -1143,6 +1241,16 @@ class RentalService {
       .populate("checklistReturn.completedBy", "name email");
   }
 
+  private rentalTypeLabelForPdf(rt: RentalType | string): string {
+    const m: Record<string, string> = {
+      daily: "Diária",
+      weekly: "Semanal",
+      biweekly: "Quinzenal",
+      monthly: "Mensal",
+    };
+    return m[String(rt)] || String(rt);
+  }
+
   async generateRentalPDF(
     companyId: string,
     rentalId: string,
@@ -1150,7 +1258,8 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId })
       .populate("customerId")
       .populate("items.itemId")
-      .populate("companyId");
+      .populate("companyId")
+      .populate("createdBy", "name");
 
     if (!rental) {
       throw new Error("Rental not found");
@@ -1158,114 +1267,385 @@ class RentalService {
 
     const company = rental.companyId as any;
     const customer = rental.customerId as any;
+    const createdBy = rental.createdBy as { name?: string } | null;
+
+    const logoCandidates = [
+      path.join(__dirname, "../../shared/imagens/alugue.png"),
+      path.join(process.cwd(), "src/shared/imagens/alugue.png"),
+      path.join(process.cwd(), "backend/src/shared/imagens/alugue.png"),
+    ];
+    const logoPath = logoCandidates.find((p) => fs.existsSync(p));
+    const hasLogo = Boolean(logoPath);
+
+    const customerAddresses = customer?.addresses || [];
+    const preferredAddress =
+      customerAddresses.find((addr: any) => addr.type === "billing") ||
+      customerAddresses.find((addr: any) => addr.type === "main") ||
+      customerAddresses[0];
+
+    const work = rental.workAddress as IRentalWorkAddress | undefined;
 
     return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({ margin: 50, size: "A4" });
+      const doc = new PDFDocument({ margin: 32, size: "A4" });
       const chunks: Buffer[] = [];
 
-      doc.on("data", (chunk) => chunks.push(chunk));
+      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
       doc.on("error", reject);
 
-      // Header
-      doc.fontSize(20).text("RECIBO DE LOCAÇÃO", { align: "center" });
-      doc.moveDown();
+      const pageW = 595.28;
+      const left = 32;
+      const right = pageW - 32;
+      const contentW = right - left;
 
-      // Company Info
-      doc.fontSize(12).text(company?.name || "Empresa", { align: "left" });
-      if (company?.cnpj) doc.text(`CNPJ: ${company.cnpj}`);
-      if (company?.email) doc.text(`Email: ${company.email}`);
-      if (company?.phone) doc.text(`Telefone: ${company.phone}`);
-      doc.moveDown();
+      const fmtMoney = (n: number) =>
+        `R$ ${Number(n || 0).toFixed(2).replace(".", ",")}`;
+      const fmtDate = (d: Date | string | undefined) =>
+        d ? new Date(d).toLocaleDateString("pt-BR") : "—";
 
-      // Rental Info
-      doc.fontSize(14).text(`Locação Nº: ${rental.rentalNumber}`);
-      doc.text(`Data de emissão: ${new Date().toLocaleDateString("pt-BR")}`);
-      doc.text(
-        `Período geral: ${new Date(rental.dates.pickupScheduled).toLocaleDateString("pt-BR")} até ${new Date(
-          rental.dates.returnScheduled,
-        ).toLocaleDateString("pt-BR")}`,
-      );
-      doc.moveDown();
+      /** Cabeçalho do contrato físico ALUGUE (fixo no PDF) */
+      const CONTRACT_HEADER_CNPJ_FALLBACK = "28.408.479/0001-19";
+      const CONTRACT_HEADER_PHONES =
+        "(35) 98843-5154 | (35) 99814-0522 | (35) 99761-2424";
+      const CONTRACT_HEADER_ADDRESS =
+        "Av. Gov. Valadares, 2586 - Jd São Carlos - CEP 37137-254 - Alfenas MG";
 
-      // Customer Info
-      doc.fontSize(12).text("Cliente:", { underline: true });
-      doc.text(customer?.name || "Cliente");
-      if (customer?.cpfCnpj) doc.text(`CPF/CNPJ: ${customer.cpfCnpj}`);
-      if (customer?.email) doc.text(`Email: ${customer.email}`);
-      if (customer?.phone) doc.text(`Telefone: ${customer.phone}`);
-      const customerAddresses = customer?.addresses || [];
-      const preferredAddress =
-        customerAddresses.find((addr: any) => addr.type === "billing") ||
-        customerAddresses.find((addr: any) => addr.type === "main") ||
-        customerAddresses[0];
-      if (preferredAddress) {
-        const addressLine = [
-          preferredAddress.street,
-          preferredAddress.number ? `, ${preferredAddress.number}` : "",
-        ].join("");
-        const complement = preferredAddress.complement
-          ? ` - ${preferredAddress.complement}`
-          : "";
-        const neighborhood = preferredAddress.neighborhood
-          ? ` - ${preferredAddress.neighborhood}`
-          : "";
-        doc.text(`Endereço: ${addressLine}${complement}${neighborhood}`);
-        doc.text(
-          `${preferredAddress.city || ""}/${preferredAddress.state || ""} - ${preferredAddress.zipCode || ""}`,
-        );
+      const emission = new Date();
+
+      const drawWatermark = () => {
+        doc.save();
+        doc.opacity(0.07);
+        doc.fillColor("#aaaaaa");
+        doc.fontSize(72).font("Helvetica-Bold");
+        doc.text("ALUGUE", 130, 380, { lineBreak: false });
+        doc.restore();
+        doc.opacity(1);
+        doc.fillColor("#000000");
+      };
+
+      drawWatermark();
+
+      let y = 32;
+
+      if (hasLogo && logoPath) {
+        try {
+          doc.image(logoPath, left, y, { width: 92 });
+        } catch {
+          /* ignora logo inválido */
+        }
       }
-      doc.moveDown();
 
-      // Items Table
-      doc.fontSize(12).text("Equipamentos:", { underline: true });
-      doc.moveDown(0.5);
+      const headX = hasLogo ? left + 102 : left;
+      doc.font("Helvetica-Bold").fontSize(11).fillColor("#1e3a8a");
+      doc.text(
+        (company?.name || "ALUGUE EQUIPAMENTOS PARA CONSTRUÇÃO CIVIL").toUpperCase(),
+        headX,
+        y,
+        { width: contentW - (hasLogo ? 102 : 0), align: "left" },
+      );
+      doc.fillColor("#000000");
+      doc.font("Helvetica").fontSize(8.5);
+      let hy = y + 16;
+      const cnpjHeader =
+        company?.cnpj?.trim() || CONTRACT_HEADER_CNPJ_FALLBACK;
+      doc.text(`PIX    CNPJ: ${cnpjHeader}`, headX, hy, {
+        width: contentW - (hasLogo ? 102 : 0),
+      });
+      hy += 11;
+      doc.text(CONTRACT_HEADER_PHONES, headX, hy, {
+        width: contentW - (hasLogo ? 102 : 0),
+      });
+      hy += 11;
+      if (company?.email) {
+        doc.text(`E-mail: ${company.email}`, headX, hy, {
+          width: contentW - (hasLogo ? 102 : 0),
+        });
+        hy += 11;
+      }
+      doc.text(CONTRACT_HEADER_ADDRESS, headX, hy, {
+        width: contentW - (hasLogo ? 102 : 0),
+      });
+      hy += 11;
 
-      const tableTop = doc.y;
-      const itemHeight = 20;
-      let y = tableTop;
+      y = Math.max(y + 78, hy + 8);
 
-      // Table Header
-      doc.fontSize(10).font("Helvetica-Bold");
-      doc.text("Descrição", 50, y);
-      doc.text("Retirada", 300, y);
-      doc.text("Devolução", 400, y);
-      doc.text("Qtd", 520, y);
-      y += itemHeight;
+      doc.font("Helvetica-Bold").fontSize(11).fillColor("#000000");
+      doc.text(
+        "CONTRATO DE LOCAÇÃO DE BENS MÓVEIS SEM OPERADOR",
+        left,
+        y,
+        { width: contentW, align: "center" },
+      );
+      y += 22;
 
-      // Table Items
-      doc.font("Helvetica");
-      rental.items.forEach((item: any) => {
-        const itemData = item.itemId as any;
-        const description =
-          itemData && typeof itemData === "object" && "name" in itemData
-            ? itemData.name
-            : "Item";
-        doc.text(description, 50, y, { width: 230 });
-        doc.text(
-          item.pickupScheduled
-            ? new Date(item.pickupScheduled).toLocaleDateString("pt-BR")
-            : "-",
-          300,
-          y,
+      const numStr = rental.rentalNumber || String(rental._id);
+      doc.font("Helvetica").fontSize(9);
+      doc.fillColor("#c00");
+      doc.text(`№  ${numStr}`, right - 120, y - 18, { width: 120, align: "right" });
+      doc.fillColor("#000000");
+
+      doc.text(
+        `Data: ${fmtDate(emission)}`,
+        left,
+        y,
+        { width: 200 },
+      );
+      doc.text(
+        `Elaborado por: ${createdBy?.name || "—"}`,
+        left + 200,
+        y,
+        { width: contentW - 200, align: "right" },
+      );
+      y += 18;
+
+      const lineField = (
+        label: string,
+        value: string,
+        yy: number,
+      ): number => {
+        doc.font("Helvetica-Bold").fontSize(9).text(`${label}`, left, yy);
+        doc.font("Helvetica").text(
+          value || "________________________________________________________________",
+          left + 110,
+          yy,
+          { width: contentW - 110 },
         );
-        doc.text(
-          item.returnScheduled
-            ? new Date(item.returnScheduled).toLocaleDateString("pt-BR")
-            : "-",
-          400,
-          y,
+        return yy + 14;
+      };
+
+      doc.font("Helvetica-Bold").fontSize(10).text("II — LOCATÁRIO", left, y);
+      y += 14;
+      y = lineField("Nome:", customer?.name || "", y);
+      y = lineField("CNPJ / CPF:", customer?.cpfCnpj || "", y);
+
+      const endCliente = preferredAddress
+        ? [
+            preferredAddress.street,
+            preferredAddress.number ? `, ${preferredAddress.number}` : "",
+            preferredAddress.complement ? ` - ${preferredAddress.complement}` : "",
+          ].join("")
+        : "";
+      y = lineField("End:", endCliente, y);
+      y = lineField("Fone:", customer?.phone || "", y);
+      y = lineField(
+        "Bairro:",
+        preferredAddress?.neighborhood || "",
+        y,
+      );
+      y = lineField("Representante:", "", y);
+      y = lineField("Preposto:", "", y);
+      y += 4;
+
+      doc.font("Helvetica-Bold").fontSize(10).text("III — OBRA", left, y);
+      y += 14;
+      y = lineField("Nome:", work?.workName || "", y);
+      const endObra = work
+        ? [
+            work.street,
+            work.number ? `, ${work.number}` : "",
+            work.complement ? ` - ${work.complement}` : "",
+            work.neighborhood ? ` - ${work.neighborhood}` : "",
+            work.city && work.state
+              ? ` - ${work.city}/${work.state}`
+              : "",
+            work.zipCode ? ` - CEP ${work.zipCode}` : "",
+          ]
+            .filter(Boolean)
+            .join("")
+        : "";
+      y = lineField("End:", endObra, y);
+      y = lineField("Fone:", "", y);
+      y = lineField("Outros:", "", y);
+      y += 6;
+
+      if (y > 680) {
+        doc.addPage();
+        y = 32;
+        drawWatermark();
+      }
+
+      doc.save();
+      doc.rect(left, y, contentW, 22).fill("#000000");
+      doc.fillColor("#ffffff");
+      doc.font("Helvetica-Bold").fontSize(7.5);
+      doc.text(
+        "OBS. SÓ RETIRAMOS O(S) EQUIPAMENTO(S) COM A SOLICITAÇÃO DO CLIENTE, PESSOALMENTE OU POR TELEFONE.",
+        left + 4,
+        y + 6,
+        { width: contentW - 8, align: "center" },
+      );
+      doc.restore();
+      doc.fillColor("#000000");
+      y += 30;
+
+      doc.font("Helvetica-Bold").fontSize(10).text(
+        "IV — CONDIÇÕES COMERCIAIS",
+        left,
+        y,
+      );
+      y += 12;
+
+      const col = {
+        q: left,
+        cod: left + 28,
+        desc: left + 78,
+        unit: left + 318,
+        per: left + 388,
+        tot: left + 458,
+      };
+      const rowH = 14;
+
+      const drawTableHeader = (yy: number) => {
+        doc.font("Helvetica-Bold").fontSize(7);
+        doc.text("Quant.", col.q, yy, { width: 24, align: "center" });
+        doc.text("Cód.", col.cod, yy, { width: 44 });
+        doc.text("DESCRIÇÃO DOS PRODUTOS", col.desc, yy, { width: 232 });
+        doc.text("Valor Unit. Equip.", col.unit, yy, { width: 64, align: "right" });
+        doc.text("Período", col.per, yy, { width: 62, align: "center" });
+        doc.text("TOTAL R$", col.tot, yy, { width: right - col.tot, align: "right" });
+        doc
+          .moveTo(left, yy + 10)
+          .lineTo(right, yy + 10)
+          .strokeColor("#000000")
+          .lineWidth(0.5)
+          .stroke();
+        return yy + 12;
+      };
+
+      y = drawTableHeader(y);
+      doc.font("Helvetica").fontSize(7);
+
+      rental.items.forEach((ritem: any) => {
+        const inv = ritem.itemId as any;
+        const name =
+          inv && typeof inv === "object" && inv.name ? inv.name : "Item";
+        const sku =
+          inv?.sku || inv?.customId || inv?.barcode || "—";
+        const periodLabel = this.rentalTypeLabelForPdf(
+          ritem.rentalType || "daily",
         );
-        doc.text(item.quantity.toString(), 520, y);
-        y += itemHeight;
+        const lineTotal = Number(ritem.subtotal ?? 0);
+
+        if (y > 720) {
+          doc.addPage();
+          y = 32;
+          drawWatermark();
+          y = drawTableHeader(y);
+          doc.font("Helvetica").fontSize(7);
+        }
+
+        doc.text(String(ritem.quantity), col.q, y, { width: 24, align: "center" });
+        doc.text(String(sku).slice(0, 12), col.cod, y, { width: 44 });
+        doc.text(name, col.desc, y, { width: 232 });
+        doc.text(fmtMoney(ritem.unitPrice), col.unit, y, {
+          width: 64,
+          align: "right",
+        });
+        doc.text(periodLabel, col.per, y, { width: 62, align: "center" });
+        doc.text(fmtMoney(lineTotal), col.tot, y, {
+          width: right - col.tot,
+          align: "right",
+        });
+        y += rowH;
       });
 
-      if (rental.notes) {
-        y += itemHeight * 2;
-        doc.font("Helvetica").fontSize(10);
-        doc.text("Observações:", 50, y);
-        doc.text(rental.notes, 50, y + 15, { width: 500 });
+      doc
+        .moveTo(left, y)
+        .lineTo(right, y)
+        .strokeColor("#000000")
+        .lineWidth(0.5)
+        .stroke();
+      y += 10;
+
+      if (rental.services && rental.services.length > 0) {
+        doc.font("Helvetica-Bold").fontSize(8).text("Serviços adicionais:", left, y);
+        y += 10;
+        doc.font("Helvetica").fontSize(7);
+        rental.services.forEach((s: any) => {
+          if (y > 720) {
+            doc.addPage();
+            y = 32;
+            drawWatermark();
+          }
+          doc.text(
+            `• ${s.description || "Serviço"} — ${fmtMoney(s.subtotal ?? s.price * (s.quantity || 1))}`,
+            left,
+            y,
+            { width: contentW },
+          );
+          y += 11;
+        });
+        y += 4;
       }
+
+      y += 6;
+      if (y > 520) {
+        doc.addPage();
+        y = 32;
+        drawWatermark();
+      }
+
+      doc.font("Helvetica-Bold").fontSize(10).text("V — DECLARAÇÃO", left, y);
+      y += 12;
+      doc.font("Helvetica").fontSize(7.5).text(
+        [
+          "O(A) LOCATÁRIO(A) declara ter recebido o(s) equipamento(s) discriminado(s) acima em perfeitas condições de funcionamento e conservação, obrigando-se a devolvê-lo(s) nas mesmas condições, salvo o desgaste natural.",
+          "A) O(s) equipamento(s) foi(ram) testado(s) e aprovado(s) pelo locatário no ato da retirada.",
+          "B) Somente profissionais habilitados poderão operar o(s) equipamento(s).",
+          "C) É obrigatório o uso de EPIs conforme a atividade e a legislação vigente.",
+          "D) A renovação do contrato dar-se-á por períodos iguais, salvo manifestação em contrário.",
+          "E) A devolução deverá ser feita nesta loja ou mediante solicitação de retirada por telefone, conforme contatos da locadora no cabeçalho.",
+          "F) Ficam integradas a este instrumento as condições gerais da locadora, inclusive quanto a responsabilidades por danos, furto ou extravio, às expensas do locatário.",
+          "G) O(A) LOCATÁRIO(A) responde por danos, extravio ou uso indevido do(s) bem(ns) locado(s) até a efetiva devolução.",
+        ].join(" "),
+        left,
+        y,
+        {
+          width: contentW,
+          align: "justify",
+          lineGap: 1,
+        },
+      );
+      y = doc.y + 10;
+
+      doc.font("Helvetica-Bold").fontSize(10).text("VI — OBSERVAÇÕES", left, y);
+      y += 12;
+      doc.font("Helvetica").fontSize(9);
+      const obsText = rental.notes?.trim() || "";
+      doc.text(obsText || " ", left, y, { width: contentW, height: 44 });
+      doc
+        .moveTo(left, doc.y + 2)
+        .lineTo(right, doc.y + 2)
+        .strokeColor("#999999")
+        .lineWidth(0.3)
+        .stroke();
+      y = doc.y + 14;
+
+      if (y > 640) {
+        doc.addPage();
+        y = 32;
+        drawWatermark();
+      }
+
+      y = Math.max(y, 680);
+      doc.font("Helvetica").fontSize(8);
+      doc.text("LOCATÁRIO: ___________________________________________", left, y);
+      doc.text(
+        "LOCADORA: ___________________________________________",
+        left + 260,
+        y,
+      );
+      y += 22;
+      doc.text("RECEBIDO POR: _______________________________________", left, y);
+      doc.text("RG: __________________________________________________", left + 260, y);
+      y += 18;
+      doc.font("Helvetica").fontSize(7).fillColor("#555555");
+      doc.text(
+        `Período geral do contrato: retirada ${fmtDate(rental.dates.pickupScheduled)} — devolução prevista ${fmtDate(rental.dates.returnScheduled)}`,
+        left,
+        y,
+        { width: contentW, align: "center" },
+      );
 
       doc.end();
     });
@@ -2213,10 +2593,29 @@ class RentalService {
           if (itemUpdate.pickupScheduled) {
             existingItem.pickupScheduled = new Date(itemUpdate.pickupScheduled);
           }
-          if (itemUpdate.returnScheduled !== undefined) {
+          if (
+            itemUpdate.recalculateScheduledReturn &&
+            existingItem.pickupScheduled
+          ) {
+            existingItem.returnScheduled = this.getPricingEndDate(
+              new Date(existingItem.pickupScheduled),
+              existingItem.rentalType,
+            );
+          } else if (itemUpdate.returnScheduled !== undefined) {
             existingItem.returnScheduled = itemUpdate.returnScheduled
               ? new Date(itemUpdate.returnScheduled)
               : undefined;
+          }
+          const syncRetro =
+            itemUpdate.historicalDelivery !== undefined ||
+            itemUpdate.returnScheduled !== undefined ||
+            itemUpdate.recalculateScheduledReturn === true;
+          if (syncRetro) {
+            this.finalizeRetroactiveFlagsForItem(
+              existingItem,
+              itemUpdate.historicalDelivery,
+              new Date(),
+            );
           }
         } else {
           const quantity = itemUpdate.quantity || 1;
@@ -2242,12 +2641,27 @@ class RentalService {
           const pickupScheduled = itemUpdate.pickupScheduled
             ? new Date(itemUpdate.pickupScheduled)
             : rental.dates.pickupScheduled;
-          const returnScheduled = itemUpdate.returnScheduled
+          let returnScheduled: Date | undefined = itemUpdate.returnScheduled
             ? new Date(itemUpdate.returnScheduled)
             : undefined;
+          if (itemUpdate.recalculateScheduledReturn && pickupScheduled) {
+            returnScheduled = this.getPricingEndDate(pickupScheduled, rentalType);
+          }
           const pricingEndDate =
             returnScheduled ||
             this.getPricingEndDate(pickupScheduled, rentalType);
+
+          const todayNew = this.normalizeDate(new Date());
+          const retNorm = this.normalizeDate(pricingEndDate);
+          let returnActual: Date | undefined;
+          let retroactiveOpenBilling = false;
+          if (retNorm.getTime() < todayNew.getTime()) {
+            if (itemUpdate.historicalDelivery === true) {
+              returnActual = retNorm;
+            } else {
+              retroactiveOpenBilling = true;
+            }
+          }
 
           const price = this.calculateRentalPrice(
             inventoryItem.pricing.dailyRate,
@@ -2267,6 +2681,8 @@ class RentalService {
             rentalType,
             pickupScheduled,
             returnScheduled,
+            returnActual,
+            retroactiveOpenBilling,
             subtotal: price * quantity,
           } as any);
 

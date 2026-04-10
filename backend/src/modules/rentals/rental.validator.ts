@@ -11,6 +11,8 @@ export const createRentalSchema = z.object({
         rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']),
         pickupScheduled: z.string().datetime().or(z.date()),
         returnScheduled: z.string().datetime().or(z.date()).optional(),
+        /** Data de devolução retroativa: item já entregue (só histórico) */
+        historicalDelivery: z.boolean().optional(),
       })
     )
     .min(1, 'At least one item is required'),
@@ -68,6 +70,8 @@ export const updateRentalSchema = z.object({
         rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
         pickupScheduled: z.string().datetime().or(z.date()).optional(),
         returnScheduled: z.string().datetime().or(z.date()).optional(),
+        historicalDelivery: z.boolean().optional(),
+        recalculateScheduledReturn: z.boolean().optional(),
       })
     )
     .optional(),

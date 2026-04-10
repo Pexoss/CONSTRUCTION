@@ -120,6 +120,8 @@ export const rentalService = {
         rentalType?: "daily" | "weekly" | "biweekly" | "monthly";
         pickupScheduled?: string;
         returnScheduled?: string;
+        historicalDelivery?: boolean;
+        recalculateScheduledReturn?: boolean;
       }>;
       workAddress?: {
         street: string;

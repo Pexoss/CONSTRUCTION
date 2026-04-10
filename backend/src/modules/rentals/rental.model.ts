@@ -39,6 +39,9 @@ const RentalItemSchema = new Schema<IRentalItem>(
     returnActual: {
       type: Date,
     },
+    retroactiveOpenBilling: {
+      type: Boolean,
+    },
     lastBillingDate: {
       type: Date,
     },

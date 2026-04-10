@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { data, useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
 import { customerService } from "../customers/customer.service";
@@ -15,7 +15,6 @@ import { Item } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
 import { formatDocumentForDisplay } from "../../utils/formatters";
 import axios from "axios";
-import { filterReferenceElements } from "recharts/types/state/selectors/axisSelectors";
 
 export const rentalTypeMapper: Record<RentalTypeUI, RentalTypeAPI> = {
   diario: "daily",
@@ -30,6 +29,8 @@ interface SelectedItem {
   rentalType?: RentalTypeUI;
   pickupDate?: string; // string ou Date
   returnDate?: string; // string ou Date
+  /** Devolução anterior a hoje: item já entregue naquela data (somente histórico) */
+  historicalDelivery?: boolean;
   item: Item;
 }
 interface Totals {
@@ -79,16 +80,6 @@ const CreateRentalPage: React.FC = () => {
     "name" | "name_desc" | "price" | "price_desc" | "available"
   >("name");
   const [showItemsModal, setShowItemsModal] = useState(false);
-
-  const billingTypeLabel: Record<
-    "diario" | "semanal" | "quinzenal" | "mensal",
-    string
-  > = {
-    diario: "Diário",
-    semanal: "Semanal",
-    quinzenal: "Quinzenal",
-    mensal: "Mensal",
-  };
 
   const { data: customersData } = useQuery({
     queryKey: ["customers"],
@@ -293,27 +284,11 @@ const CreateRentalPage: React.FC = () => {
 
   const getRentalTypeFromItem = (item: Item): RentalTypeUI => {
     if (item.pricing.monthlyRate) return "mensal";
+    if (item.pricing.biweeklyRate) return "quinzenal";
     if (item.pricing.weeklyRate) return "semanal";
     return "diario";
   };
 
-  function getBillingType(
-    pickupDate?: string,
-    returnDate?: string,
-  ): "diario" | "semanal" | "quinzenal" |"mensal" {
-    if (!pickupDate || !returnDate) return "diario";
-
-    const start = new Date(pickupDate);
-    const end = new Date(returnDate);
-    const diffInDays = Math.ceil(
-      (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
-    );
-
-    if (diffInDays >= 30) return "mensal";
-    if (diffInDays >= 15) return "quinzenal";
-    if (diffInDays >= 7) return "semanal";
-    return "diario";
-  }
   const handleAddItem = (item: Item) => {
     if (item.trackingType === "unit") {
       const availableUnits =
@@ -329,6 +304,7 @@ const CreateRentalPage: React.FC = () => {
     //definir tipo automaticamente pelo item
     const getRentalTypeFromItem = (item: Item): RentalTypeUI => {
       if (item.pricing.monthlyRate) return "mensal";
+      if (item.pricing.biweeklyRate) return "quinzenal";
       if (item.pricing.weeklyRate) return "semanal";
       return "diario";
     };
@@ -499,8 +475,7 @@ const CreateRentalPage: React.FC = () => {
       customerId: selectedCustomer,
       items: selectedItems.map((si) => {
         const uiType = si.rentalType ?? rentalType; // fallback da tela
-
-        return {
+        const row: CreateRentalData["items"][number] = {
           itemId: si.itemId,
           unitId: si.item.trackingType === "unit" ? si.unitId : undefined,
           quantity: si.quantity,
@@ -510,6 +485,14 @@ const CreateRentalPage: React.FC = () => {
             ? formatDateToISO(si.returnDate)
             : undefined,
         };
+        if (
+          si.returnDate &&
+          si.returnDate < today &&
+          si.historicalDelivery === true
+        ) {
+          row.historicalDelivery = true;
+        }
+        return row;
       }),
 
       services: servicesToSend.length > 0 ? servicesToSend : undefined,
@@ -587,19 +570,6 @@ const CreateRentalPage: React.FC = () => {
 
   const customerAddresses = selectedCustomerData?.addresses ?? [];
 
-  const calculateMultiplier = () => {
-    switch (rentalType) {
-      case "diario":
-        return 1;
-      case "semanal":
-        return 7; // 1 semana = 7 dias
-      case "mensal":
-        return 30;
-      default:
-        return 1;
-    }
-  };
-
   const totalsWithRentalType = {
     ...totals,
     // apenas copia, sem multiplicar
@@ -609,7 +579,7 @@ const CreateRentalPage: React.FC = () => {
     servicesSubtotal: totals.servicesSubtotal,
   };
 
-  const calculateReturnDate = (pickup: string, type: typeof rentalType) => {
+  const calculateReturnDate = (pickup: string, type: RentalTypeUI) => {
     if (!pickup) return "";
 
     //corrigido (sem bug de fuso)
@@ -625,9 +595,14 @@ const CreateRentalPage: React.FC = () => {
       case "semanal":
         daysToAdd = 7;
         break;
+      case "quinzenal":
+        daysToAdd = 15;
+        break;
       case "mensal":
         daysToAdd = 30;
         break;
+      default:
+        daysToAdd = 1;
     }
 
     const returnDateObj = new Date(pickupDateObj);
@@ -640,13 +615,6 @@ const CreateRentalPage: React.FC = () => {
 
     return `${y}-${m}-${d}`;
   };
-
-  useEffect(() => {
-    if (pickupDate) {
-      const newReturnDate = calculateReturnDate(pickupDate, rentalType);
-      setReturnDate(newReturnDate);
-    }
-  }, [pickupDate, rentalType]);
 
   useEffect(() => {
     if (customerAddresses.length === 1) {
@@ -945,16 +913,42 @@ const CreateRentalPage: React.FC = () => {
                                     Tipo de cobrança
                                   </label>
 
-                                  <div className="px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-sm font-medium text-gray-800 dark:text-gray-200">
-                                    {
-                                      billingTypeLabel[
-                                        getBillingType(
-                                          selectedItem.pickupDate,
-                                          selectedItem.returnDate,
-                                        )
-                                      ]
+                                  <select
+                                    value={
+                                      selectedItem.rentalType ?? rentalType
                                     }
-                                  </div>
+                                    onChange={(e) => {
+                                      const newType = e.target
+                                        .value as RentalTypeUI;
+                                      setSelectedItems(
+                                        selectedItems.map((si) => {
+                                          if (si.itemId !== selectedItem.itemId)
+                                            return si;
+                                          const nextReturn = si.pickupDate
+                                            ? calculateReturnDate(
+                                                si.pickupDate,
+                                                newType,
+                                              )
+                                            : si.returnDate;
+                                          return {
+                                            ...si,
+                                            rentalType: newType,
+                                            returnDate: nextReturn || si.returnDate,
+                                          };
+                                        }),
+                                      );
+                                    }}
+                                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                  >
+                                    <option value="diario">Diário (+1 dia)</option>
+                                    <option value="semanal">
+                                      Semanal (+7 dias)
+                                    </option>
+                                    <option value="quinzenal">
+                                      Quinzenal (+15 dias)
+                                    </option>
+                                    <option value="mensal">Mensal (+30 dias)</option>
+                                  </select>
                                 </div>
                                 {/* Retirada */}
                                 <div className="flex flex-col">
@@ -1003,11 +997,19 @@ const CreateRentalPage: React.FC = () => {
                                     type="date"
                                     value={selectedItem.returnDate || ""}
                                     onChange={(e) => {
+                                      const v = e.target.value;
+                                      const todayStr = new Date()
+                                        .toISOString()
+                                        .split("T")[0];
                                       const updated = selectedItems.map((si) =>
                                         si.itemId === selectedItem.itemId
                                           ? {
                                               ...si,
-                                              returnDate: e.target.value,
+                                              returnDate: v,
+                                              historicalDelivery:
+                                                v && v < todayStr
+                                                  ? si.historicalDelivery
+                                                  : undefined,
                                             }
                                           : si,
                                       );
@@ -1018,6 +1020,41 @@ const CreateRentalPage: React.FC = () => {
                                   />
                                 </div>
                               </div>
+
+                              {selectedItem.returnDate &&
+                                selectedItem.returnDate <
+                                  new Date().toISOString().split("T")[0] && (
+                                  <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={
+                                        selectedItem.historicalDelivery === true
+                                      }
+                                      onChange={(e) => {
+                                        const checked = e.target.checked;
+                                        setSelectedItems(
+                                          selectedItems.map((si) =>
+                                            si.itemId === selectedItem.itemId
+                                              ? {
+                                                  ...si,
+                                                  historicalDelivery: checked
+                                                    ? true
+                                                    : undefined,
+                                                }
+                                              : si,
+                                          ),
+                                        );
+                                      }}
+                                      className="mt-0.5 rounded border-gray-300"
+                                    />
+                                    <span>
+                                      Item já entregue nesta data (registro
+                                      histórico). Se desmarcado, o sistema
+                                      gera fechamentos até a data de hoje
+                                      conforme o tipo de cobrança.
+                                    </span>
+                                  </label>
+                                )}
 
                               <div className="text-xs text-gray-500">
                                 Os itens podem ter períodos diferentes. O
