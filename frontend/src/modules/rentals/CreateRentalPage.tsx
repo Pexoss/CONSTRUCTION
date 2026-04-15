@@ -1048,7 +1048,7 @@ const CreateRentalPage: React.FC = () => {
                                       className="mt-0.5 rounded border-gray-300"
                                     />
                                     <span>
-                                      Item já entregue nesta data (registro
+                                      Item já devolvido nesta data (registro
                                       histórico). Se desmarcado, o sistema
                                       gera fechamentos até a data de hoje
                                       conforme o tipo de cobrança.

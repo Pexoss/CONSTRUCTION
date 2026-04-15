@@ -908,7 +908,7 @@ const RentalDetailPage: React.FC = () => {
                                     className="mt-0.5 rounded border-gray-300"
                                   />
                                   <span>
-                                    Item já entregue nesta data (somente
+                                    Item já devolvido nesta data (somente
                                     histórico). Se desmarcado, serão gerados
                                     fechamentos até hoje conforme o tipo.
                                   </span>
