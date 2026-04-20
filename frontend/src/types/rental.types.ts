@@ -26,7 +26,7 @@ export interface RentalItem {
   pickupScheduled?: string;
   returnScheduled?: string;
   returnActual?: string;
-  /** Backend: devolução prevista retroativa sem entrega registrada — gera fechamentos até hoje */
+  /** Backend: devolução prevista retroativa sem devolução registrada — gera fechamentos até hoje */
   retroactiveOpenBilling?: boolean;
   subtotal: number;
 }

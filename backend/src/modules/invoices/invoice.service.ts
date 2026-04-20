@@ -8,6 +8,8 @@ import { Company } from "../companies/company.model";
 import { Billing } from "../billings/billing.model";
 import { IInvoice, InvoiceStatus } from "./invoice.types";
 import PDFDocument from "pdfkit";
+import { financialService } from "../financial/financial.service";
+import { transactionService } from "../transactions/transaction.service";
 
 const ISS_MUNICIPAL_NOTE =
   "A empresa abaixo identificada está dispensada de emitir documento fiscal de Serviços quando tributada pelo anexo III, tendo deduzido a parcela do ISS, conforme inciso V do parágrafo 4º do artigo 18 da Lei Complementar nº 123/2006.";
@@ -39,6 +41,40 @@ const INVOICE_FOOTER_BANK_LINES = [
   "Conta: 935338-0",
   "Titularidade: Alugue Equipamentos",
 ];
+
+const RENTAL_TYPE_PT_LABEL: Record<string, string> = {
+  daily: "Diário",
+  weekly: "Semanal",
+  biweekly: "Quinzenal",
+  monthly: "Mensal",
+};
+
+const LEGACY_INVOICE_PERIOD_REGEX = /\((\d{2}\/\d{2}\/\d{4})\s*a\s*(\d{2}\/\d{2}\/\d{4})\)/;
+
+function stripLegacyInvoiceDescription(description: string): string {
+  const cleaned = description
+    .replace(/\s*-\s*Locação\s*\([^)]+\)\s*(?:-\s*Qtd:\s*\d+)?\s*$/i, "")
+    .replace(/\s*-\s*Período:\s*\d{2}\/\d{2}\/\d{4}\s*a\s*\d{2}\/\d{2}\/\d{4}\s*$/i, "")
+    .trim();
+  return cleaned || description;
+}
+
+function extractPeriodFromLegacyInvoiceDescription(description: string): string | null {
+  const m = description.match(LEGACY_INVOICE_PERIOD_REGEX);
+  if (m) return `${m[1]} a ${m[2]}`;
+  const m2 = description.match(/Per[íi]odo:\s*(\d{2}\/\d{2}\/\d{4})\s*a\s*(\d{2}\/\d{2}\/\d{4})/i);
+  if (m2) return `${m2[1]} a ${m2[2]}`;
+  return null;
+}
+
+type InvoicePdfRow = {
+  description: string;
+  period: string;
+  tipo: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+};
 
 class InvoiceService {
   /**
@@ -157,17 +193,14 @@ class InvoiceService {
     }> = [];
 
     for (const bill of billings) {
-      const periodLabel = `${new Date(bill.periodStart).toLocaleDateString("pt-BR")} a ${new Date(bill.periodEnd).toLocaleDateString("pt-BR")}`;
-
       for (const line of bill.items || []) {
         const itemDoc = line.itemId as unknown as { name?: string } | mongoose.Types.ObjectId;
         const name =
           itemDoc && typeof itemDoc === "object" && "name" in itemDoc && itemDoc.name
             ? String(itemDoc.name)
             : "Item";
-        const desc = `${name} - Locação (${periodLabel}) - Qtd: ${line.quantity}`;
         items.push({
-          description: desc,
+          description: name,
           quantity: line.quantity,
           unitPrice: line.unitPrice,
           total: line.subtotal,
@@ -176,7 +209,7 @@ class InvoiceService {
 
       for (const svc of bill.services || []) {
         items.push({
-          description: `${svc.description} - Locação (${periodLabel})`,
+          description: String(svc.description || "Serviço"),
           quantity: svc.quantity,
           unitPrice: svc.price,
           total: svc.subtotal,
@@ -185,7 +218,7 @@ class InvoiceService {
 
       if ((!bill.items || bill.items.length === 0) && (!bill.services || bill.services.length === 0)) {
         items.push({
-          description: `Aluguel - Período: ${periodLabel}`,
+          description: "Aluguel",
           quantity: 1,
           unitPrice: bill.calculation.total,
           total: bill.calculation.total,
@@ -232,6 +265,10 @@ class InvoiceService {
       obraDescription: data.obraDescription,
       createdBy: userId,
     });
+
+    for (const billingId of ids) {
+      await financialService.attachBillingToInvoice(billingId, invoice._id);
+    }
 
     return invoice;
   }
@@ -332,7 +369,127 @@ class InvoiceService {
     }
 
     await invoice.save();
+
+    if (invoice.governsFinancialStatus && invoice.billingIds && invoice.billingIds.length > 0) {
+      for (const billingId of invoice.billingIds) {
+        if (status === "cancelled") {
+          await Billing.updateOne(
+            { _id: billingId, companyId, status: { $ne: "paid" } },
+            { $set: { financialStage: "charge", governance: "charge", invoiceId: null } },
+          );
+        }
+        if (status === "paid") {
+          const bill = await Billing.findOne({ _id: billingId, companyId });
+          if (!bill) continue;
+          const remaining = bill.outstandingAmount ?? bill.calculation.total;
+          await financialService.appendBillingPayment(billingId, {
+            amount: remaining,
+            paidAt: invoice.paidDate || new Date(),
+            paymentMethod: invoice.paymentMethod,
+            notes: `Baixa pela fatura ${invoice.invoiceNumber}`,
+            origin: "invoice",
+            originId: String(invoice._id),
+          });
+        }
+      }
+    }
+
+    if (status === "paid") {
+      await transactionService.createSystemIncomeFromSettlement(
+        companyId,
+        {
+          amount: invoice.total,
+          description: `Recebimento da fatura ${invoice.invoiceNumber}`,
+          dueDate: invoice.dueDate,
+          paidDate: invoice.paidDate || new Date(),
+          relatedTo: { type: "other", id: new mongoose.Types.ObjectId(String(invoice._id)) },
+          paymentMethod: invoice.paymentMethod,
+        },
+        String(invoice.createdBy),
+      );
+    }
+
     return invoice;
+  }
+
+  /**
+   * Monta linhas do PDF com descrição limpa, período e tipo de cobrança (a partir dos fechamentos quando possível).
+   */
+  private async buildInvoicePdfRows(companyId: string, invoice: IInvoice): Promise<InvoicePdfRow[]> {
+    const sourceItems = invoice.items || [];
+    const zipWithLegacyStrip = (): InvoicePdfRow[] =>
+      sourceItems.map((it) => {
+        const period = extractPeriodFromLegacyInvoiceDescription(it.description);
+        return {
+          description: stripLegacyInvoiceDescription(it.description),
+          period: period || "—",
+          tipo: "—",
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+          total: it.total,
+        };
+      });
+
+    if (!invoice.billingIds?.length) {
+      return zipWithLegacyStrip();
+    }
+
+    const ids = invoice.billingIds.map((id) => new mongoose.Types.ObjectId(String(id)));
+    const billings = await Billing.find({
+      _id: { $in: ids },
+      companyId,
+    })
+      .populate("items.itemId", "name")
+      .sort({ billingDate: 1, periodStart: 1 });
+
+    if (billings.length !== ids.length) {
+      return zipWithLegacyStrip();
+    }
+
+    const meta: Array<{ description: string; period: string; tipo: string }> = [];
+
+    for (const bill of billings) {
+      const periodLabel = `${new Date(bill.periodStart).toLocaleDateString("pt-BR")} a ${new Date(
+        bill.periodEnd,
+      ).toLocaleDateString("pt-BR")}`;
+      const tipo =
+        RENTAL_TYPE_PT_LABEL[String(bill.rentalType || "")] ||
+        (bill.rentalType ? String(bill.rentalType) : "—");
+
+      for (const line of bill.items || []) {
+        const itemDoc = line.itemId as unknown as { name?: string } | mongoose.Types.ObjectId;
+        const name =
+          itemDoc && typeof itemDoc === "object" && "name" in itemDoc && itemDoc.name
+            ? String(itemDoc.name)
+            : "Item";
+        meta.push({ description: name, period: periodLabel, tipo });
+      }
+
+      for (const svc of bill.services || []) {
+        meta.push({
+          description: String(svc.description || "Serviço"),
+          period: periodLabel,
+          tipo,
+        });
+      }
+
+      if ((!bill.items || bill.items.length === 0) && (!bill.services || bill.services.length === 0)) {
+        meta.push({ description: "Aluguel", period: periodLabel, tipo });
+      }
+    }
+
+    if (meta.length !== sourceItems.length) {
+      return zipWithLegacyStrip();
+    }
+
+    return sourceItems.map((it, i) => ({
+      description: meta[i].description,
+      period: meta[i].period,
+      tipo: meta[i].tipo,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      total: it.total,
+    }));
   }
 
   /**
@@ -410,6 +567,8 @@ class InvoiceService {
     const custAddr = customerAddress();
     const customerCode =
       customer?._id != null ? String(customer._id).slice(-6).toUpperCase() : "—";
+
+    const pdfRows = await this.buildInvoicePdfRows(companyId, invoice);
 
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 36, size: "A4" });
@@ -550,32 +709,43 @@ class InvoiceService {
       y += 8;
 
       const colDesc = left;
-      const colQ = left + 230;
-      const colVu = left + 270;
-      const colTot = left + 350;
-      const colFp = left + 430;
-      const descW = 220;
+      const descW = 115;
+      const colPeriod = colDesc + descW + 3;
+      const periodW = 90;
+      const colTipo = colPeriod + periodW + 3;
+      const tipoW = 44;
+      const colQ = colTipo + tipoW + 4;
+      const colVu = colQ + 22;
+      const vuW = 54;
+      const colTot = colVu + vuW + 4;
+      const totW = 54;
+      const colFp = colTot + totW + 6;
 
-      doc.font("Helvetica-Bold").fontSize(8);
+      doc.font("Helvetica-Bold").fontSize(7.5);
       doc.text("DESCRIÇÃO DA LOCAÇÃO", colDesc, y);
+      doc.text("PERÍODO", colPeriod, y);
+      doc.text("TIPO COBR.", colTipo, y);
       doc.text("Qtd", colQ, y);
-      doc.text("V. Unit.", colVu, y, { width: 70, align: "right" });
-      doc.text("V. Total", colTot, y, { width: 70, align: "right" });
+      doc.text("V. Unit.", colVu, y, { width: vuW, align: "right" });
+      doc.text("V. Total", colTot, y, { width: totW, align: "right" });
       doc.text("Forma Pgto", colFp, y, { width: right - colFp, align: "right" });
       y += 14;
 
       doc.font("Helvetica").fontSize(7.5);
-      for (const item of invoice.items) {
-        const h = doc.heightOfString(item.description, { width: descW });
-        const rowH = Math.max(14, h + 2);
+      for (const row of pdfRows) {
+        const hDesc = doc.heightOfString(row.description, { width: descW });
+        const hPeriod = doc.heightOfString(row.period, { width: periodW });
+        const rowH = Math.max(14, hDesc + 2, hPeriod + 2);
         if (y + rowH > 750) {
           doc.addPage();
           y = 36;
         }
-        doc.text(item.description, colDesc, y, { width: descW });
-        doc.text(String(item.quantity), colQ, y);
-        doc.text(fmtMoney(item.unitPrice), colVu, y, { width: 70, align: "right" });
-        doc.text(fmtMoney(item.total), colTot, y, { width: 70, align: "right" });
+        doc.text(row.description, colDesc, y, { width: descW });
+        doc.text(row.period, colPeriod, y, { width: periodW });
+        doc.text(row.tipo, colTipo, y, { width: tipoW });
+        doc.text(String(row.quantity), colQ, y);
+        doc.text(fmtMoney(row.unitPrice), colVu, y, { width: vuW, align: "right" });
+        doc.text(fmtMoney(row.total), colTot, y, { width: totW, align: "right" });
         doc.text(paymentMethod, colFp, y, { width: right - colFp, align: "right" });
         y += rowH;
       }

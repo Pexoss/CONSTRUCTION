@@ -41,6 +41,7 @@ export const billingService = {
     data: {
       paymentMethod: string;
       paymentDate?: string;
+      amount?: number;
       discount?: number;
       discountReason?: string;
     }
@@ -49,6 +50,54 @@ export const billingService = {
       `/billings/${id}/mark-as-paid`,
       data
     );
+    return response.data;
+  },
+  updateBilling: async (
+    id: string,
+    data: {
+      periodStart?: string;
+      periodEnd?: string;
+      notes?: string;
+      discount?: number;
+      discountReason?: string;
+    }
+  ) => {
+    const response = await api.put<{ success: boolean; data: Billing }>(`/billings/${id}`, data);
+    return response.data;
+  },
+  cancelBilling: async (id: string) => {
+    const response = await api.post<{ success: boolean; data: Billing }>(`/billings/${id}/cancel`);
+    return response.data;
+  },
+  refreshBilling: async (id: string) => {
+    const response = await api.post<{ success: boolean; data: Billing }>(`/billings/${id}/refresh`);
+    return response.data;
+  },
+  previewRefreshBilling: async (id: string) => {
+    const response = await api.get<{
+      success: boolean;
+      data: {
+        billingId: string;
+        billingNumber: string;
+        customerName: string;
+        current: { total: number; outstandingAmount: number };
+        next: { total: number; outstandingAmount: number };
+        diff: { total: number; outstandingAmount: number };
+      };
+    }>(`/billings/${id}/refresh-preview`);
+    return response.data;
+  },
+
+  syncMissingRentals: async () => {
+    const response = await api.post<{
+      success: boolean;
+      data: {
+        rentalsProcessed: number;
+        created: number;
+        draftsCreated: number;
+        refreshed: number;
+      };
+    }>("/billings/sync-missing-rentals");
     return response.data;
   },
 };

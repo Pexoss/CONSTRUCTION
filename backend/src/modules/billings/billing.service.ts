@@ -1,8 +1,12 @@
 import { Billing } from './billing.model';
 import { Rental } from '../rentals/rental.model';
+import { Item } from '../inventory/item.model';
 import { IBilling, IBillingCalculation, IBillingEarlyReturn, RentalType, BillingStatus } from './billing.types';
 import mongoose from 'mongoose';
 import PDFDocument from 'pdfkit';
+import { financialService } from '../financial/financial.service';
+import { transactionService } from '../transactions/transaction.service';
+import { Charge } from '../charges/charge.model';
 
 /**
  * Calcula os períodos de aluguel baseado nas datas
@@ -65,6 +69,55 @@ function addPeriod(date: Date, rentalType: RentalType): Date {
   return next;
 }
 
+/**
+ * Valor unitário de cobrança por período conforme o tipo (diária = valor/dia, semanal = valor/semana, etc.).
+ * Se a taxa do tipo não existir, deriva da diária (×7, ×15 ou ×30) e retorna mensagem para log/aviso.
+ */
+export function periodRateFromInventory(
+  pricing: { dailyRate?: number; weeklyRate?: number; biweeklyRate?: number; monthlyRate?: number } | undefined,
+  rentalType: RentalType
+): { rate: number; message?: string } {
+  const d = Math.max(0, Number(pricing?.dailyRate ?? 0));
+  const w = Math.max(0, Number(pricing?.weeklyRate ?? 0));
+  const b = Math.max(0, Number(pricing?.biweeklyRate ?? 0));
+  const m = Math.max(0, Number(pricing?.monthlyRate ?? 0));
+
+  switch (rentalType) {
+    case 'daily':
+      if (d > 0) return { rate: d };
+      return { rate: 0, message: 'Cadastre a diária do equipamento.' };
+    case 'weekly':
+      if (w > 0) return { rate: w };
+      if (d > 0) {
+        return {
+          rate: 7 * d,
+          message: 'Taxa semanal não cadastrada; aplicada diária × 7 a partir do cadastro do equipamento.',
+        };
+      }
+      return { rate: 0, message: 'Cadastre a semanal ou a diária do equipamento.' };
+    case 'biweekly':
+      if (b > 0) return { rate: b };
+      if (d > 0) {
+        return {
+          rate: 15 * d,
+          message: 'Taxa quinzenal não cadastrada; aplicada diária × 15 a partir do cadastro do equipamento.',
+        };
+      }
+      return { rate: 0, message: 'Cadastre a quinzenal ou a diária do equipamento.' };
+    case 'monthly':
+      if (m > 0) return { rate: m };
+      if (d > 0) {
+        return {
+          rate: 30 * d,
+          message: 'Taxa mensal não cadastrada; aplicada diária × 30 a partir do cadastro do equipamento.',
+        };
+      }
+      return { rate: 0, message: 'Cadastre a mensal ou a diária do equipamento.' };
+    default:
+      return d > 0 ? { rate: d } : { rate: 0, message: 'Cadastre a diária do equipamento.' };
+  }
+}
+
 /** Evita E11000 quando vários fechamentos são criados em sequência (count+1 gerava o mesmo número). */
 async function createBillingWithRetry(payload: Record<string, unknown>): Promise<IBilling> {
   let lastErr: unknown;
@@ -91,12 +144,266 @@ async function createBillingWithRetry(payload: Record<string, unknown>): Promise
 }
 
 class BillingService {
+  private enforcePositiveBillingTotals(
+    equipmentSubtotal: number,
+    servicesSubtotal: number,
+    total: number,
+  ): void {
+    const gross = equipmentSubtotal + servicesSubtotal;
+    if (gross <= 0) {
+      throw new Error(
+        'O fechamento não pode ter valor zerado. Ajuste os valores no aluguel ou cadastre diária/semanal/quinzenal/mensal no equipamento.',
+      );
+    }
+    if (total <= 0) {
+      throw new Error(
+        'O total do fechamento não pode ser zero. Reduza o desconto ou revise os valores no contrato.',
+      );
+    }
+  }
+
+  private async persistRentalLineUnitPrice(
+    companyId: string,
+    rentalId: mongoose.Types.ObjectId,
+    lineItem: any,
+    unitPrice: number,
+  ): Promise<void> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+    if (!rental) return;
+    const lineItemId = lineItem.itemId?.toString?.() || String(lineItem.itemId);
+    const idx = rental.items.findIndex((ri: any) => {
+      const id = ri.itemId?.toString?.() || String(ri.itemId);
+      if (id !== lineItemId) return false;
+      if (lineItem.unitId) return ri.unitId === lineItem.unitId;
+      return !ri.unitId;
+    });
+    if (idx === -1) return;
+    if (Number(rental.items[idx].unitPrice) <= 0) {
+      rental.items[idx].unitPrice = unitPrice;
+      rental.markModified('items');
+      await rental.save();
+    }
+  }
+
+  /** Preenche unitPrice nas linhas do aluguel quando estiver zerado, a partir do cadastro do equipamento. */
+  private async ensureRentalItemsHavePeriodRates(companyId: string, rental: any): Promise<string[]> {
+    const warnings: string[] = [];
+    let changed = false;
+    for (let i = 0; i < (rental.items?.length || 0); i++) {
+      const it = rental.items[i];
+      if (Number(it.unitPrice) > 0) continue;
+      const rt = (it.rentalType || 'daily') as RentalType;
+      const inv = await Item.findOne({ _id: it.itemId, companyId }).lean();
+      if (!inv) {
+        throw new Error(
+          `Equipamento não encontrado. Não é possível definir valor do fechamento (item ${it.itemId}).`,
+        );
+      }
+      const { rate, message } = periodRateFromInventory(inv.pricing, rt);
+      if (rate <= 0) {
+        throw new Error(
+          message || `Cadastre no equipamento "${inv.name}" o valor da cobrança (${rt}) ou a diária.`,
+        );
+      }
+      rental.items[i].unitPrice = rate;
+      changed = true;
+      if (message) {
+        console.warn('[Fechamento]', message);
+        warnings.push(message);
+      }
+    }
+    if (changed) {
+      if (typeof rental.markModified === 'function') {
+        rental.markModified('items');
+        await rental.save();
+      } else {
+        await Rental.updateOne(
+          { _id: rental._id, companyId },
+          { $set: { items: rental.items } },
+        );
+      }
+    }
+    return warnings;
+  }
+
+  async previewBillingRefresh(companyId: string, billingId: string) {
+    const billing = await Billing.findOne({ _id: billingId, companyId });
+    if (!billing) throw new Error('Billing not found');
+    if (billing.status === 'paid' || billing.status === 'cancelled') {
+      throw new Error('Não é possível atualizar fechamento pago ou cancelado');
+    }
+
+    const rental = await Rental.findOne({ _id: billing.rentalId, companyId })
+      .populate('items.itemId')
+      .populate('customerId');
+    if (!rental) throw new Error('Rental not found');
+
+    const periodStart = new Date(billing.periodStart);
+    const periodEnd = new Date(billing.periodEnd);
+    const rentalType: RentalType = billing.rentalType || rental.dates?.billingCycle || rental.items[0]?.rentalType || 'daily';
+    const periodCalculation = calculateBillingPeriod(periodStart, periodEnd, rentalType);
+    const periodsCharged = Math.max(1, periodCalculation.totalPeriods);
+    const { equipmentSubtotal } = await this.buildBillingItems(
+      companyId,
+      rental,
+      rentalType,
+      periodsCharged,
+    );
+    const hadServices =
+      (billing.services?.length ?? 0) > 0 ||
+      Number(billing.calculation?.servicesAmount ?? 0) > 0;
+    const { servicesSubtotal } = this.buildBillingServices(rental, hadServices);
+    const subtotal = equipmentSubtotal + servicesSubtotal;
+    const discount = billing.calculation?.discount || 0;
+    const nextTotal = Math.max(0, subtotal - discount + (rental.pricing?.lateFee || 0));
+    const currentTotal = Number(billing.calculation?.total || 0);
+    const currentOutstanding = Number(billing.outstandingAmount ?? currentTotal);
+    const paidAmount = Math.max(0, currentTotal - currentOutstanding);
+    const nextOutstanding = Math.max(0, nextTotal - paidAmount);
+
+    return {
+      billingId: String(billing._id),
+      billingNumber: billing.billingNumber,
+      customerName: (rental.customerId as any)?.name || 'Cliente',
+      current: {
+        total: currentTotal,
+        outstandingAmount: currentOutstanding,
+      },
+      next: {
+        total: Number(nextTotal.toFixed(2)),
+        outstandingAmount: Number(nextOutstanding.toFixed(2)),
+      },
+      diff: {
+        total: Number((nextTotal - currentTotal).toFixed(2)),
+        outstandingAmount: Number((nextOutstanding - currentOutstanding).toFixed(2)),
+      },
+    };
+  }
+
+  async refreshBillingFromRental(companyId: string, billingId: string): Promise<IBilling> {
+    const billing = await Billing.findOne({ _id: billingId, companyId });
+    if (!billing) throw new Error('Billing not found');
+    if (billing.status === 'paid' || billing.status === 'cancelled') {
+      throw new Error('Não é possível atualizar fechamento pago ou cancelado');
+    }
+
+    const rental = await Rental.findOne({ _id: billing.rentalId, companyId })
+      .populate('items.itemId')
+      .populate('customerId');
+    if (!rental) throw new Error('Rental not found');
+
+    const periodStart = new Date(billing.periodStart);
+    const periodEnd = new Date(billing.periodEnd);
+    const rentalType: RentalType = billing.rentalType || rental.dates?.billingCycle || rental.items[0]?.rentalType || 'daily';
+    const periodCalculation = calculateBillingPeriod(periodStart, periodEnd, rentalType);
+    const periodsCharged = Math.max(1, periodCalculation.totalPeriods);
+
+    const { items, equipmentSubtotal } = await this.buildBillingItems(
+      companyId,
+      rental,
+      rentalType,
+      periodsCharged,
+    );
+    const hadServices =
+      (billing.services?.length ?? 0) > 0 ||
+      Number(billing.calculation?.servicesAmount ?? 0) > 0;
+    const { services, servicesSubtotal } = this.buildBillingServices(rental, hadServices);
+    const subtotal = equipmentSubtotal + servicesSubtotal;
+    const discount = billing.calculation?.discount || 0;
+    const total = Math.max(0, subtotal - discount + (rental.pricing?.lateFee || 0));
+    this.enforcePositiveBillingTotals(equipmentSubtotal, servicesSubtotal, total);
+
+    const paidAmount = Math.max(0, (billing.calculation?.total || 0) - (billing.outstandingAmount ?? billing.calculation?.total ?? 0));
+
+    billing.items = items as any;
+    billing.services = services as any;
+    billing.calculation = {
+      baseRate: items[0]?.unitPrice || 0,
+      periodsCompleted: periodCalculation.periodsCompleted,
+      extraDays: periodCalculation.extraDays,
+      chargeExtraPeriod: periodCalculation.chargeExtraPeriod,
+      baseAmount: equipmentSubtotal,
+      servicesAmount: servicesSubtotal,
+      subtotal,
+      discount,
+      discountReason: billing.calculation?.discountReason,
+      total,
+    } as IBillingCalculation;
+    billing.outstandingAmount = Math.max(0, total - paidAmount);
+    billing.notes = `${billing.notes || ''}\nAtualizado com dados atuais do aluguel em ${new Date().toISOString()}`.trim();
+    await billing.save();
+
+    if (billing.chargeId) {
+      const charge = await Charge.findOne({ _id: billing.chargeId, companyId });
+      if (charge && charge.status !== 'paid' && charge.status !== 'cancelled') {
+        const related = await Billing.find({ _id: { $in: charge.billingIds }, companyId });
+        const totalCharge = related.reduce((acc, b) => acc + Number(b.outstandingAmount ?? b.calculation.total ?? 0), 0) + Number(charge.paidAmount || 0);
+        charge.total = Number(totalCharge.toFixed(2));
+        charge.outstandingAmount = Math.max(0, charge.total - charge.paidAmount);
+        charge.status = charge.outstandingAmount === 0 ? 'paid' : charge.paidAmount > 0 ? 'partial' : 'pending';
+        await charge.save();
+      }
+    }
+
+    return billing;
+  }
+
+  async updateBilling(
+    companyId: string,
+    billingId: string,
+    data: {
+      periodStart?: Date;
+      periodEnd?: Date;
+      notes?: string;
+      discount?: number;
+      discountReason?: string;
+    }
+  ): Promise<IBilling> {
+    const billing = await Billing.findOne({ _id: billingId, companyId });
+    if (!billing) throw new Error("Billing not found");
+    if (billing.status === "paid" || billing.status === "cancelled") {
+      throw new Error("Não é possível editar fechamento pago ou cancelado");
+    }
+
+    if (data.periodStart) billing.periodStart = data.periodStart;
+    if (data.periodEnd) billing.periodEnd = data.periodEnd;
+    if (typeof data.notes === "string") billing.notes = data.notes;
+    if (typeof data.discount === "number") {
+      billing.calculation.discount = data.discount;
+      billing.calculation.discountReason = data.discountReason;
+      billing.calculation.total = Math.max(0, billing.calculation.subtotal - data.discount);
+      billing.outstandingAmount = Math.min(
+        billing.outstandingAmount ?? billing.calculation.total,
+        billing.calculation.total
+      );
+    }
+
+    await billing.save();
+    return billing;
+  }
+
+  async cancelBilling(companyId: string, billingId: string): Promise<IBilling> {
+    const billing = await Billing.findOne({ _id: billingId, companyId });
+    if (!billing) throw new Error("Billing not found");
+    if (billing.status === "paid") throw new Error("Não é possível cancelar fechamento pago");
+
+    billing.status = "cancelled";
+    billing.financialStage = "cancelled";
+    billing.chargeId = undefined;
+    billing.invoiceId = undefined;
+    await billing.save();
+    return billing;
+  }
+
   private async buildBillingItems(
+    companyId: string,
     rental: any,
     rentalType: RentalType,
     periodsCharged: number,
     targetEquipmentSubtotal?: number
   ): Promise<{ items: any[]; equipmentSubtotal: number }> {
+    await this.ensureRentalItemsHavePeriodRates(companyId, rental);
+
     const periodLength = getPeriodLengthDays(rentalType);
     const contractedDays = rental.pricing?.contractedDays || periodLength;
     const contractedPeriods = Math.max(1, Math.ceil(contractedDays / periodLength));
@@ -177,6 +484,7 @@ class BillingService {
     const periodsCharged = Math.max(1, periodCalculation.totalPeriods);
 
     const { items, equipmentSubtotal } = await this.buildBillingItems(
+      companyId,
       rental,
       rentalType,
       periodsCharged,
@@ -194,6 +502,14 @@ class BillingService {
       options?.totalOverride !== undefined
         ? options.totalOverride
         : subtotal - appliedDiscount + (rental.pricing?.lateFee || 0);
+
+    if (options?.totalOverride !== undefined) {
+      if (Number(options.totalOverride) <= 0) {
+        throw new Error('O total do fechamento não pode ser zero.');
+      }
+    } else {
+      this.enforcePositiveBillingTotals(equipmentSubtotal, servicesSubtotal, total);
+    }
 
     const calculation: IBillingCalculation = {
       baseRate: items[0]?.unitPrice || 0,
@@ -220,6 +536,9 @@ class BillingService {
       items,
       services,
       status: options?.status || 'approved',
+      financialStage: 'pending',
+      governance: 'charge',
+      outstandingAmount: total,
       approvalRequired: false,
       requestedBy: userId,
       notes: options?.notes,
@@ -251,13 +570,36 @@ class BillingService {
     const periodCalculation = calculateBillingPeriod(periodStart, periodEnd, rentalType);
     const periodsCharged = Math.max(1, periodCalculation.totalPeriods);
 
-    const itemSubtotal = item.unitPrice * item.quantity * periodsCharged;
+    let lineUnit = Number(item.unitPrice);
+    const autoNotes: string[] = [];
+    if (lineUnit <= 0) {
+      const inv = await Item.findOne({ _id: item.itemId, companyId }).lean();
+      if (!inv) {
+        throw new Error(
+          `Equipamento não encontrado. Não é possível definir valor do fechamento (item ${item.itemId}).`,
+        );
+      }
+      const { rate, message } = periodRateFromInventory(inv.pricing, rentalType);
+      if (rate <= 0) {
+        throw new Error(
+          message || `Cadastre no equipamento "${inv.name}" o valor da cobrança (${rentalType}) ou a diária.`,
+        );
+      }
+      lineUnit = rate;
+      if (message) {
+        console.warn('[Fechamento]', message);
+        autoNotes.push(message);
+      }
+      await this.persistRentalLineUnitPrice(companyId, rental._id, item, lineUnit);
+    }
+
+    const itemSubtotal = lineUnit * item.quantity * periodsCharged;
     const items = [
       {
         itemId: item.itemId,
         unitId: item.unitId,
         quantity: item.quantity,
-        unitPrice: item.unitPrice,
+        unitPrice: lineUnit,
         periodsCharged,
         subtotal: Number(itemSubtotal.toFixed(2)),
       },
@@ -273,8 +615,10 @@ class BillingService {
     const appliedDiscount = options?.discount ?? 0;
     const total = subtotal - appliedDiscount + (rental.pricing?.lateFee || 0);
 
+    this.enforcePositiveBillingTotals(equipmentSubtotal, servicesSubtotal, total);
+
     const calculation: IBillingCalculation = {
-      baseRate: item.unitPrice || 0,
+      baseRate: lineUnit || 0,
       periodsCompleted: periodCalculation.periodsCompleted,
       extraDays: periodCalculation.extraDays,
       chargeExtraPeriod: periodCalculation.chargeExtraPeriod,
@@ -285,6 +629,10 @@ class BillingService {
       discountReason: options?.discountReason,
       total,
     };
+
+    const notesCombined = [options?.notes, autoNotes.length ? `[Aviso] ${autoNotes.join(' ')}` : '']
+      .filter(Boolean)
+      .join('\n');
 
     const billing = await createBillingWithRetry({
       companyId,
@@ -298,9 +646,12 @@ class BillingService {
       items,
       services,
       status: options?.status || 'approved',
+      financialStage: 'pending',
+      governance: 'charge',
+      outstandingAmount: total,
       approvalRequired: false,
       requestedBy: userId,
-      notes: options?.notes,
+      notes: notesCombined || undefined,
     });
 
     return billing;
@@ -333,6 +684,14 @@ class BillingService {
       throw new Error('Rental is already completed or cancelled');
     }
 
+    await this.ensureRentalItemsHavePeriodRates(companyId, rental);
+
+    const priorBillings = await Billing.countDocuments({
+      companyId,
+      rentalId,
+    });
+    const includeServices = priorBillings === 0;
+
     // Determinar tipo de aluguel (usar o primeiro item como referência, ou default daily)
     const rentalType: RentalType = rental.items[0]?.rentalType || 'daily';
 
@@ -358,17 +717,10 @@ class BillingService {
       };
     });
 
-    // Calcular valores dos serviços
-    let servicesSubtotal = 0;
-    const billingServices = (rental.services || []).map((service) => {
-      servicesSubtotal += service.subtotal;
-      return {
-        description: service.description,
-        price: service.price,
-        quantity: service.quantity,
-        subtotal: service.subtotal,
-      };
-    });
+    const { services: billingServices, servicesSubtotal } = this.buildBillingServices(
+      rental,
+      includeServices
+    );
 
     // Calcular desconto
     const appliedDiscount = discount || 0;
@@ -410,6 +762,8 @@ class BillingService {
     // Verificar se precisa de aprovação (desconto > 10% ou entrega antecipada)
     const approvalRequired = appliedDiscount > subtotal * 0.1 || (isEarly && earlyReturn ? earlyReturn.discountApplied > 0 : false);
 
+    this.enforcePositiveBillingTotals(equipmentSubtotal, servicesSubtotal, total);
+
     // Criar fechamento
     const billing = await createBillingWithRetry({
       companyId,
@@ -424,6 +778,9 @@ class BillingService {
       items: billingItems,
       services: billingServices,
       status: approvalRequired ? 'pending_approval' : 'approved',
+      financialStage: 'pending',
+      governance: 'charge',
+      outstandingAmount: total,
       approvalRequired,
       requestedBy: userId,
       notes: rental.notes,
@@ -504,6 +861,7 @@ class BillingService {
     billingId: string,
     paymentMethod: string,
     paymentDate?: Date,
+    amount?: number,
     discount?: number,
     discountReason?: string
   ): Promise<IBilling> {
@@ -520,20 +878,48 @@ class BillingService {
       throw new Error('Billing must be approved before marking as paid');
     }
 
-    const appliedDiscount = discount ?? billing.calculation?.discount ?? 0;
-    billing.calculation.discount = appliedDiscount;
-    billing.calculation.discountReason = discountReason;
-    billing.calculation.total = Math.max(
-      0,
-      billing.calculation.subtotal - appliedDiscount
+    const paidAt = paymentDate || new Date();
+    const outstanding = Number(
+      billing.outstandingAmount ?? billing.calculation.total ?? 0,
     );
-    billing.status = 'paid';
-    billing.paymentMethod = paymentMethod;
-    billing.paymentDate = paymentDate || new Date();
+    const paymentAmount =
+      amount !== undefined ? Number(amount) : outstanding;
+    const appliedDiscount = Number(discount ?? 0);
 
-    await billing.save();
+    if (paymentAmount <= 0) {
+      throw new Error("Valor da baixa deve ser maior que zero");
+    }
+    if (paymentAmount + appliedDiscount > outstanding) {
+      throw new Error(
+        "Valor de baixa + desconto não pode ser maior que o saldo em aberto",
+      );
+    }
 
-    return billing;
+    await financialService.appendBillingPayment(billing._id, {
+      amount: paymentAmount,
+      discount: appliedDiscount,
+      paidAt,
+      paymentMethod,
+      notes: discountReason,
+      origin: 'billing',
+      originId: String(billing._id),
+    });
+
+    await transactionService.createSystemIncomeFromSettlement(
+      companyId,
+      {
+        amount: paymentAmount,
+        description: `Recebimento do fechamento ${billing.billingNumber}`,
+        dueDate: billing.periodEnd,
+        paidDate: paidAt,
+        relatedTo: { type: 'rental', id: new mongoose.Types.ObjectId(String(billing.rentalId)) },
+        paymentMethod,
+      },
+      String(billing.requestedBy)
+    );
+
+    const refreshed = await Billing.findById(billing._id);
+    return refreshed as IBilling;
   }
 
   /**
@@ -547,6 +933,7 @@ class BillingService {
       status?: string;
       startDate?: Date;
       endDate?: Date;
+      onlyOverdue?: boolean;
       page?: number;
       limit?: number;
     } = {}
@@ -573,6 +960,12 @@ class BillingService {
       if (filters.endDate) {
         query.billingDate.$lte = filters.endDate;
       }
+    }
+    if (filters.onlyOverdue) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      query.status = { $nin: ['paid', 'cancelled'] };
+      query.billingDate = { ...(query.billingDate || {}), $lt: today };
     }
 
     const page = filters.page || 1;
@@ -690,7 +1083,7 @@ class BillingService {
       doc.moveDown();
 
       // Items Table
-      doc.fontSize(12).text('Equipamentos:', { underline: true });
+      doc.fontSize(12).text('Equipamentos e serviços:', { underline: true });
       doc.moveDown(0.5);
 
       const tableTop = doc.y;
@@ -720,11 +1113,7 @@ class BillingService {
         y += itemHeight;
       });
 
-      // Services
       if (billing.services && billing.services.length > 0) {
-        y += 10;
-        doc.font('Helvetica-Bold').fontSize(10).text('Serviços:', 50, y);
-        y += itemHeight;
         doc.font('Helvetica');
         billing.services.forEach((service: any) => {
           doc.text(service.description || 'Serviço', 50, y, { width: 240 });

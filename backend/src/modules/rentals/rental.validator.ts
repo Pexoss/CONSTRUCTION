@@ -139,3 +139,25 @@ export const approvalActionSchema = z.object({
 export const rejectApprovalSchema = z.object({
   notes: z.string().min(1, 'Notes are required for rejection'),
 });
+
+export const returnRentalItemsSchema = z.object({
+  returnDate: z.string().datetime().or(z.date()).optional(),
+  notes: z.string().optional(),
+  items: z
+    .array(
+      z.object({
+        itemId: z.string().min(1, "Item ID is required"),
+        unitId: z.string().optional(),
+        returnedQuantity: z.number().int().min(1).optional(),
+      }),
+    )
+    .min(1, "At least one item must be informed"),
+});
+
+export const changeRentalTypeEventSchema = z.object({
+  itemId: z.string().min(1, "Item ID is required"),
+  unitId: z.string().optional(),
+  newRentalType: z.enum(["daily", "weekly", "biweekly", "monthly"]),
+  effectiveDate: z.string().datetime().or(z.date()).optional(),
+  notes: z.string().optional(),
+});

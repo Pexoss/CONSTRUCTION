@@ -1,5 +1,6 @@
 import { Document } from 'mongoose';
 import mongoose from 'mongoose';
+import { FinancialGovernance, FinancialPaymentEntry, FinancialStage } from '../financial/financial.types';
 
 export type BillingStatus = 'draft' | 'pending_approval' | 'approved' | 'paid' | 'cancelled';
 export type RentalType = 'daily' | 'weekly' | 'biweekly' | 'monthly';
@@ -67,6 +68,12 @@ export interface IBilling extends Document {
   services: IBillingService[];
   
   status: BillingStatus;
+  financialStage?: FinancialStage;
+  governance?: FinancialGovernance;
+  chargeId?: mongoose.Types.ObjectId;
+  invoiceId?: mongoose.Types.ObjectId;
+  outstandingAmount?: number;
+  paymentHistory?: FinancialPaymentEntry[];
   
   // Aprovações
   approvalRequired: boolean;

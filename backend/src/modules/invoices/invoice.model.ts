@@ -48,6 +48,10 @@ const InvoiceSchema = new Schema<IInvoice>(
       type: [{ type: Schema.Types.ObjectId, ref: 'Billing' }],
       default: undefined,
     },
+    chargeIds: {
+      type: [{ type: Schema.Types.ObjectId, ref: 'Charge' }],
+      default: undefined,
+    },
     paymentMethod: {
       type: String,
       trim: true,
@@ -95,6 +99,10 @@ const InvoiceSchema = new Schema<IInvoice>(
       enum: ['draft', 'sent', 'paid', 'cancelled'],
       default: 'draft',
       index: true,
+    },
+    governsFinancialStatus: {
+      type: Boolean,
+      default: true,
     },
     issueDate: {
       type: Date,
@@ -146,10 +154,9 @@ InvoiceSchema.pre('validate', async function (next) {
     try {
       const InvoiceModel = mongoose.model<IInvoice>('Invoice');
       const count = await InvoiceModel.countDocuments({ companyId: this.companyId });
-      const year = new Date().getFullYear();
-      this.invoiceNumber = `INV-${year}-${String(count + 1).padStart(6, '0')}`;
+      this.invoiceNumber = String(count + 1).padStart(4, '0');
     } catch {
-      this.invoiceNumber = `INV-${Date.now()}`;
+      this.invoiceNumber = String(Math.floor(Date.now() % 10000)).padStart(4, "0");
     }
   }
   next();

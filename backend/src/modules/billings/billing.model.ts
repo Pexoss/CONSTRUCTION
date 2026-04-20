@@ -206,6 +206,48 @@ const BillingSchema = new Schema<IBilling>(
       default: 'draft',
       index: true,
     },
+    financialStage: {
+      type: String,
+      enum: ['pending', 'charge', 'invoiced', 'paid', 'cancelled'],
+      default: 'pending',
+      index: true,
+    },
+    governance: {
+      type: String,
+      enum: ['charge', 'invoice'],
+      default: 'charge',
+    },
+    chargeId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Charge',
+      index: true,
+    },
+    invoiceId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Invoice',
+      index: true,
+    },
+    outstandingAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    paymentHistory: {
+      type: [
+        {
+          _id: false,
+          amount: { type: Number, required: true, min: 0 },
+          discount: { type: Number, min: 0, default: 0 },
+          paidAt: { type: Date, required: true },
+          paymentMethod: { type: String },
+          notes: { type: String },
+          origin: { type: String, enum: ['billing', 'charge', 'invoice'], required: true },
+          originId: { type: String, required: true },
+          createdBy: { type: String },
+        },
+      ],
+      default: [],
+    },
     approvalRequired: {
       type: Boolean,
       default: false,
@@ -282,6 +324,9 @@ BillingSchema.pre('validate', async function (next) {
 // Pre-save hook (fallback)
 BillingSchema.pre('save', async function (next) {
   await assignBillingNumber(this);
+  if ((this as any).outstandingAmount === 0 || (this as any).outstandingAmount === undefined) {
+    (this as any).outstandingAmount = Math.max(0, (this as any).calculation?.total || 0);
+  }
   next();
 });
 

@@ -15,6 +15,7 @@ export interface Invoice {
   companyId: string;
   invoiceNumber: string;
   billingIds?: string[];
+  chargeIds?: string[];
   rentalId?: string | Rental;
   customerId: string | Customer;
   paymentMethod?: string;
@@ -25,6 +26,7 @@ export interface Invoice {
   discount?: number;
   total: number;
   status: InvoiceStatus;
+  governsFinancialStatus?: boolean;
   issueDate: string;
   dueDate: string;
   paidDate?: string;

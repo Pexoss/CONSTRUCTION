@@ -470,12 +470,12 @@ class RentalService {
         returnScheduled: maxReturnDate,
       },
       pricing,
-      status: "reserved",
+      status: "active",
       notes: data.notes,
       createdBy: userId,
     });
 
-    // Reservar unidades
+    // Estoque: reserva e em seguida ativa (aluguel já ativo na criação)
     for (const item of data.items) {
       await this.updateItemQuantityForRental(
         companyId,
@@ -488,8 +488,27 @@ class RentalService {
         data.customerId,
       );
     }
+    for (const item of data.items) {
+      await this.updateItemQuantityForRental(
+        companyId,
+        item.itemId,
+        item.quantity,
+        "activate",
+        userId,
+        rental._id,
+        item.unitId,
+        data.customerId,
+      );
+    }
 
-    return rental;
+    await this.syncBillingsAfterRentalChange(
+      companyId,
+      String(rental._id),
+      userId,
+    );
+
+    const withBillings = await Rental.findOne({ _id: rental._id, companyId });
+    return withBillings || rental;
   }
   async closeRental(companyId: string, rentalId: string, userId: string) {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
@@ -961,6 +980,178 @@ class RentalService {
     return rental;
   }
 
+  private computeItemPartialSubtotal(
+    item: IRentalItem,
+    periodStart: Date,
+    periodEnd: Date,
+    quantity: number,
+  ): number {
+    const diffTime = new Date(periodEnd).getTime() - new Date(periodStart).getTime();
+    const usedDays = Math.max(1, diffTime / (1000 * 60 * 60 * 24));
+    const rentalType = item.rentalType || "daily";
+
+    let proportional = 0;
+    if (rentalType === "weekly") {
+      proportional = (item.unitPrice / 7) * usedDays;
+    } else if (rentalType === "biweekly") {
+      proportional = (item.unitPrice / 15) * usedDays;
+    } else if (rentalType === "monthly") {
+      proportional = (item.unitPrice / 30) * usedDays;
+    } else {
+      proportional = item.unitPrice * usedDays;
+    }
+
+    return Number((proportional * quantity).toFixed(2));
+  }
+
+  async returnRentalItems(
+    companyId: string,
+    rentalId: string,
+    userId: string,
+    payload: {
+      returnDate?: Date;
+      notes?: string;
+      items: Array<{
+        itemId: string;
+        unitId?: string;
+        returnedQuantity?: number;
+      }>;
+    },
+  ): Promise<IRental> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+    if (!rental) {
+      throw new Error("Aluguel não encontrado");
+    }
+    if (rental.status === "completed" || rental.status === "cancelled") {
+      throw new Error("Não é possível devolver itens de aluguel finalizado/cancelado");
+    }
+
+    const finalReturnDate = payload.returnDate || new Date();
+
+    for (const reqItem of payload.items) {
+      const idx = rental.items.findIndex(
+        (it) =>
+          it.itemId.toString() === reqItem.itemId &&
+          (reqItem.unitId ? it.unitId === reqItem.unitId : true),
+      );
+      if (idx === -1) {
+        throw new Error(`Item ${reqItem.itemId} não encontrado no aluguel`);
+      }
+      const targetItem = rental.items[idx];
+      if (targetItem.returnActual) {
+        throw new Error("Item já devolvido");
+      }
+
+      const isUnit = Boolean(targetItem.unitId);
+      const returnedQuantity = isUnit
+        ? 1
+        : Math.max(1, Math.min(reqItem.returnedQuantity || targetItem.quantity, targetItem.quantity));
+
+      const periodStart = targetItem.lastBillingDate
+        ? this.addDays(targetItem.lastBillingDate, 1)
+        : targetItem.pickupScheduled || rental.dates.pickupScheduled;
+      const periodEnd = finalReturnDate;
+
+      if (periodEnd <= periodStart) {
+        throw new Error("Data de devolução deve ser posterior ao início do período de cobrança");
+      }
+
+      // devolve no estoque
+      await this.updateItemQuantityForRental(
+        companyId,
+        targetItem.itemId as any,
+        returnedQuantity,
+        "return",
+        userId,
+        rental._id,
+        targetItem.unitId,
+        rental.customerId.toString(),
+      );
+
+      const includeServices =
+        (await Billing.countDocuments({ companyId, rentalId: rental._id })) === 0;
+
+      if (returnedQuantity >= targetItem.quantity) {
+        await billingService.createPeriodicBillingForItem(
+          companyId,
+          rental,
+          targetItem,
+          periodStart,
+          periodEnd,
+          userId,
+          {
+            includeServices,
+            notes: payload.notes || "Fechamento por devolução",
+            status: "approved",
+          },
+        );
+        targetItem.returnActual = periodEnd;
+        targetItem.lastBillingDate = periodEnd;
+        targetItem.nextBillingDate = undefined;
+      } else {
+        const plainItem: any = JSON.parse(JSON.stringify(targetItem));
+        const partialItem: any = {
+          ...plainItem,
+          quantity: returnedQuantity,
+        };
+        await billingService.createPeriodicBillingForItem(
+          companyId,
+          rental,
+          partialItem,
+          periodStart,
+          periodEnd,
+          userId,
+          {
+            includeServices,
+            notes: payload.notes || "Fechamento por devolução parcial",
+            status: "approved",
+          },
+        );
+
+        // cria linha histórica devolvida
+        const returnedLine: any = {
+          ...plainItem,
+          _id: undefined,
+          quantity: returnedQuantity,
+          subtotal: this.computeItemPartialSubtotal(
+            targetItem,
+            periodStart,
+            periodEnd,
+            returnedQuantity,
+          ),
+          returnActual: periodEnd,
+          lastBillingDate: periodEnd,
+          nextBillingDate: undefined,
+        };
+        rental.items.push(returnedLine);
+
+        // mantém saldo alugado no item original
+        targetItem.quantity = targetItem.quantity - returnedQuantity;
+        targetItem.lastBillingDate = periodEnd;
+        const nextStart = this.addDays(periodEnd, 1);
+        targetItem.nextBillingDate = this.getPeriodEnd(nextStart, targetItem.rentalType || "daily");
+      }
+    }
+
+    if (payload.notes) {
+      rental.notes = [rental.notes, `[Devolução] ${payload.notes}`]
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    const allReturned = rental.items.every((item) => item.returnActual);
+    if (allReturned) {
+      rental.status = "ready_to_close";
+      rental.dates.returnActual = finalReturnDate;
+    }
+
+    await rental.save();
+    await this.syncBillingsAfterRentalChange(companyId, rentalId, userId);
+
+    const updated = await Rental.findOne({ _id: rentalId, companyId });
+    return updated || rental;
+  }
+
   /**
    * Confirma o fechamento final do aluguel (transição de ready_to_close → completed)
    * Deve ser chamado quando o usuário confirmar o fechamento após todos os itens serem devolvidos
@@ -1001,6 +1192,228 @@ class RentalService {
 
     await rental.save();
     return rental;
+  }
+
+  /**
+   * Garante fechamento inicial + rascunho do próximo período para aluguéis reservados (todos os itens).
+   */
+  private async ensureReservedRentalBillings(
+    companyId: string,
+    rental: IRental,
+    userId: string,
+  ): Promise<{ created: number }> {
+    let created = 0;
+    let includeServicesAvailable =
+      (await Billing.countDocuments({
+        companyId,
+        rentalId: rental._id,
+      })) === 0;
+
+    for (const item of rental.items) {
+      if (!item.pickupScheduled && rental.dates.pickupScheduled) {
+        item.pickupScheduled = rental.dates.pickupScheduled;
+      }
+      if (!item.pickupScheduled) {
+        continue;
+      }
+
+      const itemFilter: Record<string, unknown> = {
+        companyId,
+        rentalId: rental._id,
+        "items.itemId": item.itemId,
+      };
+      if (item.unitId) {
+        itemFilter["items.unitId"] = item.unitId;
+      }
+
+      const rt = item.rentalType || "daily";
+
+      const periodStart = this.normalizeDate(item.pickupScheduled);
+      let periodEnd = this.getPeriodEnd(periodStart, rt);
+      const itemReturn = item.returnScheduled
+        ? this.normalizeDate(item.returnScheduled)
+        : undefined;
+      if (itemReturn && itemReturn < periodEnd) {
+        periodEnd = itemReturn;
+      }
+
+      const ps = this.normalizeDate(periodStart);
+      const pe = this.normalizeDate(periodEnd);
+
+      const existingFirst = await Billing.findOne({
+        ...itemFilter,
+        periodStart: ps,
+        periodEnd: pe,
+      }).lean();
+
+      if (!existingFirst) {
+        await billingService.createPeriodicBillingForItem(
+          companyId,
+          rental,
+          item,
+          ps,
+          pe,
+          userId,
+          {
+            includeServices: includeServicesAvailable,
+            notes: "Fechamento inicial",
+            status: "approved",
+          },
+        );
+        includeServicesAvailable = false;
+        created += 1;
+      }
+
+      item.lastBillingDate = pe;
+      const nextStart = this.addDays(pe, 1);
+      if (!itemReturn || itemReturn >= nextStart) {
+        const nextEnd = this.getPeriodEnd(nextStart, rt);
+        item.nextBillingDate = nextEnd;
+
+        const ns = this.normalizeDate(nextStart);
+        const ne = this.normalizeDate(nextEnd);
+
+        const existingDraft = await Billing.findOne({
+          ...itemFilter,
+          periodStart: ns,
+          periodEnd: ne,
+        }).lean();
+
+        if (!existingDraft) {
+          await billingService.createPeriodicBillingForItem(
+            companyId,
+            rental,
+            item,
+            ns,
+            ne,
+            userId,
+            {
+              includeServices: false,
+              notes: "Fechamento previsto",
+              status: "draft",
+            },
+          );
+          created += 1;
+        }
+      }
+    }
+
+    await rental.save();
+    return { created };
+  }
+
+  /**
+   * Cria fechamentos em falta e atualiza valores dos fechamentos em aberto conforme o aluguel atual.
+   */
+  async syncBillingsAfterRentalChange(
+    companyId: string,
+    rentalId: string,
+    userId: string,
+  ): Promise<{
+    created: number;
+    draftsCreated: number;
+    refreshed: number;
+  }> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+    if (!rental) {
+      throw new Error("Aluguel não encontrado");
+    }
+    if (rental.status === "completed" || rental.status === "cancelled") {
+      return { created: 0, draftsCreated: 0, refreshed: 0 };
+    }
+
+    let created = 0;
+    let draftsCreated = 0;
+
+    if (rental.status === "reserved") {
+      const r = await this.ensureReservedRentalBillings(
+        companyId,
+        rental,
+        userId,
+      );
+      created += r.created;
+    } else if (rental.status === "active" || rental.status === "overdue") {
+      const r = await this.processDueBillings(companyId, rentalId, userId);
+      created += r.created;
+      draftsCreated += r.draftsCreated;
+    } else if (rental.status === "ready_to_close") {
+      await this.createFinalBillingIfNeeded(rental, userId);
+      await rental.save();
+    }
+
+    let refreshed = 0;
+    const openBillings = await Billing.find({
+      companyId,
+      rentalId: rental._id,
+      status: { $nin: ["paid", "cancelled"] },
+    }).select("_id");
+
+    for (const b of openBillings) {
+      try {
+        await billingService.refreshBillingFromRental(
+          companyId,
+          String(b._id),
+        );
+        refreshed += 1;
+      } catch {
+        /* fechamento pode não ser recalculável neste estado */
+      }
+    }
+
+    return { created, draftsCreated, refreshed };
+  }
+
+  /**
+   * Para aluguéis sem nenhum fechamento: gera fechamentos e alinha totais.
+   */
+  async syncMissingBillingsForCompany(
+    companyId: string,
+    userId: string,
+  ): Promise<{
+    rentalsProcessed: number;
+    created: number;
+    draftsCreated: number;
+    refreshed: number;
+  }> {
+    const statuses: RentalStatus[] = [
+      "reserved",
+      "active",
+      "overdue",
+      "ready_to_close",
+    ];
+    const rentals = await Rental.find({
+      companyId,
+      status: { $in: statuses },
+    })
+      .select("_id")
+      .lean();
+
+    let rentalsProcessed = 0;
+    let created = 0;
+    let draftsCreated = 0;
+    let refreshed = 0;
+
+    for (const r of rentals) {
+      const hasBilling = await Billing.exists({
+        companyId,
+        rentalId: r._id,
+      });
+      if (hasBilling) {
+        continue;
+      }
+
+      const sync = await this.syncBillingsAfterRentalChange(
+        companyId,
+        String(r._id),
+        userId,
+      );
+      created += sync.created;
+      draftsCreated += sync.draftsCreated;
+      refreshed += sync.refreshed;
+      rentalsProcessed += 1;
+    }
+
+    return { rentalsProcessed, created, draftsCreated, refreshed };
   }
 
   /**
@@ -1549,36 +1962,84 @@ class RentalService {
         y += rowH;
       });
 
+      if (rental.services && rental.services.length > 0) {
+        rental.services.forEach((s: any) => {
+          const qty = Number(s.quantity || 1);
+          const lineTotal = Number(
+            s.subtotal ?? s.price * qty,
+          );
+          if (y > 720) {
+            doc.addPage();
+            y = 32;
+            drawWatermark();
+            y = drawTableHeader(y);
+            doc.font("Helvetica").fontSize(7);
+          }
+          doc.text(String(qty), col.q, y, { width: 24, align: "center" });
+          doc.text("SERV", col.cod, y, { width: 44 });
+          doc.text(s.description || "Serviço", col.desc, y, { width: 232 });
+          doc.text(fmtMoney(s.price), col.unit, y, {
+            width: 64,
+            align: "right",
+          });
+          doc.text("Único", col.per, y, { width: 62, align: "center" });
+          doc.text(fmtMoney(lineTotal), col.tot, y, {
+            width: right - col.tot,
+            align: "right",
+          });
+          y += rowH;
+        });
+      }
+
       doc
         .moveTo(left, y)
         .lineTo(right, y)
         .strokeColor("#000000")
         .lineWidth(0.5)
         .stroke();
-      y += 10;
+      y += 8;
 
-      if (rental.services && rental.services.length > 0) {
-        doc.font("Helvetica-Bold").fontSize(8).text("Serviços adicionais:", left, y);
-        y += 10;
-        doc.font("Helvetica").fontSize(7);
-        rental.services.forEach((s: any) => {
-          if (y > 720) {
-            doc.addPage();
-            y = 32;
-            drawWatermark();
-          }
-          doc.text(
-            `• ${s.description || "Serviço"} — ${fmtMoney(s.subtotal ?? s.price * (s.quantity || 1))}`,
-            left,
-            y,
-            { width: contentW },
-          );
-          y += 11;
+      const sumItems = rental.items.reduce(
+        (acc: number, it: any) => acc + Number(it.subtotal ?? 0),
+        0,
+      );
+      const sumServices =
+        rental.services?.reduce(
+          (acc: number, s: any) =>
+            acc +
+            Number(s.subtotal ?? s.price * (s.quantity || 1)),
+          0,
+        ) ?? 0;
+      const subtotalTable = sumItems + sumServices;
+      const discount = Number(rental.pricing?.discount ?? 0);
+      const contractTotal =
+        rental.pricing?.total != null
+          ? Number(rental.pricing.total)
+          : Math.max(0, subtotalTable - discount);
+
+      if (discount > 0) {
+        doc.font("Helvetica").fontSize(8);
+        doc.text("Subtotal:", col.tot - 120, y, { width: 100, align: "right" });
+        doc.text(fmtMoney(subtotalTable), col.tot, y, {
+          width: right - col.tot,
+          align: "right",
         });
-        y += 4;
+        y += rowH;
+        doc.text("Desconto:", col.tot - 120, y, { width: 100, align: "right" });
+        doc.text(fmtMoney(discount), col.tot, y, {
+          width: right - col.tot,
+          align: "right",
+        });
+        y += rowH;
       }
 
-      y += 6;
+      doc.font("Helvetica-Bold").fontSize(9);
+      doc.text("TOTAL:", col.tot - 120, y, { width: 100, align: "right" });
+      doc.text(fmtMoney(contractTotal), col.tot, y, {
+        width: right - col.tot,
+        align: "right",
+      });
+      y += rowH + 6;
       if (y > 520) {
         doc.addPage();
         y = 32;
@@ -2362,7 +2823,8 @@ class RentalService {
     rental.pricing.total = Math.max(0, totalSubtotal + (rental.pricing.deposit || 0) - rental.pricing.discount);
 
     await rental.save();
-    return rental;
+    await this.syncBillingsAfterRentalChange(companyId, rentalId, userId);
+    return Rental.findOne({ _id: rentalId, companyId });
   }
 
   /**
@@ -2745,71 +3207,13 @@ class RentalService {
           Math.max(...returns.map((d) => d.getTime())),
         );
       }
-
-      if (rental.status === "reserved") {
-        let includeServicesAvailable =
-          (await Billing.countDocuments({
-            companyId,
-            rentalId: rental._id,
-          })) === 0;
-
-        for (const changed of changedItems) {
-          const item = rental.items.find(
-            (i) =>
-              i.itemId.toString() === changed.itemId &&
-              (changed.unitId ? i.unitId === changed.unitId : !i.unitId),
-          );
-          if (!item || item.rentalType === "daily") continue;
-
-          const periodStart = this.normalizeDate(item.pickupScheduled);
-          let periodEnd = this.getPeriodEnd(periodStart, item.rentalType);
-          const itemReturn = item.returnScheduled
-            ? this.normalizeDate(item.returnScheduled)
-            : undefined;
-          if (itemReturn && itemReturn < periodEnd) {
-            periodEnd = itemReturn;
-          }
-
-          await billingService.createPeriodicBillingForItem(
-            companyId,
-            rental,
-            item,
-            this.normalizeDate(periodStart),
-            this.normalizeDate(periodEnd),
-            userId,
-            {
-              includeServices: includeServicesAvailable,
-              notes: "Fechamento inicial",
-              status: "approved",
-            },
-          );
-          includeServicesAvailable = false;
-
-          item.lastBillingDate = periodEnd;
-          const nextStart = this.addDays(periodEnd, 1);
-          if (!itemReturn || itemReturn >= nextStart) {
-            const nextEnd = this.getPeriodEnd(nextStart, item.rentalType);
-            item.nextBillingDate = nextEnd;
-
-            await billingService.createPeriodicBillingForItem(
-              companyId,
-              rental,
-              item,
-              this.normalizeDate(nextStart),
-              this.normalizeDate(nextEnd),
-              userId,
-              {
-                includeServices: false,
-                notes: "Fechamento previsto",
-                status: "draft",
-              },
-            );
-          }
-        }
-      } else if (rental.status === "active" || rental.status === "overdue") {
-        await this.processDueBillings(companyId, rentalId, userId);
-      }
     }
+
+    const shouldSyncBillings =
+      (hasDateChanges || hasItemChanges) &&
+      ["reserved", "active", "overdue", "ready_to_close"].includes(
+        rental.status,
+      );
 
     await this.addChangeHistory(
       rental,
@@ -2820,7 +3224,15 @@ class RentalService {
     );
 
     await rental.save();
-    return { rental, requiresApproval: false };
+
+    if (shouldSyncBillings) {
+      await this.syncBillingsAfterRentalChange(companyId, rentalId, userId);
+    }
+
+    const finalRental =
+      (await Rental.findOne({ _id: rentalId, companyId })) || rental;
+
+    return { rental: finalRental, requiresApproval: false };
   }
 
   /**
@@ -3661,67 +4073,107 @@ class RentalService {
     return rental;
   }
 
-  /**
-   * NOVO: Alterar tipo de aluguel (com aprovação se necessário)
-   */
-  async changeRentalType(
+  async changeRentalTypeFromEvent(
     companyId: string,
     rentalId: string,
-    itemIndex: number,
+    itemId: string,
     newRentalType: RentalType,
     userId: string,
-    isAdmin: boolean = false,
+    options?: {
+      unitId?: string;
+      effectiveDate?: Date;
+      notes?: string;
+    },
   ): Promise<IRental | null> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
-
     if (!rental) {
       throw new Error("Rental not found");
     }
 
-    if (itemIndex < 0 || itemIndex >= rental.items.length) {
-      throw new Error("Item index out of range");
+    const item = rental.items.find(
+      (i) =>
+        i.itemId.toString() === itemId &&
+        (options?.unitId ? i.unitId === options.unitId : true),
+    );
+    if (!item) {
+      throw new Error("Item not found in rental");
+    }
+    if (item.returnActual) {
+      throw new Error("Não é possível alterar tipo de item já devolvido");
     }
 
-    const item = rental.items[itemIndex];
     const previousRentalType = item.rentalType || "daily";
-
-    // Se não for admin, requer aprovação
-    if (!isAdmin) {
-      return this.requestApproval(
-        companyId,
-        rentalId,
-        "rental_type_change",
-        {
-          itemIndex,
-          itemId: item.itemId.toString(),
-          previousRentalType,
-          newRentalType,
-          previousValue: previousRentalType,
-          newValue: newRentalType,
-        },
-        userId,
-        `Alteração de tipo de aluguel de ${previousRentalType} para ${newRentalType}`,
-      );
+    if (previousRentalType === newRentalType) {
+      return rental;
     }
 
-    // Aplicar alteração diretamente se admin
+    const effectiveDate = options?.effectiveDate || new Date();
+    const periodStart = item.lastBillingDate
+      ? this.addDays(item.lastBillingDate, 1)
+      : item.pickupScheduled || rental.dates.pickupScheduled;
+
+    if (effectiveDate > periodStart) {
+      await billingService.createPeriodicBillingForItem(
+        companyId,
+        rental,
+        item,
+        periodStart,
+        effectiveDate,
+        userId,
+        {
+          includeServices: false,
+          notes: options?.notes || "Fechamento por mudança de tipo",
+          status: "approved",
+        },
+      );
+      item.lastBillingDate = effectiveDate;
+    }
+
     item.rentalType = newRentalType;
+    item.nextBillingDate = this.getPeriodEnd(
+      this.addDays(item.lastBillingDate || periodStart, 1),
+      newRentalType,
+    );
 
-    // Recalcular preço do item seria necessário aqui
-    // (precisa buscar o item do inventário)
-
-    // Registrar no histórico
     await this.addChangeHistory(
       rental,
       "rental_type_change",
       previousRentalType,
       newRentalType,
       userId,
-      `Alterado por admin`,
+      options?.notes || "Alteração de tipo no evento",
     );
 
     await rental.save();
-    return rental;
+    await this.syncBillingsAfterRentalChange(companyId, rentalId, userId);
+    return Rental.findOne({ _id: rentalId, companyId });
+  }
+
+  // compatibilidade com endpoint legado baseado em índice
+  async changeRentalType(
+    companyId: string,
+    rentalId: string,
+    itemIndex: number,
+    newRentalType: RentalType,
+    userId: string,
+  ): Promise<IRental | null> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+    if (!rental) {
+      throw new Error("Rental not found");
+    }
+    if (itemIndex < 0 || itemIndex >= rental.items.length) {
+      throw new Error("Item index out of range");
+    }
+
+    const item = rental.items[itemIndex];
+    return this.changeRentalTypeFromEvent(
+      companyId,
+      rentalId,
+      item.itemId.toString(),
+      newRentalType,
+      userId,
+      { unitId: item.unitId },
+    );
   }
 }
 

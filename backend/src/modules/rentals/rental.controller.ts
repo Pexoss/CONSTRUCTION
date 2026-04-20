@@ -9,6 +9,8 @@ import {
   requestApprovalSchema,
   approvalActionSchema,
   rejectApprovalSchema,
+  returnRentalItemsSchema,
+  changeRentalTypeEventSchema,
 } from "./rental.validator";
 import { Rental } from "./rental.model";
 import { Customer } from "../customers/customer.model";
@@ -148,6 +150,40 @@ export class RentalController {
         success: true,
         message: "Item closed successfully",
         data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async returnRentalItems(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const rentalId = req.params.id;
+      const data = returnRentalItemsSchema.parse(req.body);
+
+      const result = await rentalService.returnRentalItems(
+        companyId,
+        rentalId,
+        userId,
+        {
+          returnDate: data.returnDate
+            ? new Date(data.returnDate)
+            : undefined,
+          notes: data.notes,
+          items: data.items,
+        },
+      );
+
+      res.json({
+        success: true,
+        message: "Devolução processada com sucesso",
+        data: result,
       });
     } catch (error) {
       next(error);
@@ -720,24 +756,24 @@ export class RentalController {
       const companyId = req.companyId!;
       const rentalId = req.params.id;
       const userId = req.user!._id.toString();
-      const { itemIndex, newRentalType } = req.body;
-      const isAdmin = req.user?.role === "admin";
+      const parsed = changeRentalTypeEventSchema.parse({
+        ...req.body,
+        itemId: req.params.itemId || req.body?.itemId,
+      });
 
-      if (itemIndex === undefined || !newRentalType) {
-        res.status(400).json({
-          success: false,
-          message: "itemIndex and newRentalType are required",
-        });
-        return;
-      }
-
-      const rental = await rentalService.changeRentalType(
+      const rental = await rentalService.changeRentalTypeFromEvent(
         companyId,
         rentalId,
-        itemIndex,
-        newRentalType,
+        parsed.itemId,
+        parsed.newRentalType,
         userId,
-        isAdmin,
+        {
+          unitId: parsed.unitId,
+          effectiveDate: parsed.effectiveDate
+            ? new Date(parsed.effectiveDate)
+            : undefined,
+          notes: parsed.notes,
+        },
       );
 
       if (!rental) {

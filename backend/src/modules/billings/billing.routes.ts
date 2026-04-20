@@ -15,6 +15,12 @@ router.post('/', billingController.createBilling.bind(billingController));
 // Listar fechamentos
 router.get('/', billingController.getBillings.bind(billingController));
 
+// Gerar fechamentos em falta para aluguéis sem nenhum fechamento
+router.post(
+  '/sync-missing-rentals',
+  billingController.syncMissingRentals.bind(billingController),
+);
+
 // Listar pendentes de aprovação
 router.get('/pending-approvals', billingController.getPendingApprovals.bind(billingController));
 
@@ -32,5 +38,9 @@ router.post('/:id/reject', billingController.rejectBilling.bind(billingControlle
 
 // Marcar como pago
 router.post('/:id/mark-as-paid', billingController.markAsPaid.bind(billingController));
+router.put('/:id', billingController.updateBilling.bind(billingController));
+router.post('/:id/cancel', billingController.cancelBilling.bind(billingController));
+router.get('/:id/refresh-preview', billingController.previewRefreshBilling.bind(billingController));
+router.post('/:id/refresh', billingController.refreshBilling.bind(billingController));
 
 export default router;

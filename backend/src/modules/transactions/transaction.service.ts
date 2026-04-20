@@ -5,6 +5,35 @@ import { ITransaction, TransactionType, TransactionStatus } from './transaction.
 import mongoose from 'mongoose';
 
 class TransactionService {
+  async createSystemIncomeFromSettlement(
+    companyId: string,
+    data: {
+      amount: number;
+      description: string;
+      dueDate?: Date;
+      paidDate?: Date;
+      relatedTo?: { type: "rental" | "maintenance" | "other"; id: mongoose.Types.ObjectId };
+      paymentMethod?: string;
+    },
+    userId: string
+  ): Promise<ITransaction> {
+    const transaction = await Transaction.create({
+      companyId,
+      type: "income",
+      category: "rental_settlement",
+      amount: data.amount,
+      description: data.description,
+      status: "paid",
+      dueDate: data.dueDate,
+      paidDate: data.paidDate || new Date(),
+      relatedTo: data.relatedTo,
+      paymentMethod: data.paymentMethod,
+      createdBy: userId,
+    });
+
+    return transaction;
+  }
+
   /**
    * Create a new transaction
    */

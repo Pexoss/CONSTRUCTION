@@ -8,6 +8,7 @@ export interface IInvoice extends Document {
   invoiceNumber: string;
   /** Fechamentos (billings) agrupados nesta fatura, quando criada a partir de fechamentos */
   billingIds?: mongoose.Types.ObjectId[];
+  chargeIds?: mongoose.Types.ObjectId[];
   rentalId?: mongoose.Types.ObjectId;
   customerId: mongoose.Types.ObjectId;
   /** Forma de pagamento exibida na fatura (ex.: boleto/PIX) */
@@ -25,6 +26,7 @@ export interface IInvoice extends Document {
   discount?: number;
   total: number;
   status: InvoiceStatus;
+  governsFinancialStatus?: boolean;
   issueDate: Date;
   dueDate: Date;
   paidDate?: Date;

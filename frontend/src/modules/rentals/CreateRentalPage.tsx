@@ -1328,7 +1328,7 @@ const CreateRentalPage: React.FC = () => {
                           Endereço da Obra
                         </h2>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                          Opcional - para entrega no local
+                          Opcional - para devolução no local
                         </p>
                       </div>
                       {customerAddresses.length > 0 && (

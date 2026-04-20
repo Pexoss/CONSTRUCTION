@@ -1,6 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import billingService from './billing.service';
-import { createBillingSchema, approveBillingSchema, rejectBillingSchema, markAsPaidSchema } from './billing.validator';
+import { rentalService } from '../rentals/rental.service';
+import {
+  createBillingSchema,
+  approveBillingSchema,
+  rejectBillingSchema,
+  markAsPaidSchema,
+  updateBillingSchema,
+} from './billing.validator';
 
 class BillingController {
   /**
@@ -44,11 +51,40 @@ class BillingController {
       if (req.query.customerId) filters.customerId = req.query.customerId as string;
       if (req.query.status) filters.status = req.query.status as string;
       if (req.query.startDate) filters.startDate = new Date(req.query.startDate as string);
-      if (req.query.endDate) filters.endDate = new Date(req.query.endDate as string);
+      if (req.query.endDate) {
+        const end = new Date(req.query.endDate as string);
+        end.setHours(23, 59, 59, 999);
+        filters.endDate = end;
+      }
+      if (req.query.onlyOverdue !== undefined) {
+        filters.onlyOverdue = String(req.query.onlyOverdue).toLowerCase() === 'true';
+      }
       if (req.query.page) filters.page = parseInt(req.query.page as string);
       if (req.query.limit) filters.limit = parseInt(req.query.limit as string);
 
       const result = await billingService.getBillings(companyId, filters);
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
+   * Cria fechamentos para aluguéis em aberto que ainda não possuem nenhum fechamento.
+   */
+  async syncMissingRentals(req: Request, res: Response, next: NextFunction) {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+
+      const result = await rentalService.syncMissingBillingsForCompany(
+        companyId,
+        userId,
+      );
 
       res.json({
         success: true,
@@ -163,6 +199,7 @@ class BillingController {
         id,
         data.paymentMethod,
         paymentDate,
+        data.amount,
         data.discount,
         data.discountReason
       );
@@ -190,6 +227,57 @@ class BillingController {
         success: true,
         data: billings,
       });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  async updateBilling(req: Request, res: Response, next: NextFunction) {
+    try {
+      const companyId = req.companyId!;
+      const { id } = req.params;
+      const data = updateBillingSchema.parse(req.body);
+      const billing = await billingService.updateBilling(companyId, id, {
+        periodStart: data.periodStart ? new Date(data.periodStart) : undefined,
+        periodEnd: data.periodEnd ? new Date(data.periodEnd) : undefined,
+        notes: data.notes,
+        discount: data.discount,
+        discountReason: data.discountReason,
+      });
+      res.json({ success: true, data: billing, message: 'Billing updated successfully' });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  async cancelBilling(req: Request, res: Response, next: NextFunction) {
+    try {
+      const companyId = req.companyId!;
+      const { id } = req.params;
+      const billing = await billingService.cancelBilling(companyId, id);
+      res.json({ success: true, data: billing, message: 'Billing cancelled successfully' });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  async refreshBilling(req: Request, res: Response, next: NextFunction) {
+    try {
+      const companyId = req.companyId!;
+      const { id } = req.params;
+      const billing = await billingService.refreshBillingFromRental(companyId, id);
+      res.json({ success: true, data: billing, message: 'Billing refreshed successfully' });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  async previewRefreshBilling(req: Request, res: Response, next: NextFunction) {
+    try {
+      const companyId = req.companyId!;
+      const { id } = req.params;
+      const preview = await billingService.previewBillingRefresh(companyId, id);
+      res.json({ success: true, data: preview });
     } catch (error: any) {
       next(error);
     }

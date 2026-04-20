@@ -1,5 +1,7 @@
 export type BillingStatus = 'draft' | 'pending_approval' | 'approved' | 'paid' | 'cancelled';
 export type RentalType = 'daily' | 'weekly' | 'biweekly' | 'monthly';
+export type FinancialStage = 'pending' | 'charge' | 'invoiced' | 'paid' | 'cancelled';
+export type FinancialGovernance = 'charge' | 'invoice';
 
 export interface BillingCalculation {
   periodsCompleted: number;
@@ -34,6 +36,11 @@ export interface Billing {
   calculation: BillingCalculation;
   items?: BillingItem[];
   status: BillingStatus;
+  financialStage?: FinancialStage;
+  governance?: FinancialGovernance;
+  chargeId?: string;
+  invoiceId?: string;
+  outstandingAmount?: number;
   paymentDate?: string;
   paymentMethod?: string;
   notes?: string;
@@ -45,6 +52,7 @@ export interface BillingFilters {
   status?: BillingStatus;
   startDate?: string;
   endDate?: string;
+  onlyOverdue?: boolean;
   page?: number;
   limit?: number;
 }

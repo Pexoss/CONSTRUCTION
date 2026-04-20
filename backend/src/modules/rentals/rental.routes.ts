@@ -18,6 +18,7 @@ router.get('/rentals', rentalController.getRentals.bind(rentalController));
 router.get('/rentals/:id', rentalController.getRentalById.bind(rentalController));
 router.post('/rentals/:id/close',rentalController.closeRental.bind(rentalController));
 router.post('/rentals/:id/items/:itemId/close', rentalController.closeRentalItem.bind(rentalController));
+router.post('/rentals/:id/returns', rentalController.returnRentalItems.bind(rentalController));
 router.post('/rentals/:id/confirm-closure', rentalController.confirmRentalClosure.bind(rentalController));
 router.get('/rentals/:id/items/:itemId/close-preview', rentalController.getClosePreviewItem.bind(rentalController));
 router.get('/rentals/:id/pdf', rentalController.generateRentalPDF.bind(rentalController));
@@ -38,6 +39,7 @@ router.post('/rentals/:id/reject/:approvalId', rentalController.rejectRequest.bi
 router.get('/rentals/:id/change-history', rentalController.getChangeHistory.bind(rentalController));
 router.post('/rentals/:id/discount', rentalController.applyDiscount.bind(rentalController));
 router.post('/rentals/:id/change-rental-type', rentalController.changeRentalType.bind(rentalController));
+router.post('/rentals/:id/items/:itemId/change-rental-type', rentalController.changeRentalType.bind(rentalController));
 
 
 export default router;

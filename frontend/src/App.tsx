@@ -37,6 +37,8 @@ import CreateMaintenancePage from "./modules/maintenance/CreateMaintenancePage";
 import EditMaintenancePage from "./modules/maintenance/EditMaintenancePage";
 import MaintenanceDetailPage from "./modules/maintenance/MaintenanceDetailPage";
 import FinancialDashboardPage from "./modules/transactions/FinancialDashboardPage";
+import FinancialCenterPage from "./modules/financial/FinancialCenterPage";
+import FinancialKanbanDashboardPage from "./modules/financial/FinancialKanbanDashboardPage";
 import InvoicesPage from "./modules/invoices/InvoicesPage";
 import CreateInvoicePage from "./modules/invoices/CreateInvoicePage";
 import ReportsPage from "./modules/reports/ReportsPage";
@@ -239,6 +241,22 @@ function App() {
               />
               <Route
                 path="/finance"
+                element={
+                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
+                    <FinancialCenterPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/finance/dashboard-kanban"
+                element={
+                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
+                    <FinancialKanbanDashboardPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/finance/legacy"
                 element={
                   <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
                     <FinancialDashboardPage />

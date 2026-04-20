@@ -18,6 +18,7 @@ export const rejectBillingSchema = z.object({
 export const markAsPaidSchema = z.object({
   paymentMethod: z.string().min(1, 'Payment method is required'),
   paymentDate: z.string().datetime().or(z.date()).optional(),
+  amount: z.number().positive().optional(),
   discount: z.number().min(0).optional(),
   discountReason: z.string().optional(),
 });
@@ -30,4 +31,12 @@ export const getBillingsSchema = z.object({
   endDate: z.string().datetime().or(z.date()).optional(),
   page: z.string().regex(/^\d+$/).transform(Number).optional(),
   limit: z.string().regex(/^\d+$/).transform(Number).optional(),
+});
+
+export const updateBillingSchema = z.object({
+  periodStart: z.string().datetime().or(z.date()).optional(),
+  periodEnd: z.string().datetime().or(z.date()).optional(),
+  notes: z.string().optional(),
+  discount: z.number().min(0).optional(),
+  discountReason: z.string().optional(),
 });

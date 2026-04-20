@@ -6,6 +6,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { inventoryService } from "../inventory/inventory.service";
 import { rentalService } from "../rentals/rental.service";
 import { maintenanceService } from "../maintenance/maintenance.service";
+import { features } from "../../config/features";
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -80,6 +81,15 @@ const Dashboard: React.FC = () => {
           description: "Faturamento e fluxo de caixa",
           to: "/finance",
         },
+        ...(features.financialUnifiedModule
+          ? [
+              {
+                title: "Quadro de fechamentos",
+                description: "Kanban de fechamentos somente leitura (filtros e visão geral)",
+                to: "/finance/dashboard-kanban",
+              },
+            ]
+          : []),
 
         {
           title: "Vencimentos",

@@ -5,6 +5,7 @@ import { rentalService } from "./rental.service";
 import { RentalFilters, RentalStatus } from "../../types/rental.types";
 import { CheckCircle } from "lucide-react";
 import Layout from "../../components/Layout";
+import { rentalStatusLabel } from "../../utils/statusLabels";
 const RentalsPage: React.FC = () => {
   const location = useLocation();
   const [filters, setFilters] = useState<RentalFilters>({
@@ -46,15 +47,7 @@ const RentalsPage: React.FC = () => {
   };
 
   const getStatusLabel = (status: RentalStatus) => {
-    const labels = {
-      reserved: "Reservado",
-      active: "Ativo",
-      overdue: "Atrasado",
-      completed: "Finalizado",
-      cancelled: "Cancelado",
-      ready_to_close: "Pronto para fechar",
-    };
-    return labels[status];
+    return rentalStatusLabel[status] || status;
   };
 
   const handleDownloadRentalPDF = async (rentalId: string) => {

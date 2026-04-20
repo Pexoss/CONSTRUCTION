@@ -99,6 +99,26 @@ export const rentalService = {
     return response.data;
   },
 
+  returnRentalItems: async (
+    rentalId: string,
+    data: {
+      returnDate?: string;
+      notes?: string;
+      items: Array<{
+        itemId: string;
+        unitId?: string;
+        returnedQuantity?: number;
+      }>;
+    },
+  ) => {
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(`/rentals/${rentalId}/returns`, data);
+    return response.data;
+  },
+
   createRental: async (data: CreateRentalData) => {
     const response = await api.post<{
       success: boolean;
@@ -198,6 +218,24 @@ export const rentalService = {
       data: Rental;
     }>(`/rentals/${rentalId}/close`);
 
+    return response.data;
+  },
+
+  changeRentalTypeForItem: async (
+    rentalId: string,
+    itemId: string,
+    data: {
+      unitId?: string;
+      newRentalType: "daily" | "weekly" | "biweekly" | "monthly";
+      effectiveDate?: string;
+      notes?: string;
+    },
+  ) => {
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(`/rentals/${rentalId}/items/${itemId}/change-rental-type`, data);
     return response.data;
   },
 

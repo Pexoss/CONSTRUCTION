@@ -22,6 +22,8 @@ const envSchema = z.object({
   CPFCNPJ_CPF_PACKAGE_ID: z.string().default('1'),
   CPFCNPJ_CNPJ_PACKAGE_ID: z.string().default('4'),
   CPFCNPJ_TIMEOUT_MS: z.string().default('60000'),
+  FINANCIAL_UNIFIED_MODULE: z.string().default('false'),
+  FINANCIAL_LIFECYCLE_V2: z.string().default('false'),
 });
 
 const parseEnv = () => {

@@ -15,6 +15,7 @@ import {
   Clock,
   PlusCircle,
 } from "lucide-react";
+import { invoiceStatusLabel } from "../../utils/statusLabels";
 
 const InvoicesPage: React.FC = () => {
   const [filters, setFilters] = useState<InvoiceFilters>({
@@ -60,13 +61,7 @@ const InvoicesPage: React.FC = () => {
   };
 
   const getStatusLabel = (status: InvoiceStatus) => {
-    const labels = {
-      draft: "Rascunho",
-      sent: "Enviada",
-      paid: "Paga",
-      cancelled: "Cancelada",
-    };
-    return labels[status];
+    return invoiceStatusLabel[status] || status;
   };
 
   const getStatusIcon = (status: InvoiceStatus) => {

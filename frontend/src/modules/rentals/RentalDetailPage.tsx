@@ -16,10 +16,12 @@ import { SuccessToast } from "../../components/SuccessToast";
 import { useAuth } from "hooks/useAuth";
 import { toast } from "react-toastify";
 import { useItems } from "../../hooks/useInventory";
+import { createPortal } from "react-dom";
 import {
   formatDocumentForDisplay,
   formatPhoneForDisplay,
 } from "../../utils/formatters";
+import { features } from "../../config/features";
 const RentalDetailPage: React.FC = () => {
   const rentalTypeApiToUi: Record<string, RentalTypeUI> = {
     daily: "diario",
@@ -113,6 +115,10 @@ const RentalDetailPage: React.FC = () => {
   });
   const [closeItemModal, setCloseItemModal] = useState(false);
   const [closeItemReturnDate, setCloseItemReturnDate] = useState("");
+  const [closeItemReturnedQuantity, setCloseItemReturnedQuantity] = useState(1);
+  const [closeItemNewRentalType, setCloseItemNewRentalType] = useState<
+    "daily" | "weekly" | "biweekly" | "monthly" | ""
+  >("");
   const [closeItemPreview, setCloseItemPreview] = useState<{
     originalTotal: number;
     recalculatedTotal: number;
@@ -126,6 +132,8 @@ const RentalDetailPage: React.FC = () => {
     itemId: string;
     unitId?: string;
     name: string;
+    quantity: number;
+    rentalType?: "daily" | "weekly" | "biweekly" | "monthly";
   } | null>(null);
   const [editForm, setEditForm] = useState({
     notes: "",
@@ -529,8 +537,14 @@ const RentalDetailPage: React.FC = () => {
       unitId: item.unitId,
       name:
         typeof item.itemId === "object" ? item.itemId.name || "Item" : "Item",
+      quantity: Number(item.quantity || 1),
+      rentalType:
+        (item.rentalType as "daily" | "weekly" | "biweekly" | "monthly") ||
+        "daily",
     });
     setCloseItemReturnDate(new Date().toISOString().split("T")[0]);
+    setCloseItemReturnedQuantity(Number(item.quantity || 1));
+    setCloseItemNewRentalType("");
     setCloseItemLoading(true);
     try {
       const preview = await rentalService.getClosePreviewItem(
@@ -1313,6 +1327,183 @@ const RentalDetailPage: React.FC = () => {
             </div>
           </div>
         </div>
+        {showAddItemModal &&
+          createPortal(
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-2xl">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Adicionar item ao aluguel
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddItemModal(false)}
+                    className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="p-6 space-y-3">
+                  <input
+                    type="text"
+                    placeholder="Buscar item por nome, descrição ou SKU..."
+                    value={addItemSearch}
+                    onChange={(e) => setAddItemSearch(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                  <select
+                    value={newItemForm.itemId}
+                    onChange={(e) =>
+                      setNewItemForm({
+                        ...newItemForm,
+                        itemId: e.target.value,
+                        unitId: "",
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  >
+                    <option value="">Selecione o item</option>
+                    {filteredInventoryItems.map((item: any) => (
+                      <option key={item._id} value={item._id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedInventoryItem?.trackingType === "unit" && (
+                    <select
+                      value={newItemForm.unitId || ""}
+                      onChange={(e) =>
+                        setNewItemForm({
+                          ...newItemForm,
+                          unitId: e.target.value,
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    >
+                      <option value="">Selecione a unidade</option>
+                      {selectedInventoryItem?.units
+                        ?.filter((u: any) => u.status === "available")
+                        .map((unit: any) => (
+                          <option key={unit.unitId} value={unit.unitId}>
+                            Unidade: {unit.unitId}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      value={newItemForm.quantity}
+                      onChange={(e) =>
+                        setNewItemForm({
+                          ...newItemForm,
+                          quantity: Number(e.target.value) || 1,
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                    <select
+                      value={newItemForm.rentalType}
+                      onChange={(e) =>
+                        setNewItemForm({
+                          ...newItemForm,
+                          rentalType: e.target.value as RentalTypeUI,
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    >
+                      <option value="diario">Diário</option>
+                      <option value="semanal">Semanal</option>
+                      <option value="quinzenal">Quinzenal</option>
+                      <option value="mensal">Mensal</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="date"
+                      value={newItemForm.pickupDate}
+                      onChange={(e) =>
+                        setNewItemForm({
+                          ...newItemForm,
+                          pickupDate: e.target.value,
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                    <input
+                      type="date"
+                      value={newItemForm.returnDate}
+                      onChange={(e) =>
+                        setNewItemForm({
+                          ...newItemForm,
+                          returnDate: e.target.value,
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddItemModal(false)}
+                      className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!newItemForm.itemId) {
+                          toast.error("Selecione um item.");
+                          return;
+                        }
+                        if (selectedInventoryItem?.trackingType === "unit" && !newItemForm.unitId) {
+                          toast.error("Selecione a unidade.");
+                          return;
+                        }
+                        if (!newItemForm.pickupDate) {
+                          toast.error("Informe a retirada do item.");
+                          return;
+                        }
+                        if (newItemForm.returnDate && newItemForm.returnDate < newItemForm.pickupDate) {
+                          toast.error("A devolução deve ser posterior à retirada.");
+                          return;
+                        }
+                        setEditForm({
+                          ...editForm,
+                          items: [
+                            ...editForm.items,
+                            {
+                              itemId: newItemForm.itemId,
+                              unitId: newItemForm.unitId,
+                              quantity: newItemForm.quantity,
+                              rentalType: newItemForm.rentalType,
+                              pickupDate: newItemForm.pickupDate,
+                              returnDate: newItemForm.returnDate,
+                            },
+                          ],
+                        });
+                        setNewItemForm({
+                          itemId: "",
+                          unitId: "",
+                          quantity: 1,
+                          rentalType: "diario",
+                          pickupDate: "",
+                          returnDate: "",
+                        });
+                        setShowAddItemModal(false);
+                      }}
+                      className="px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-md text-sm font-medium"
+                    >
+                      + Adicionar item
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )}
       </Layout>
     );
   }
@@ -1706,7 +1897,7 @@ const RentalDetailPage: React.FC = () => {
                               onClick={() => handleAbrirFinalizacaoItem(item)}
                               className="mt-2 inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
                             >
-                              Finalizar entrega deste item
+                              Finalizar devolução deste item
                             </button>
                           )}
                         </div>
@@ -1755,7 +1946,7 @@ const RentalDetailPage: React.FC = () => {
                 {rental.workAddress && rental.workAddress.street && (
                   <div className="mt-6">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                      Endereço de entrega
+                      Endereço de devolução
                     </h3>
                     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-900/50">
                       <div className="font-medium text-gray-900 dark:text-white">
@@ -1794,11 +1985,17 @@ const RentalDetailPage: React.FC = () => {
                     </h2>
                     <button
                       type="button"
-                      disabled={processBillingMutation.isPending}
-                      onClick={() => void handleAtualizarFechamentos()}
+                      disabled={!features.financialUnifiedModule && processBillingMutation.isPending}
+                      onClick={() =>
+                        features.financialUnifiedModule
+                          ? navigate("/finance")
+                          : void handleAtualizarFechamentos()
+                      }
                       className="ml-auto text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {processBillingMutation.isPending
+                      {features.financialUnifiedModule
+                        ? "Gerenciar no financeiro"
+                        : processBillingMutation.isPending
                         ? "Atualizando…"
                         : "Atualizar fechamentos"}
                     </button>
@@ -3127,7 +3324,7 @@ const RentalDetailPage: React.FC = () => {
                   </svg>
                 </div>
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Finalizar entrega do item
+                  Finalizar devolução do item
                 </h2>
               </div>
 
@@ -3187,6 +3384,58 @@ const RentalDetailPage: React.FC = () => {
                 onChange={(e) => setCloseItemReturnDate(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm mb-4"
               />
+              {selectedCloseItem && selectedCloseItem.quantity > 1 && (
+                <>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Quantidade a devolver
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={selectedCloseItem.quantity}
+                    value={closeItemReturnedQuantity}
+                    onChange={(e) =>
+                      setCloseItemReturnedQuantity(
+                        Math.max(
+                          1,
+                          Math.min(
+                            selectedCloseItem.quantity,
+                            Number(e.target.value || 1),
+                          ),
+                        ),
+                      )
+                    }
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm mb-4"
+                  />
+                </>
+              )}
+              {selectedCloseItem && (
+                <>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Alterar tipo para o saldo remanescente (opcional)
+                  </label>
+                  <select
+                    value={closeItemNewRentalType}
+                    onChange={(e) =>
+                      setCloseItemNewRentalType(
+                        e.target.value as
+                          | "daily"
+                          | "weekly"
+                          | "biweekly"
+                          | "monthly"
+                          | "",
+                      )
+                    }
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm mb-4"
+                  >
+                    <option value="">Manter tipo atual</option>
+                    <option value="daily">Diário</option>
+                    <option value="weekly">Semanal</option>
+                    <option value="biweekly">Quinzenal</option>
+                    <option value="monthly">Mensal</option>
+                  </select>
+                </>
+              )}
 
               <div className="flex justify-end gap-2">
                 <button
@@ -3199,16 +3448,47 @@ const RentalDetailPage: React.FC = () => {
                   onClick={async () => {
                     if (!selectedCloseItem || !id) return;
                     try {
-                      await rentalService.closeRentalItem(
-                        id,
-                        selectedCloseItem.itemId,
-                        {
-                          returnDate: closeItemReturnDate
-                            ? new Date(closeItemReturnDate).toISOString()
-                            : undefined,
-                          unitId: selectedCloseItem.unitId,
-                        },
-                      );
+                      const returnDateIso = closeItemReturnDate
+                        ? new Date(closeItemReturnDate).toISOString()
+                        : undefined;
+                      const isPartial =
+                        selectedCloseItem.quantity > 1 &&
+                        closeItemReturnedQuantity < selectedCloseItem.quantity;
+
+                      if (isPartial) {
+                        await rentalService.returnRentalItems(id, {
+                          returnDate: returnDateIso,
+                          items: [
+                            {
+                              itemId: selectedCloseItem.itemId,
+                              unitId: selectedCloseItem.unitId,
+                              returnedQuantity: closeItemReturnedQuantity,
+                            },
+                          ],
+                        });
+                      } else {
+                        await rentalService.closeRentalItem(
+                          id,
+                          selectedCloseItem.itemId,
+                          {
+                            returnDate: returnDateIso,
+                            unitId: selectedCloseItem.unitId,
+                          },
+                        );
+                      }
+
+                      if (closeItemNewRentalType) {
+                        await rentalService.changeRentalTypeForItem(
+                          id,
+                          selectedCloseItem.itemId,
+                          {
+                            unitId: selectedCloseItem.unitId,
+                            newRentalType: closeItemNewRentalType,
+                            effectiveDate: returnDateIso,
+                            notes: "Alteração de tipo após devolução",
+                          },
+                        );
+                      }
                       setCloseItemModal(false);
                       queryClient.invalidateQueries({
                         queryKey: ["rental", id],
@@ -3217,9 +3497,9 @@ const RentalDetailPage: React.FC = () => {
                       queryClient.invalidateQueries({
                         queryKey: ["rental-billings", id],
                       });
-                      toast.success("Entrega do item finalizada.");
+                      toast.success("Devolução processada com sucesso.");
                     } catch {
-                      toast.error("Erro ao finalizar entrega do item.");
+                      toast.error("Erro ao processar devolução do item.");
                     }
                   }}
                   className="px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
@@ -3309,8 +3589,9 @@ const RentalDetailPage: React.FC = () => {
             </div>
           </div>
         )}
-        {showAddItemModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
+        {showAddItemModal &&
+          createPortal(
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-2xl">
               <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -3482,8 +3763,9 @@ const RentalDetailPage: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
-        )}
+            </div>,
+            document.body,
+          )}
       </div>
     </Layout>
   );
