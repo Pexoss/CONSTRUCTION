@@ -67,3 +67,39 @@ export const formatPhoneForDisplay = (value?: string | null): string => {
   }
   return raw;
 };
+
+/**
+ * Formata datas ISO UTC (ex: 2026-04-01T00:00:00.000Z) sem deslocar por fuso.
+ * Evita mostrar "um dia a menos" na UI.
+ */
+export const formatDateNoTimezoneShift = (
+  value?: string | Date | null,
+): string => {
+  if (!value) return "";
+  const str = value instanceof Date ? value.toISOString() : String(value);
+  const ymd = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymd) {
+    return `${ymd[3]}/${ymd[2]}/${ymd[1]}`;
+  }
+  const d = new Date(str);
+  if (Number.isNaN(d.getTime())) return "";
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const year = d.getUTCFullYear();
+  return `${day}/${month}/${year}`;
+};
+
+export const formatRentalTypeLabel = (value?: string | null): string => {
+  const key = (value || "").toLowerCase();
+  const labels: Record<string, string> = {
+    daily: "Diário",
+    weekly: "Semanal",
+    biweekly: "Quinzenal",
+    monthly: "Mensal",
+    diario: "Diário",
+    semanal: "Semanal",
+    quinzenal: "Quinzenal",
+    mensal: "Mensal",
+  };
+  return labels[key] || value || "-";
+};

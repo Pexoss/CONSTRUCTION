@@ -15,6 +15,7 @@ import {
 } from "./financialBoardFilters";
 import { RentalDeliveryQuickModal } from "./RentalDeliveryQuickModal";
 import { rentalTypeLabel } from "../../utils/statusLabels";
+import { formatDateNoTimezoneShift } from "../../utils/formatters";
 
 const stageLabel: Record<string, string> = {
   pending: "Pendentes",
@@ -741,11 +742,11 @@ const FinancialCenterPage: React.FC = () => {
                               <td className="px-2 py-2 font-medium">{bill.customerId?.name || "Cliente"}</td>
                               <td className="px-2 py-2 whitespace-nowrap">
                                 {bill.periodStart
-                                  ? new Date(bill.periodStart).toLocaleDateString("pt-BR")
+                                  ? formatDateNoTimezoneShift(bill.periodStart)
                                   : "—"}{" "}
                                 –{" "}
                                 {bill.periodEnd
-                                  ? new Date(bill.periodEnd).toLocaleDateString("pt-BR")
+                                  ? formatDateNoTimezoneShift(bill.periodEnd)
                                   : "—"}
                               </td>
                               <td className="px-2 py-2 whitespace-nowrap">{tipo}</td>
@@ -848,8 +849,8 @@ const FinancialCenterPage: React.FC = () => {
                             </div>
                             <p className="text-xs text-gray-500 mt-1">
                               Período:{" "}
-                              {bill.periodStart ? new Date(bill.periodStart).toLocaleDateString("pt-BR") : "-"} até{" "}
-                              {bill.periodEnd ? new Date(bill.periodEnd).toLocaleDateString("pt-BR") : "-"}
+                              {bill.periodStart ? formatDateNoTimezoneShift(bill.periodStart) : "-"} até{" "}
+                              {bill.periodEnd ? formatDateNoTimezoneShift(bill.periodEnd) : "-"}
                             </p>
                             <div className="text-[11px] text-gray-500">
                               <span className="font-medium">Itens:</span>
@@ -1100,8 +1101,8 @@ const FinancialCenterPage: React.FC = () => {
                         />
                         <span>
                           <strong>{bill.billingNumber || bill._id}</strong> -{" "}
-                          {bill.periodStart ? new Date(bill.periodStart).toLocaleDateString("pt-BR") : "-"} ate{" "}
-                          {bill.periodEnd ? new Date(bill.periodEnd).toLocaleDateString("pt-BR") : "-"} | R${" "}
+                          {bill.periodStart ? formatDateNoTimezoneShift(bill.periodStart) : "-"} ate{" "}
+                          {bill.periodEnd ? formatDateNoTimezoneShift(bill.periodEnd) : "-"} | R${" "}
                           {(bill.outstandingAmount ?? bill.calculation?.total ?? 0).toFixed(2)}
                         </span>
                       </label>
@@ -1188,10 +1189,10 @@ const FinancialCenterPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                 <div className="border rounded p-2">Total: R$ {Number(invoiceModal.total || 0).toFixed(2)}</div>
                 <div className="border rounded p-2">
-                  Emissao: {invoiceModal.issueDate ? new Date(invoiceModal.issueDate).toLocaleDateString("pt-BR") : "-"}
+                  Emissao: {invoiceModal.issueDate ? formatDateNoTimezoneShift(invoiceModal.issueDate) : "-"}
                 </div>
                 <div className="border rounded p-2">
-                  Vencimento: {invoiceModal.dueDate ? new Date(invoiceModal.dueDate).toLocaleDateString("pt-BR") : "-"}
+                  Vencimento: {invoiceModal.dueDate ? formatDateNoTimezoneShift(invoiceModal.dueDate) : "-"}
                 </div>
               </div>
               <textarea

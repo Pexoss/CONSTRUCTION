@@ -8,6 +8,7 @@ import { Billing, BillingStatus } from "../../types/billing.types";
 import { useAuth } from "../../hooks/useAuth";
 import { toast } from "react-toastify";
 import { billingStatusLabel } from "../../utils/statusLabels";
+import { formatDateNoTimezoneShift } from "../../utils/formatters";
 
 const BillingsPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -122,7 +123,7 @@ const BillingsPage: React.FC = () => {
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return "-";
-    return new Date(dateString).toLocaleDateString("pt-BR");
+    return formatDateNoTimezoneShift(dateString) || "-";
   };
 
   const formatCurrency = (value?: number) =>

@@ -10,6 +10,7 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export interface IBillingItem {
   itemId: mongoose.Types.ObjectId;
   unitId?: string; // Para itens unitários
+  rentalLineKey?: string; // Identifica a linha original do contrato (evita colisão com itemId repetido)
   quantity: number;
   unitPrice: number;
   periodsCharged: number; // Quantos períodos foram cobrados

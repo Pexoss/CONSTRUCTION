@@ -3,6 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Layout from "../../components/Layout";
 import { rentalService } from "./rental.service";
 import { RentalPendingApproval } from "../../types/rental.types";
+import {
+  formatDateNoTimezoneShift,
+  formatRentalTypeLabel,
+} from "../../utils/formatters";
 
 const formatRequestLabel = (type: string) => {
   const map: Record<string, string> = {
@@ -27,9 +31,7 @@ const formatCurrency = (value?: number) => {
 
 const formatDate = (value?: string) => {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("pt-BR");
+  return formatDateNoTimezoneShift(value) || value;
 };
 
 const renderRequestDetails = (type: string, details: Record<string, any>) => {
@@ -86,7 +88,10 @@ const renderRequestDetails = (type: string, details: Record<string, any>) => {
           <div>
             Data de devolução: {formatDate(details.adjustments?.returnDate)}
           </div>
-          <div>Tipo de aluguel: {details.adjustments?.rentalType || "-"}</div>
+          <div>
+            Tipo de aluguel:{" "}
+            {formatRentalTypeLabel(details.adjustments?.rentalType)}
+          </div>
           <div>
             Subtotal equipamentos:{" "}
             {formatCurrency(

@@ -12,6 +12,10 @@ const BillingItemSchema = new Schema<IBillingItem>(
       type: String,
       trim: true,
     },
+    rentalLineKey: {
+      type: String,
+      trim: true,
+    },
     quantity: {
       type: Number,
       required: true,

@@ -14,6 +14,7 @@ import {
 import { Item } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
 import { formatDocumentForDisplay } from "../../utils/formatters";
+import { toast } from "react-toastify";
 import axios from "axios";
 
 export const rentalTypeMapper: Record<RentalTypeUI, RentalTypeAPI> = {
@@ -110,31 +111,6 @@ const CreateRentalPage: React.FC = () => {
   
   const createMutation = useMutation({
     mutationFn: (data: CreateRentalData) => rentalService.createRental(data),
-    onSuccess: async (response) => {
-      if (response?.data?._id) {
-        try {
-          const blob = await rentalService.generateRentalPDF(response.data._id);
-          const url = window.URL.createObjectURL(
-            new Blob([blob], { type: "application/pdf" }),
-          );
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = `locacao-${response.data._id}.pdf`;
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          window.URL.revokeObjectURL(url);
-        } catch {
-          // Mantém o fluxo mesmo se o PDF falhar
-        }
-      }
-      navigate("/rentals", {
-        state: {
-          newRentalId: response.data._id,
-          showSuccessModal: true,
-        },
-      });
-    },
   });
 
   function parseLocalDate(dateString: string) {
@@ -556,6 +532,31 @@ const CreateRentalPage: React.FC = () => {
             alert("Não foi possível salvar o endereço do cliente.");
           }
         }
+
+        if (res?.data?._id) {
+          try {
+            const blob = await rentalService.generateRentalPDF(res.data._id);
+            const url = window.URL.createObjectURL(
+              new Blob([blob], { type: "application/pdf" }),
+            );
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `locacao-${res.data._id}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+          } catch {
+            // Mantém o fluxo mesmo se o PDF falhar
+          }
+
+          toast.success("Aluguel criado com sucesso.");
+          navigate("/rentals");
+          return;
+        }
+
+        toast.success("Aluguel criado com sucesso.");
+        navigate("/rentals");
       },
       onError: (err: any) => {
         const message =

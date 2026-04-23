@@ -54,6 +54,27 @@ class RentalService {
     return normalized;
   }
 
+  private normalizeDateKey(value?: Date): string {
+    if (!value) return "na";
+    const normalized = this.normalizeDate(value);
+    return normalized.toISOString().slice(0, 10);
+  }
+
+  private buildRentalLineKey(item: {
+    itemId: any;
+    unitId?: string;
+    rentalType?: RentalType;
+    pickupScheduled?: Date;
+    returnScheduled?: Date;
+  }): string {
+    const itemId = item?.itemId?.toString?.() || String(item?.itemId || "na");
+    const unitId = item?.unitId ? String(item.unitId) : "no-unit";
+    const rentalType = String(item?.rentalType || "daily");
+    const pickup = this.normalizeDateKey(item?.pickupScheduled);
+    const ret = this.normalizeDateKey(item?.returnScheduled);
+    return [itemId, unitId, rentalType, pickup, ret].join("|");
+  }
+
   private addMonthsKeepingDay(date: Date, months: number): Date {
     const year = date.getFullYear();
     const month = date.getMonth() + months;
@@ -200,25 +221,51 @@ class RentalService {
         return days * dailyRate;
 
       case "weekly":
-        if (!weeklyRate) {
-          throw new Error("WeeklyRate não configurado");
+        // Fallback para não quebrar edição/recálculo de contratos antigos sem weeklyRate.
+        // Mantém cálculo proporcional usando a melhor taxa disponível.
+        if (weeklyRate !== undefined && weeklyRate !== null) {
+          return (weeklyRate / 7) * days;
         }
-        // Cálculo proporcional: taxa semanal dividida por 7, multiplicada pelos dias reais
-        return (weeklyRate / 7) * days;
+        if (dailyRate !== undefined && dailyRate !== null) {
+          return dailyRate * days;
+        }
+        if (biweeklyRate !== undefined && biweeklyRate !== null) {
+          return (biweeklyRate / 15) * days;
+        }
+        if (monthlyRate !== undefined && monthlyRate !== null) {
+          return (monthlyRate / 30) * days;
+        }
+        return 0;
 
       case "biweekly":
-        if (!biweeklyRate) {
-          throw new Error("BiweeklyRate não configurado");
+        if (biweeklyRate !== undefined && biweeklyRate !== null) {
+          return (biweeklyRate / 15) * days;
         }
-        // Cálculo proporcional: taxa quinzenal dividida por 15 dias, multiplicada pelos dias reais
-        return (biweeklyRate / 15) * days;
+        if (dailyRate !== undefined && dailyRate !== null) {
+          return dailyRate * days;
+        }
+        if (weeklyRate !== undefined && weeklyRate !== null) {
+          return (weeklyRate / 7) * days;
+        }
+        if (monthlyRate !== undefined && monthlyRate !== null) {
+          return (monthlyRate / 30) * days;
+        }
+        return 0;
 
       case "monthly":
-        if (!monthlyRate) {
-          throw new Error("MonthlyRate não configurado");
+        if (monthlyRate !== undefined && monthlyRate !== null) {
+          return (monthlyRate / 30) * days;
         }
-        // Cálculo proporcional: taxa mensal dividida por 30, multiplicada pelos dias reais
-        return (monthlyRate / 30) * days;
+        if (dailyRate !== undefined && dailyRate !== null) {
+          return dailyRate * days;
+        }
+        if (weeklyRate !== undefined && weeklyRate !== null) {
+          return (weeklyRate / 7) * days;
+        }
+        if (biweeklyRate !== undefined && biweeklyRate !== null) {
+          return (biweeklyRate / 15) * days;
+        }
+        return 0;
 
       default:
         throw new Error(`RentalType inválido: ${rentalType}`);
@@ -866,10 +913,13 @@ class RentalService {
     const periodEnd = finalReturnDate;
 
     if (periodEnd > periodStart) {
+      const rentalLineKey = this.buildRentalLineKey(targetItem as any);
       const existing = await Billing.findOne({
         companyId,
         rentalId: rental._id,
         "items.itemId": targetItem.itemId,
+        ...(targetItem.unitId ? { "items.unitId": targetItem.unitId } : {}),
+        "items.rentalLineKey": rentalLineKey,
         periodStart,
         periodEnd,
       }).lean();
@@ -1217,16 +1267,17 @@ class RentalService {
         continue;
       }
 
+      const rt = item.rentalType || "daily";
       const itemFilter: Record<string, unknown> = {
         companyId,
         rentalId: rental._id,
         "items.itemId": item.itemId,
+        rentalType: rt,
+        "items.rentalLineKey": this.buildRentalLineKey(item as any),
       };
       if (item.unitId) {
         itemFilter["items.unitId"] = item.unitId;
       }
-
-      const rt = item.rentalType || "daily";
 
       const periodStart = this.normalizeDate(item.pickupScheduled);
       let periodEnd = this.getPeriodEnd(periodStart, rt);
@@ -1462,6 +1513,8 @@ class RentalService {
         companyId,
         rentalId: rental._id,
         "items.itemId": item.itemId,
+        rentalType: cycle,
+        "items.rentalLineKey": this.buildRentalLineKey(item as any),
       };
       if (item.unitId) {
         itemFilter["items.unitId"] = item.unitId;
@@ -1825,11 +1878,71 @@ class RentalService {
         );
         return yy + 14;
       };
+      const locatarioLabelW = 72;
+      const lineFieldLocatario = (
+        label: string,
+        value: string,
+        yy: number,
+      ): number => {
+        doc.font("Helvetica-Bold").fontSize(9).text(`${label}`, left, yy, {
+          width: locatarioLabelW,
+          align: "left",
+        });
+        doc.font("Helvetica").text(
+          value || "________________________________________________________________",
+          left + locatarioLabelW,
+          yy,
+          { width: contentW - locatarioLabelW },
+        );
+        return yy + 14;
+      };
 
       doc.font("Helvetica-Bold").fontSize(10).text("II — LOCATÁRIO", left, y);
       y += 14;
-      y = lineField("Nome:", customer?.name || "", y);
-      y = lineField("CNPJ / CPF:", customer?.cpfCnpj || "", y);
+      {
+        const rowY = y;
+        const leftLabelW = 72;
+        const rightLabelW = 46;
+        const colGap = 12;
+        const colW = (contentW - colGap) / 2;
+
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(9)
+          .text("Nome:", left, rowY, { width: leftLabelW, align: "left" });
+        doc
+          .font("Helvetica")
+          .fontSize(9)
+          .text(
+            customer?.name || "______________________________",
+            left + leftLabelW,
+            rowY,
+            {
+              width: colW - leftLabelW,
+              align: "left",
+            },
+          );
+
+        const rightX = left + colW + colGap;
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(9)
+          .text("Fone:", rightX, rowY, { width: rightLabelW, align: "left" });
+        doc
+          .font("Helvetica")
+          .fontSize(9)
+          .text(
+            customer?.phone || "______________________________",
+            rightX + rightLabelW,
+            rowY,
+            {
+              width: colW - rightLabelW,
+              align: "left",
+            },
+          );
+        y = rowY + 14;
+      }
+      y = lineFieldLocatario("CNPJ / CPF:", customer?.cpfCnpj || "", y);
 
       const endCliente = preferredAddress
         ? [
@@ -1838,20 +1951,92 @@ class RentalService {
             preferredAddress.complement ? ` - ${preferredAddress.complement}` : "",
           ].join("")
         : "";
-      y = lineField("End:", endCliente, y);
-      y = lineField("Fone:", customer?.phone || "", y);
-      y = lineField(
+      y = lineFieldLocatario("End:", endCliente, y);
+      y = lineFieldLocatario(
         "Bairro:",
         preferredAddress?.neighborhood || "",
         y,
       );
-      y = lineField("Representante:", "", y);
-      y = lineField("Preposto:", "", y);
+      {
+        const rowY = y;
+        const leftLabelW = 72;
+        const rightLabelW = 46;
+        const colGap = 12;
+        const colW = (contentW - colGap) / 2;
+
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(9)
+          .text("Representante:", left, rowY, {
+            width: leftLabelW,
+            align: "left",
+          });
+        doc
+          .font("Helvetica")
+          .fontSize(9)
+          .text("______________________________", left + leftLabelW, rowY, {
+            width: colW - leftLabelW,
+            align: "left",
+          });
+
+        const rightX = left + colW + colGap;
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(9)
+          .text("Preposto:", rightX, rowY, {
+            width: rightLabelW,
+            align: "left",
+          });
+        doc
+          .font("Helvetica")
+          .fontSize(9)
+          .text("______________________________", rightX + rightLabelW, rowY, {
+            width: colW - rightLabelW,
+            align: "left",
+          });
+        y = rowY + 14;
+      }
       y += 4;
 
       doc.font("Helvetica-Bold").fontSize(10).text("III — OBRA", left, y);
       y += 14;
-      y = lineField("Nome:", work?.workName || "", y);
+      {
+        const rowY = y;
+        const labelW = 28;
+        const colGap = 12;
+        const colW = (contentW - colGap) / 2;
+
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(9)
+          .text("Nome:", left, rowY, { width: labelW, align: "left" });
+        doc
+          .font("Helvetica")
+          .fontSize(9)
+          .text(
+            work?.workName || "______________________________",
+            left + labelW,
+            rowY,
+            {
+              width: colW - labelW,
+              align: "left",
+            },
+          );
+
+        const rightX = left + colW + colGap;
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(9)
+          .text("Fone:", rightX, rowY, { width: labelW, align: "left" });
+        doc
+          .font("Helvetica")
+          .fontSize(9)
+          .text("______________________________", rightX + labelW, rowY, {
+            width: colW - labelW,
+            align: "left",
+          });
+        y = rowY + 14;
+      }
       const endObra = work
         ? [
             work.street,
@@ -1866,9 +2051,20 @@ class RentalService {
             .filter(Boolean)
             .join("")
         : "";
-      y = lineField("End:", endObra, y);
-      y = lineField("Fone:", "", y);
-      y = lineField("Outros:", "", y);
+      {
+        const labelW = 28;
+        doc.font("Helvetica-Bold").fontSize(9).text("End:", left, y, {
+          width: labelW,
+          align: "left",
+        });
+        doc.font("Helvetica").fontSize(9).text(
+          endObra || "________________________________________________________________",
+          left + labelW,
+          y,
+          { width: contentW - labelW, align: "left" },
+        );
+        y += 14;
+      }
       y += 6;
 
       if (y > 680) {
@@ -1902,9 +2098,9 @@ class RentalService {
         q: left,
         cod: left + 28,
         desc: left + 78,
-        unit: left + 318,
-        per: left + 388,
-        tot: left + 458,
+        unit: left + 300,
+        per: left + 370,
+        tot: left + 470,
       };
       const rowH = 14;
 
@@ -1912,9 +2108,9 @@ class RentalService {
         doc.font("Helvetica-Bold").fontSize(7);
         doc.text("Quant.", col.q, yy, { width: 24, align: "center" });
         doc.text("Cód.", col.cod, yy, { width: 44 });
-        doc.text("DESCRIÇÃO DOS PRODUTOS", col.desc, yy, { width: 232 });
+        doc.text("DESCRIÇÃO DOS PRODUTOS", col.desc, yy, { width: 214 });
         doc.text("Valor Unit. Equip.", col.unit, yy, { width: 64, align: "right" });
-        doc.text("Período", col.per, yy, { width: 62, align: "center" });
+        doc.text("Período", col.per, yy, { width: 96, align: "center" });
         doc.text("TOTAL R$", col.tot, yy, { width: right - col.tot, align: "right" });
         doc
           .moveTo(left, yy + 10)
@@ -1934,9 +2130,16 @@ class RentalService {
           inv && typeof inv === "object" && inv.name ? inv.name : "Item";
         const sku =
           inv?.sku || inv?.customId || inv?.barcode || "—";
-        const periodLabel = this.rentalTypeLabelForPdf(
-          ritem.rentalType || "daily",
-        );
+        const pickup = ritem.pickupScheduled
+          ? fmtDate(ritem.pickupScheduled)
+          : "";
+        const ret = ritem.returnScheduled
+          ? fmtDate(ritem.returnScheduled)
+          : "";
+        const periodLabel =
+          pickup && ret
+            ? `${pickup} a ${ret}`
+            : this.rentalTypeLabelForPdf(ritem.rentalType || "daily");
         const lineTotal = Number(ritem.subtotal ?? 0);
 
         if (y > 720) {
@@ -1949,12 +2152,12 @@ class RentalService {
 
         doc.text(String(ritem.quantity), col.q, y, { width: 24, align: "center" });
         doc.text(String(sku).slice(0, 12), col.cod, y, { width: 44 });
-        doc.text(name, col.desc, y, { width: 232 });
+        doc.text(name, col.desc, y, { width: 214 });
         doc.text(fmtMoney(ritem.unitPrice), col.unit, y, {
           width: 64,
           align: "right",
         });
-        doc.text(periodLabel, col.per, y, { width: 62, align: "center" });
+        doc.text(periodLabel, col.per, y, { width: 96, align: "center" });
         doc.text(fmtMoney(lineTotal), col.tot, y, {
           width: right - col.tot,
           align: "right",
@@ -1977,12 +2180,12 @@ class RentalService {
           }
           doc.text(String(qty), col.q, y, { width: 24, align: "center" });
           doc.text("SERV", col.cod, y, { width: 44 });
-          doc.text(s.description || "Serviço", col.desc, y, { width: 232 });
+          doc.text(s.description || "Serviço", col.desc, y, { width: 214 });
           doc.text(fmtMoney(s.price), col.unit, y, {
             width: 64,
             align: "right",
           });
-          doc.text("Único", col.per, y, { width: 62, align: "center" });
+          doc.text("Único", col.per, y, { width: 96, align: "center" });
           doc.text(fmtMoney(lineTotal), col.tot, y, {
             width: right - col.tot,
             align: "right",
@@ -2050,14 +2253,14 @@ class RentalService {
       y += 12;
       doc.font("Helvetica").fontSize(7.5).text(
         [
-          "O(A) LOCATÁRIO(A) declara ter recebido o(s) equipamento(s) discriminado(s) acima em perfeitas condições de funcionamento e conservação, obrigando-se a devolvê-lo(s) nas mesmas condições, salvo o desgaste natural.",
-          "A) O(s) equipamento(s) foi(ram) testado(s) e aprovado(s) pelo locatário no ato da retirada.",
-          "B) Somente profissionais habilitados poderão operar o(s) equipamento(s).",
-          "C) É obrigatório o uso de EPIs conforme a atividade e a legislação vigente.",
-          "D) A renovação do contrato dar-se-á por períodos iguais, salvo manifestação em contrário.",
-          "E) A devolução deverá ser feita nesta loja ou mediante solicitação de retirada por telefone, conforme contatos da locadora no cabeçalho.",
-          "F) Ficam integradas a este instrumento as condições gerais da locadora, inclusive quanto a responsabilidades por danos, furto ou extravio, às expensas do locatário.",
-          "G) O(A) LOCATÁRIO(A) responde por danos, extravio ou uso indevido do(s) bem(ns) locado(s) até a efetiva devolução.",
+          "O LOCATÁRIO recebe neste ato, ou na entrega, por si ou por seu preposto, o(s) bem(ns) móvel(is) referido(s) no presente instrumento, e declara: ",
+          "A) Tê-lo(s) testado(s) e aprovado(s), afirmando que conhece sua correta utilização e funcionamento, pelo que se obriga a devolvê-lo(s) em idênticas condições de funcionamento, limpeza e segurança, ao final desta locação ou na hipótese de rescisão do presente contrato.",
+          "B) Que somente permitirá o uso do(s) equipamento(s) por profissional(is) qualificado(s) para operá-lo(s).",
+          "C) Que fará uso de todos os equipamentos de segurança (EPIs) necessários à utilização do(s) bem(ns) móvel(is) alugado(s), bem como das normas de segurança pertinentes.",
+          "D) Ter ciência de que a prorrogação do CONTRATO é automática e por igual período, sucessivamente.",
+          "E) Ter ciência de que o equipamento deverá ser devolvido na loja ou que deverá protocolar a solicitação de retirada por meio do telefone: (35) 98843-5154, sendo o protocolo a prova da solicitação.",
+          "F) Constituem parte integrante deste CONTRATO as 'CONDIÇÕES GERAIS DO CONTRATO DE LOCAÇÃO DE BENS MÓVEIS – SEM OPERADOR', podendo ser solicitadas pelo locatário a qualquer momento por e-mail ou WhatsApp.",
+          "G) No caso de locação de CONTAINER, na ocorrência de dano parcial ou total, queda, uso inadequado, furto, roubo, motivo de força maior, extravio ou qualquer outro motivo de perda ou desaparecimento do(s) bem(ns) não especificado(s) neste instrumento que o LOCATÁRIO armazenar ou guardar no CONTAINER, será de exclusiva responsabilidade do LOCATÁRIO, excluindo-se a ALUGUE de quaisquer responsabilidades, inclusive de natureza indenizatória, a qualquer título.",
         ].join(" "),
         left,
         y,
@@ -2088,7 +2291,7 @@ class RentalService {
         drawWatermark();
       }
 
-      y = Math.max(y, 680);
+      y = Math.max(y, 600);
       doc.font("Helvetica").fontSize(8);
       doc.text("LOCATÁRIO: ___________________________________________", left, y);
       doc.text(
@@ -2101,13 +2304,7 @@ class RentalService {
       doc.text("RG: __________________________________________________", left + 260, y);
       y += 18;
       doc.font("Helvetica").fontSize(7).fillColor("#555555");
-      doc.text(
-        `Período geral do contrato: retirada ${fmtDate(rental.dates.pickupScheduled)} — devolução prevista ${fmtDate(rental.dates.returnScheduled)}`,
-        left,
-        y,
-        { width: contentW, align: "center" },
-      );
-
+      
       doc.end();
     });
   }
@@ -2595,6 +2792,8 @@ class RentalService {
         companyId: rental.companyId,
         rentalId: rental._id,
         "items.itemId": item.itemId,
+        ...(item.unitId ? { "items.unitId": item.unitId } : {}),
+        "items.rentalLineKey": this.buildRentalLineKey(item as any),
         periodStart,
         periodEnd,
       }).lean();

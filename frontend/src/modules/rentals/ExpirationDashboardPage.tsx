@@ -5,6 +5,7 @@ import { rentalService } from "./rental.service";
 import Layout from "../../components/Layout";
 import Skeleton from "../../components/Skeleton";
 import { Rental } from "../../types/rental.types";
+import { formatDateNoTimezoneShift } from "../../utils/formatters";
 
 const ExpirationDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -19,7 +20,7 @@ const ExpirationDashboardPage: React.FC = () => {
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return "-";
-    return new Date(dateString).toLocaleDateString("pt-BR");
+    return formatDateNoTimezoneShift(dateString) || "-";
   };
 
   const getReturnDate = (rental: Rental): Date | null => {

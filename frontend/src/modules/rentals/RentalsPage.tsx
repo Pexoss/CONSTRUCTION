@@ -6,6 +6,7 @@ import { RentalFilters, RentalStatus } from "../../types/rental.types";
 import { CheckCircle } from "lucide-react";
 import Layout from "../../components/Layout";
 import { rentalStatusLabel } from "../../utils/statusLabels";
+import { formatDateNoTimezoneShift } from "../../utils/formatters";
 const RentalsPage: React.FC = () => {
   const location = useLocation();
   const [filters, setFilters] = useState<RentalFilters>({
@@ -370,13 +371,9 @@ const RentalsPage: React.FC = () => {
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
                               <div className="text-sm text-gray-600 dark:text-gray-300">
-                                {new Date(
-                                  rental.dates.pickupScheduled,
-                                ).toLocaleDateString("pt-BR")}{" "}
+                                {formatDateNoTimezoneShift(rental.dates.pickupScheduled)}{" "}
                                 -{" "}
-                                {new Date(
-                                  rental.dates.returnScheduled,
-                                ).toLocaleDateString("pt-BR")}
+                                {formatDateNoTimezoneShift(rental.dates.returnScheduled)}
                               </div>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">

@@ -20,6 +20,8 @@ import { createPortal } from "react-dom";
 import {
   formatDocumentForDisplay,
   formatPhoneForDisplay,
+  formatDateNoTimezoneShift,
+  formatRentalTypeLabel,
 } from "../../utils/formatters";
 import { features } from "../../config/features";
 const RentalDetailPage: React.FC = () => {
@@ -474,9 +476,18 @@ const RentalDetailPage: React.FC = () => {
 
   const formatDate = (value?: string) => {
     if (!value) return "-";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleDateString("pt-BR");
+    return formatDateNoTimezoneShift(value) || value;
+  };
+
+  const formatBillingPeriodDate = (value?: string) => {
+    if (!value) return "-";
+    const isoDatePart = String(value).split("T")[0];
+    const parts = isoDatePart.split("-");
+    if (parts.length === 3) {
+      const [year, month, day] = parts;
+      return `${day}/${month}/${year}`;
+    }
+    return formatDateNoTimezoneShift(value) || value;
   };
 
   const getChangeTypeLabel = (changeType: string): string => {
@@ -1670,7 +1681,8 @@ const RentalDetailPage: React.FC = () => {
                   </svg>
                   Editar informações
                 </button>
-                <button
+                {/* TODO: Reativar modal de alteração de status quando voltar fluxo de ativação manual */}
+                {/* <button
                   onClick={() => {
                     setNewStatus(rental.status as RentalStatus);
                     setShowStatusModal(true);
@@ -1692,6 +1704,7 @@ const RentalDetailPage: React.FC = () => {
                   </svg>
                   Alterar Status
                 </button>
+                */}
 
                 {serverError && (
                   <span className="text-red-600 dark:text-red-400 text-xs mt-1 font-medium block">
@@ -1801,22 +1814,18 @@ const RentalDetailPage: React.FC = () => {
                   </div>
                   <div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Retirada real
+                      Retirada
                     </div>
                     <div className="text-sm font-medium text-gray-900 dark:text-white">
-                      {new Date(
-                        rental.dates.pickupScheduled,
-                      ).toLocaleDateString("pt-BR")}
+                      {formatDateNoTimezoneShift(rental.dates.pickupScheduled)}
                     </div>
                   </div>
                   <div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      Devolução prevista
+                      Fechamento
                     </div>
                     <div className="text-sm font-medium text-gray-900 dark:text-white">
-                      {new Date(
-                        rental.dates.returnScheduled,
-                      ).toLocaleDateString("pt-BR")}
+                      {formatDateNoTimezoneShift(rental.dates.returnScheduled)}
                     </div>
                   </div>
                   {rental.dates.returnActual && (
@@ -1825,9 +1834,7 @@ const RentalDetailPage: React.FC = () => {
                         Devolução real
                       </div>
                       <div className="text-sm font-medium text-gray-900 dark:text-white">
-                        {new Date(rental.dates.returnActual).toLocaleDateString(
-                          "pt-BR",
-                        )}
+                        {formatDateNoTimezoneShift(rental.dates.returnActual)}
                       </div>
                     </div>
                   )}
@@ -1878,17 +1885,13 @@ const RentalDetailPage: React.FC = () => {
                             {item.unitPrice.toFixed(2)}
                           </div>
                           <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            Tipo: {item.rentalType || "daily"} • Retirada:{" "}
+                            Tipo: {formatRentalTypeLabel(item.rentalType)} • Retirada:{" "}
                             {item.pickupScheduled
-                              ? new Date(
-                                  item.pickupScheduled,
-                                ).toLocaleDateString("pt-BR")
+                              ? formatDateNoTimezoneShift(item.pickupScheduled)
                               : "-"}{" "}
                             • Devolução:{" "}
                             {item.returnScheduled
-                              ? new Date(
-                                  item.returnScheduled,
-                                ).toLocaleDateString("pt-BR")
+                              ? formatDateNoTimezoneShift(item.returnScheduled)
                               : "-"}
                           </div>
                           {!item.returnActual && (
@@ -2037,8 +2040,8 @@ const RentalDetailPage: React.FC = () => {
                         >
                           <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
                             <span>
-                              {formatDate(billing.periodStart)} →{" "}
-                              {formatDate(billing.periodEnd)}
+                              {formatBillingPeriodDate(billing.periodStart)} →{" "}
+                              {formatBillingPeriodDate(billing.periodEnd)}
                             </span>
                             <span>
                               {billing.status === "paid"
@@ -2392,7 +2395,8 @@ const RentalDetailPage: React.FC = () => {
         </div>
 
         {/* Modals */}
-        {showStatusModal && (
+        {/* TODO: Reativar modal de alteração de status quando voltar fluxo de ativação manual */}
+        {/* {showStatusModal && (
           <div className="fixed inset-0 bg-gray-500/75 dark:bg-gray-900/75 flex items-center justify-center z-50">
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
@@ -2437,7 +2441,7 @@ const RentalDetailPage: React.FC = () => {
               </div>
             </div>
           </div>
-        )}
+        )} */}
 
         {showExtendModal && null}
 
