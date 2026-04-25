@@ -77,8 +77,20 @@ function normalizeDateKey(value?: Date | string): string {
   return d.toISOString().slice(0, 10);
 }
 
+function asIdString(value: any): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (value?._id) {
+    const nested = value._id;
+    if (typeof nested === "string") return nested;
+    if (nested?.toString) return nested.toString();
+  }
+  if (value?.toString) return value.toString();
+  return String(value);
+}
+
 function buildRentalLineKey(item: any): string {
-  const itemId = item?.itemId?.toString?.() || String(item?.itemId || "na");
+  const itemId = asIdString(item?.itemId) || "na";
   const unitId = item?.unitId ? String(item.unitId) : "no-unit";
   const rentalType = String(item?.rentalType || "daily");
   const pickup = normalizeDateKey(item?.pickupScheduled);
@@ -170,8 +182,7 @@ class BillingService {
     const selected: any[] = [];
 
     for (const billingItem of billingItems) {
-      const billingItemId =
-        billingItem?.itemId?.toString?.() || String(billingItem?.itemId || "");
+      const billingItemId = asIdString(billingItem?.itemId);
       const billingUnitId = billingItem?.unitId ? String(billingItem.unitId) : undefined;
       const billingLineKey = billingItem?.rentalLineKey
         ? String(billingItem.rentalLineKey)
@@ -188,7 +199,7 @@ class BillingService {
       if (matchIdx === -1) {
         matchIdx = rentalItems.findIndex((ri: any, idx: number) => {
           if (usedIndices.has(idx)) return false;
-          const riId = ri?.itemId?.toString?.() || String(ri?.itemId || "");
+          const riId = asIdString(ri?.itemId);
           if (riId !== billingItemId) return false;
           if (billingUnitId) return String(ri?.unitId || "") === billingUnitId;
           return true;
@@ -273,9 +284,9 @@ class BillingService {
   ): Promise<void> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
     if (!rental) return;
-    const lineItemId = lineItem.itemId?.toString?.() || String(lineItem.itemId);
+    const lineItemId = asIdString(lineItem.itemId);
     const idx = rental.items.findIndex((ri: any) => {
-      const id = ri.itemId?.toString?.() || String(ri.itemId);
+      const id = asIdString(ri.itemId);
       if (id !== lineItemId) return false;
       if (lineItem.unitId) return ri.unitId === lineItem.unitId;
       return !ri.unitId;
