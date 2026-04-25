@@ -294,6 +294,13 @@ const CreateRentalPage: React.FC = () => {
     if (existingIndex >= 0) {
       const updated = [...selectedItems];
       if (item.trackingType !== "unit") {
+        const available = item.quantity.available || 0;
+        if (updated[existingIndex].quantity >= available) {
+          toast.warn(
+            `Estoque disponível para "${item.name}": ${available}.`,
+          );
+          return;
+        }
         updated[existingIndex].quantity += 1;
       }
       setSelectedItems(updated);
@@ -328,9 +335,20 @@ const CreateRentalPage: React.FC = () => {
       return;
     }
     setSelectedItems(
-      selectedItems.map((si) =>
-        si.itemId === itemId ? { ...si, quantity } : si,
-      ),
+      selectedItems.map((si) => {
+        if (si.itemId !== itemId) return si;
+        if (si.item.trackingType === "unit") return { ...si, quantity: 1 };
+
+        const available = si.item.quantity.available || 0;
+        const nextQuantity = Math.min(quantity, available);
+        if (quantity > available) {
+          toast.warn(
+            `Estoque disponível para "${si.item.name}": ${available}.`,
+          );
+        }
+
+        return { ...si, quantity: Math.max(1, nextQuantity) };
+      }),
     );
   };
 
@@ -425,6 +443,15 @@ const CreateRentalPage: React.FC = () => {
     for (const si of selectedItems) {
       if (si.item.trackingType === "unit" && !si.unitId) {
         alert(`O item "${si.item.name}" precisa de um unitId válido.`);
+        return;
+      }
+      if (
+        si.item.trackingType !== "unit" &&
+        si.quantity > (si.item.quantity.available || 0)
+      ) {
+        alert(
+          `Estoque insuficiente para "${si.item.name}". Disponível: ${si.item.quantity.available || 0}. Solicitado: ${si.quantity}.`,
+        );
         return;
       }
       if (!si.pickupDate) {

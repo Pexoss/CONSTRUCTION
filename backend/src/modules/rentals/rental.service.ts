@@ -380,7 +380,11 @@ class RentalService {
           throw new Error(`Unidade ${item.unitId} indisponível`);
       } else {
         const available = inventoryItem.quantity.available || 0;
-        if (available < item.quantity) throw new Error(`Estoque insuficiente`);
+        if (available < item.quantity) {
+          throw new Error(
+            `Estoque insuficiente para "${inventoryItem.name}". Disponível: ${available}. Solicitado: ${item.quantity}.`,
+          );
+        }
       }
     }
 
