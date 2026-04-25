@@ -515,6 +515,23 @@ class RentalService {
       rentalNumber,
       items: itemsWithPricing,
       services: services.length > 0 ? services : undefined,
+      workAddress: data.workAddress
+        ? {
+            street: data.workAddress.street,
+            number: data.workAddress.number,
+            complement: data.workAddress.complement,
+            neighborhood: data.workAddress.neighborhood,
+            city: data.workAddress.city,
+            state: data.workAddress.state,
+            zipCode: data.workAddress.zipCode,
+            workName: data.workAddress.workName,
+            workId:
+              data.workAddress.workId &&
+              mongoose.Types.ObjectId.isValid(data.workAddress.workId)
+                ? new mongoose.Types.ObjectId(data.workAddress.workId)
+                : undefined,
+          }
+        : undefined,
       dates: {
         reservedAt: new Date(),
         pickupScheduled: minPickupDate,
@@ -1525,19 +1542,34 @@ class RentalService {
       }
 
       if (cycle === "daily") {
-        if (horizon.getTime() >= pickupBase.getTime() && horizon <= now) {
-          const existing = await Billing.findOne({
+        const dailyHorizon = item.returnActual
+          ? this.normalizeDate(item.returnActual)
+          : now;
+
+        if (dailyHorizon.getTime() > pickupBase.getTime()) {
+          const existingOpen = await Billing.findOne({
             ...itemFilter,
             periodStart: pickupBase,
-            periodEnd: horizon,
-          }).lean();
-          if (!existing) {
+            status: { $nin: ["paid", "cancelled"] },
+          });
+
+          if (existingOpen) {
+            const currentEnd = this.normalizeDate(existingOpen.periodEnd);
+            if (currentEnd.getTime() !== dailyHorizon.getTime()) {
+              existingOpen.periodEnd = dailyHorizon;
+              await existingOpen.save();
+              await billingService.refreshBillingFromRental(
+                companyId,
+                String(existingOpen._id),
+              );
+            }
+          } else {
             await billingService.createPeriodicBillingForItem(
               companyId,
               rental,
               item,
               pickupBase,
-              horizon,
+              dailyHorizon,
               userId,
               {
                 includeServices: includeServicesAvailable,
@@ -1547,7 +1579,8 @@ class RentalService {
             includeServicesAvailable = false;
             createdCount += 1;
           }
-          item.lastBillingDate = horizon;
+
+          item.lastBillingDate = item.returnActual ? dailyHorizon : undefined;
           item.nextBillingDate = undefined;
         }
         continue;
@@ -1955,7 +1988,43 @@ class RentalService {
             preferredAddress.complement ? ` - ${preferredAddress.complement}` : "",
           ].join("")
         : "";
-      y = lineFieldLocatario("End:", endCliente, y);
+      {
+        const rowY = y;
+        const leftLabelW = locatarioLabelW;
+        const rightLabelW = 46;
+        const colGap = 12;
+        const colW = (contentW - colGap) / 2;
+        const cidadeCliente = [
+          preferredAddress?.city,
+          preferredAddress?.state,
+        ]
+          .filter(Boolean)
+          .join("/");
+
+        doc.font("Helvetica-Bold").fontSize(9).text("End:", left, rowY, {
+          width: leftLabelW,
+          align: "left",
+        });
+        doc.font("Helvetica").fontSize(9).text(
+          endCliente || "______________________________",
+          left + leftLabelW,
+          rowY,
+          { width: colW - leftLabelW, align: "left" },
+        );
+
+        const rightX = left + colW + colGap;
+        doc.font("Helvetica-Bold").fontSize(9).text("Cidade:", rightX, rowY, {
+          width: rightLabelW,
+          align: "left",
+        });
+        doc.font("Helvetica").fontSize(9).text(
+          cidadeCliente || "______________________________",
+          rightX + rightLabelW,
+          rowY,
+          { width: colW - rightLabelW, align: "left" },
+        );
+        y = rowY + 14;
+      }
       y = lineFieldLocatario(
         "Bairro:",
         preferredAddress?.neighborhood || "",
@@ -2035,7 +2104,7 @@ class RentalService {
         doc
           .font("Helvetica")
           .fontSize(9)
-          .text("______________________________", rightX + labelW, rowY, {
+          .text("__________________________________________", rightX + labelW, rowY, {
             width: colW - labelW,
             align: "left",
           });
@@ -2047,27 +2116,44 @@ class RentalService {
             work.number ? `, ${work.number}` : "",
             work.complement ? ` - ${work.complement}` : "",
             work.neighborhood ? ` - ${work.neighborhood}` : "",
-            work.city && work.state
-              ? ` - ${work.city}/${work.state}`
-              : "",
             work.zipCode ? ` - CEP ${work.zipCode}` : "",
           ]
             .filter(Boolean)
             .join("")
         : "";
       {
+        const rowY = y;
         const labelW = 28;
-        doc.font("Helvetica-Bold").fontSize(9).text("End:", left, y, {
+        const rightLabelW = 46;
+        const colGap = 12;
+        const colW = (contentW - colGap) / 2;
+        const cidadeObra = [work?.city, work?.state]
+          .filter(Boolean)
+          .join("/");
+
+        doc.font("Helvetica-Bold").fontSize(9).text("End:", left, rowY, {
           width: labelW,
           align: "left",
         });
         doc.font("Helvetica").fontSize(9).text(
-          endObra || "________________________________________________________________",
+          endObra || "__________________________________________",
           left + labelW,
-          y,
-          { width: contentW - labelW, align: "left" },
+          rowY,
+          { width: colW - labelW, align: "left" },
         );
-        y += 14;
+
+        const rightX = left + colW + colGap;
+        doc.font("Helvetica-Bold").fontSize(9).text("Cidade:", rightX, rowY, {
+          width: rightLabelW,
+          align: "left",
+        });
+        doc.font("Helvetica").fontSize(9).text(
+          cidadeObra || "______________________________",
+          rightX + rightLabelW,
+          rowY,
+          { width: colW - rightLabelW, align: "left" },
+        );
+        y = rowY + 14;
       }
       y += 6;
 

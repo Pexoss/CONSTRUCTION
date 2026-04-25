@@ -869,7 +869,7 @@ const CreateRentalPage: React.FC = () => {
                       {selectedItems.length} item{selectedItems.length !== 1 ? "s" : ""} selecionado{selectedItems.length !== 1 ? "s" : ""}
                     </div>
                     <div className="space-y-4">
-                      {selectedItems.map((selectedItem) => (
+                      {selectedItems.map((selectedItem, selectedIndex) => (
                         <div
                           key={selectedItem.itemId}
                           className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900/50"
@@ -991,27 +991,35 @@ const CreateRentalPage: React.FC = () => {
 
                                       const updated = selectedItems.map(
                                         (si) => {
-                                          if (si.itemId !== selectedItem.itemId)
+                                          if (
+                                            selectedIndex !== 0 &&
+                                            si.itemId !== selectedItem.itemId
+                                          ) {
                                             return si;
+                                          }
+                                          if (
+                                            selectedIndex === 0 ||
+                                            si.itemId === selectedItem.itemId
+                                          ) {
+                                            const newReturn = value
+                                              ? calculateReturnDate(
+                                                  value,
+                                                  si.rentalType ?? "diario",
+                                                )
+                                              : si.returnDate;
 
-                                          const newReturn = value
-                                            ? calculateReturnDate(
-                                                value,
-                                                si.rentalType ?? "diario",
-                                              )
-                                            : si.returnDate;
-
-                                          return {
-                                            ...si,
-                                            pickupDate: value,
-                                            returnDate: newReturn,
-                                          };
+                                            return {
+                                              ...si,
+                                              pickupDate: value,
+                                              returnDate: newReturn,
+                                            };
+                                          }
+                                          return si;
                                         },
                                       );
 
                                       setSelectedItems(updated);
                                     }}
-                                    onKeyDown={(e) => e.preventDefault()}
                                     className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                   />
                                 </div>
@@ -1043,7 +1051,6 @@ const CreateRentalPage: React.FC = () => {
                                       );
                                       setSelectedItems(updated);
                                     }}
-                                    onKeyDown={(e) => e.preventDefault()}
                                     className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                   />
                                 </div>
