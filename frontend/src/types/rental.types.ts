@@ -10,6 +10,7 @@ export type RentalStatus =
   | "cancelled";
 
 export type BillingCycle = "daily" | "weekly" | "biweekly" | "monthly";
+export type RentalFulfillmentMethod = "delivery_service" | "store_pickup";
 
 // O que o usuário vê na UI
 export type RentalTypeUI = "diario" | "semanal" | "quinzenal" | "mensal";
@@ -138,6 +139,7 @@ export interface Rental {
   items: RentalItem[];
   services?: RentalService[];
   workAddress?: RentalWorkAddress;
+  fulfillmentMethod: RentalFulfillmentMethod;
   dates: RentalDates;
   pricing: RentalPricing;
   changeHistory?: RentalChangeHistory[];
@@ -153,6 +155,8 @@ export interface Rental {
 
 export interface CreateRentalData {
   customerId: string;
+  customerCpf: string;
+  fulfillmentMethod: RentalFulfillmentMethod;
   items: {
     itemId: string;
     unitId?: string;

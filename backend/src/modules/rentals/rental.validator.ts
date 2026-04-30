@@ -2,6 +2,10 @@ import { z } from 'zod';
 
 export const createRentalSchema = z.object({
   customerId: z.string().min(1, 'Customer ID is required'),
+  customerCpf: z.string().min(1, 'Customer CPF is required'),
+  fulfillmentMethod: z.enum(['delivery_service', 'store_pickup'], {
+    required_error: 'Fulfillment method is required',
+  }),
   items: z
     .array(
       z.object({

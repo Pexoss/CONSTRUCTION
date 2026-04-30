@@ -2,7 +2,7 @@ const onlyDigits = (value: string): string => value.replace(/\D/g, "");
 
 const isAllDigits = (value: string): boolean => /^\d+$/.test(value);
 
-const isValidCpf = (digits: string): boolean => {
+export const isValidCpf = (digits: string): boolean => {
   if (!/^\d{11}$/.test(digits) || /^(\d)\1{10}$/.test(digits)) return false;
 
   let sum = 0;

@@ -340,6 +340,12 @@ const RentalSchema = new Schema<IRental>(
     workAddress: {
       type: RentalWorkAddressSchema,
     },
+    fulfillmentMethod: {
+      type: String,
+      enum: ['delivery_service', 'store_pickup'],
+      required: true,
+      default: 'store_pickup',
+    },
     
     dates: {
       type: RentalDatesSchema,

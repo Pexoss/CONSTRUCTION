@@ -54,6 +54,33 @@ class RentalService {
     return normalized;
   }
 
+  private normalizeCpf(value?: string | null): string {
+    return String(value || "").replace(/\D/g, "");
+  }
+
+  private isValidCpf(value?: string | null): boolean {
+    const digits = this.normalizeCpf(value);
+    if (!/^\d{11}$/.test(digits) || /^(\d)\1{10}$/.test(digits)) {
+      return false;
+    }
+
+    let sum = 0;
+    for (let i = 0; i < 9; i += 1) {
+      sum += Number(digits[i]) * (10 - i);
+    }
+    let check = (sum * 10) % 11;
+    if (check === 10) check = 0;
+    if (check !== Number(digits[9])) return false;
+
+    sum = 0;
+    for (let i = 0; i < 10; i += 1) {
+      sum += Number(digits[i]) * (11 - i);
+    }
+    check = (sum * 10) % 11;
+    if (check === 10) check = 0;
+    return check === Number(digits[10]);
+  }
+
   private normalizeDateKey(value?: Date): string {
     if (!value) return "na";
     const normalized = this.normalizeDate(value);
@@ -193,6 +220,41 @@ class RentalService {
     next.setDate(next.getDate() + this.getPeriodLengthDays(rentalType));
     return next;
   }
+
+  private rentalTypeLabelForError(rentalType: RentalType): string {
+    const labels: Record<RentalType, string> = {
+      daily: "diário",
+      weekly: "semanal",
+      biweekly: "quinzenal",
+      monthly: "mensal",
+    };
+    return labels[rentalType];
+  }
+
+  private getConfiguredRateForRentalType(
+    inventoryItem: any,
+    rentalType: RentalType,
+  ): number {
+    const rates: Record<RentalType, number> = {
+      daily: Number(inventoryItem.pricing?.dailyRate ?? 0),
+      weekly: Number(inventoryItem.pricing?.weeklyRate ?? 0),
+      biweekly: Number(inventoryItem.pricing?.biweeklyRate ?? 0),
+      monthly: Number(inventoryItem.pricing?.monthlyRate ?? 0),
+    };
+    return Math.max(0, rates[rentalType] || 0);
+  }
+
+  private assertConfiguredRateForRentalType(
+    inventoryItem: any,
+    rentalType: RentalType,
+  ): void {
+    const rate = this.getConfiguredRateForRentalType(inventoryItem, rentalType);
+    if (rate <= 0) {
+      throw new Error(
+        `Cadastre o valor ${this.rentalTypeLabelForError(rentalType)} do item "${inventoryItem.name}" antes de concluir o aluguel.`,
+      );
+    }
+  }
   /**
    * Calculate rental price based on period and rates
    * NOVO: Suporta biweeklyRate e rentalType
@@ -218,54 +280,32 @@ class RentalService {
 
     switch (rentalType) {
       case "daily":
+        if (dailyRate <= 0) {
+          throw new Error("Valor diário não configurado");
+        }
         return days * dailyRate;
 
       case "weekly":
-        // Fallback para não quebrar edição/recálculo de contratos antigos sem weeklyRate.
-        // Mantém cálculo proporcional usando a melhor taxa disponível.
-        if (weeklyRate !== undefined && weeklyRate !== null) {
+        if (weeklyRate !== undefined && weeklyRate !== null && weeklyRate > 0) {
           return (weeklyRate / 7) * days;
         }
-        if (dailyRate !== undefined && dailyRate !== null) {
-          return dailyRate * days;
-        }
-        if (biweeklyRate !== undefined && biweeklyRate !== null) {
-          return (biweeklyRate / 15) * days;
-        }
-        if (monthlyRate !== undefined && monthlyRate !== null) {
-          return (monthlyRate / 30) * days;
-        }
-        return 0;
+        throw new Error("Valor semanal não configurado");
 
       case "biweekly":
-        if (biweeklyRate !== undefined && biweeklyRate !== null) {
+        if (
+          biweeklyRate !== undefined &&
+          biweeklyRate !== null &&
+          biweeklyRate > 0
+        ) {
           return (biweeklyRate / 15) * days;
         }
-        if (dailyRate !== undefined && dailyRate !== null) {
-          return dailyRate * days;
-        }
-        if (weeklyRate !== undefined && weeklyRate !== null) {
-          return (weeklyRate / 7) * days;
-        }
-        if (monthlyRate !== undefined && monthlyRate !== null) {
-          return (monthlyRate / 30) * days;
-        }
-        return 0;
+        throw new Error("Valor quinzenal não configurado");
 
       case "monthly":
-        if (monthlyRate !== undefined && monthlyRate !== null) {
+        if (monthlyRate !== undefined && monthlyRate !== null && monthlyRate > 0) {
           return (monthlyRate / 30) * days;
         }
-        if (dailyRate !== undefined && dailyRate !== null) {
-          return dailyRate * days;
-        }
-        if (weeklyRate !== undefined && weeklyRate !== null) {
-          return (weeklyRate / 7) * days;
-        }
-        if (biweeklyRate !== undefined && biweeklyRate !== null) {
-          return (biweeklyRate / 15) * days;
-        }
-        return 0;
+        throw new Error("Valor mensal não configurado");
 
       default:
         throw new Error(`RentalType inválido: ${rentalType}`);
@@ -317,6 +357,32 @@ class RentalService {
       throw new Error("Somente o admin pode aplicar desconto");
     }
 
+    const customer = await Customer.findOne({ _id: data.customerId, companyId });
+    if (!customer) throw new Error("Cliente não encontrado");
+
+    const customerCpf = this.normalizeCpf(data.customerCpf || customer.cpfCnpj);
+    if (!this.isValidCpf(customerCpf)) {
+      throw new Error("Informe um CPF válido para o cliente");
+    }
+
+    const duplicateCpfCustomer = await Customer.findOne({
+      _id: { $ne: customer._id },
+      companyId,
+      cpfCnpj: customerCpf,
+    });
+    if (duplicateCpfCustomer) {
+      throw new Error("CPF já cadastrado para outro cliente");
+    }
+
+    if (this.normalizeCpf(customer.cpfCnpj) !== customerCpf) {
+      customer.cpfCnpj = customerCpf;
+      customer.validated = {
+        ...(customer.validated || {}),
+        isValidated: false,
+      };
+      await customer.save();
+    }
+
     //Função para pegar tipo pelo item
     const getRentalTypeFromItem = (item: any): RentalType => {
       if (item.pricing?.monthlyRate) return "monthly";
@@ -341,43 +407,67 @@ class RentalService {
 
       switch (rentalType) {
         case "daily":
+          if (dailyRate <= 0) {
+            throw new Error("Valor diário não configurado");
+          }
           return dailyRate * days;
         case "weekly": {
+          if (weeklyRate <= 0) {
+            throw new Error("Valor semanal não configurado");
+          }
           const fullWeeks = Math.floor(days / 7);
           const extraDays = days % 7;
-          return fullWeeks * (weeklyRate || dailyRate) + extraDays * dailyRate;
+          return fullWeeks * weeklyRate + extraDays * dailyRate;
         }
         case "biweekly": {
+          if (biweeklyRate <= 0) {
+            throw new Error("Valor quinzenal não configurado");
+          }
           const fullPeriods = Math.floor(days / 15);
           const extraDays = days % 15;
-          return (
-            fullPeriods * (biweeklyRate || dailyRate) + extraDays * dailyRate
-          );
+          return fullPeriods * biweeklyRate + extraDays * dailyRate;
         }
         case "monthly": {
+          if (monthlyRate <= 0) {
+            throw new Error("Valor mensal não configurado");
+          }
           const fullMonths = Math.floor(days / 30);
           const extraDays = days % 30;
-          return (
-            fullMonths * (monthlyRate || dailyRate) + extraDays * dailyRate
-          );
+          return fullMonths * monthlyRate + extraDays * dailyRate;
         }
         default:
           return 0;
       }
     };
 
-    // Validar disponibilidade
+    // Validar disponibilidade e preço do tipo escolhido
     for (const item of data.items) {
       const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
       if (!inventoryItem) throw new Error(`Item ${item.itemId} não encontrado`);
+
+      const rentalType: RentalType =
+        item.rentalType &&
+        ["daily", "weekly", "biweekly", "monthly"].includes(item.rentalType)
+          ? item.rentalType
+          : getRentalTypeFromItem(inventoryItem);
+      this.assertConfiguredRateForRentalType(inventoryItem, rentalType);
 
       if (inventoryItem.trackingType === "unit") {
         if (!item.unitId)
           throw new Error(`Item ${inventoryItem.name} precisa de unitId`);
 
         const unit = inventoryItem.units?.find((u) => u.unitId === item.unitId);
-        if (!unit || unit.status !== "available")
-          throw new Error(`Unidade ${item.unitId} indisponível`);
+        if (!unit || unit.status !== "available") {
+          const availableUnits =
+            inventoryItem.units
+              ?.filter((u) => u.status === "available")
+              .map((u) => u.unitId)
+              .join(", ") || "nenhuma";
+          const currentStatus = unit?.status || "não encontrada";
+          throw new Error(
+            `Unidade ${item.unitId} do item "${inventoryItem.name}" indisponível (status: ${currentStatus}). Unidades disponíveis: ${availableUnits}.`,
+          );
+        }
       } else {
         const available = inventoryItem.quantity.available || 0;
         if (available < item.quantity) {
@@ -532,6 +622,7 @@ class RentalService {
                 : undefined,
           }
         : undefined,
+      fulfillmentMethod: data.fulfillmentMethod,
       dates: {
         reservedAt: new Date(),
         pickupScheduled: minPickupDate,
@@ -1558,11 +1649,11 @@ class RentalService {
             if (currentEnd.getTime() !== dailyHorizon.getTime()) {
               existingOpen.periodEnd = dailyHorizon;
               await existingOpen.save();
-              await billingService.refreshBillingFromRental(
-                companyId,
-                String(existingOpen._id),
-              );
             }
+            await billingService.refreshBillingFromRental(
+              companyId,
+              String(existingOpen._id),
+            );
           } else {
             await billingService.createPeriodicBillingForItem(
               companyId,
@@ -1616,6 +1707,11 @@ class RentalService {
           );
           includeServicesAvailable = false;
           createdCount += 1;
+        } else {
+          await billingService.refreshBillingFromRental(
+            companyId,
+            String(existing._id),
+          );
         }
 
         item.lastBillingDate = this.normalizeDate(nextBillingDate);
@@ -1649,11 +1745,34 @@ class RentalService {
             },
           );
           draftsCreated += 1;
+        } else {
+          await billingService.refreshBillingFromRental(
+            companyId,
+            String(existingFuture._id),
+          );
         }
       }
     }
 
     await rental.save();
+
+    const refreshableBillings = await Billing.find({
+      companyId,
+      rentalId: rental._id,
+      status: { $nin: ["paid", "cancelled"] },
+    }).select("_id");
+
+    for (const billing of refreshableBillings) {
+      try {
+        await billingService.refreshBillingFromRental(
+          companyId,
+          String(billing._id),
+        );
+      } catch {
+        /* Mantém o processamento dos demais fechamentos mesmo se um deles não puder ser recalculado. */
+      }
+    }
+
     return { created: createdCount, draftsCreated };
   }
 
@@ -3339,6 +3458,10 @@ class RentalService {
 
         if (existingItem) {
           if (itemUpdate.rentalType) {
+            this.assertConfiguredRateForRentalType(
+              inventoryItem,
+              itemUpdate.rentalType,
+            );
             existingItem.rentalType = itemUpdate.rentalType;
           }
           if (itemUpdate.pickupScheduled) {
@@ -3389,6 +3512,7 @@ class RentalService {
           }
 
           const rentalType: RentalType = itemUpdate.rentalType || "daily";
+          this.assertConfiguredRateForRentalType(inventoryItem, rentalType);
           const pickupScheduled = itemUpdate.pickupScheduled
             ? new Date(itemUpdate.pickupScheduled)
             : rental.dates.pickupScheduled;
@@ -4395,6 +4519,12 @@ class RentalService {
     if (previousRentalType === newRentalType) {
       return rental;
     }
+
+    const inventoryItem = await Item.findOne({ _id: itemId, companyId });
+    if (!inventoryItem) {
+      throw new Error("Item not found");
+    }
+    this.assertConfiguredRateForRentalType(inventoryItem, newRentalType);
 
     const effectiveDate = options?.effectiveDate || new Date();
     const periodStart = item.lastBillingDate

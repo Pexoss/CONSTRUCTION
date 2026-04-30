@@ -10,10 +10,11 @@ import {
   RentalTypeAPI,
   RentalTypeUI,
   RentalWorkAddress,
+  RentalFulfillmentMethod,
 } from "../../types/rental.types";
 import { Item } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
-import { formatDocumentForDisplay } from "../../utils/formatters";
+import { formatDocumentForDisplay, isValidCpf } from "../../utils/formatters";
 import { toast } from "react-toastify";
 import axios from "axios";
 
@@ -29,6 +30,7 @@ interface SelectedItem {
   unitId?: string;
   rentalType?: RentalTypeUI;
   pickupDate?: string; // string ou Date
+  pickupTime?: string;
   returnDate?: string; // string ou Date
   /** Devolução anterior a hoje: item já entregue naquela data (somente histórico) */
   historicalDelivery?: boolean;
@@ -53,6 +55,25 @@ const rentalTypeMap: Record<
   mensal: "monthly",
 };
 
+const rentalTypeLabels: Record<RentalTypeUI, string> = {
+  diario: "diário",
+  semanal: "semanal",
+  quinzenal: "quinzenal",
+  mensal: "mensal",
+};
+
+const getRateForRentalType = (item: Item, rentalType: RentalTypeUI): number => {
+  const pricing = item.pricing ?? {};
+  const apiType = rentalTypeMap[rentalType];
+  const rates = {
+    daily: pricing.dailyRate ?? 0,
+    weekly: pricing.weeklyRate ?? 0,
+    biweekly: pricing.biweeklyRate ?? 0,
+    monthly: pricing.monthlyRate ?? 0,
+  };
+  return Number(rates[apiType] || 0);
+};
+
 const CreateRentalPage: React.FC = () => {
   const navigate = useNavigate();
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
@@ -67,7 +88,11 @@ const CreateRentalPage: React.FC = () => {
   const [selectedWorkAddressId, setSelectedWorkAddressId] =
     useState<string>("");
   const [pickupDate, setPickupDate] = useState("");
+  const [pickupTime, setPickupTime] = useState("");
   const [returnDate, setReturnDate] = useState("");
+  const [customerCpf, setCustomerCpf] = useState("");
+  const [fulfillmentMethod, setFulfillmentMethod] =
+    useState<RentalFulfillmentMethod | "">("");
   const [discount, setDiscount] = useState(0);
   const [discountType, setDiscountType] = useState<"value" | "percentage">("value");
   const [notes, setNotes] = useState("");
@@ -87,7 +112,10 @@ const CreateRentalPage: React.FC = () => {
     queryFn: () => customerService.getCustomers({ limit: 100 }),
   });
 
-  const { data: itemsData } = useItems({ isActive: true, limit: 100 });
+  const { data: itemsData, refetch: refetchItems } = useItems({
+    isActive: true,
+    limit: 100,
+  });
 
   const allCustomers = useMemo(() => {
     const list = customersData?.data ?? [];
@@ -108,6 +136,22 @@ const CreateRentalPage: React.FC = () => {
     () => allCustomers.find((c) => c._id === selectedCustomer) ?? null,
     [allCustomers, selectedCustomer],
   );
+
+  const normalizeCpf = (value: string) => value.replace(/\D/g, "");
+
+  const formatCpfInput = (value: string) => {
+    const digits = normalizeCpf(value).slice(0, 11);
+    return digits
+      .replace(/^(\d{3})(\d)/, "$1.$2")
+      .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+      .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3-$4");
+  };
+
+  const selectedCustomerCpfDigits = normalizeCpf(
+    selectedCustomerData?.cpfCnpj || "",
+  );
+  const rentalCpfDigits = normalizeCpf(customerCpf);
+  const customerHasValidCpf = isValidCpf(selectedCustomerCpfDigits);
   
   const createMutation = useMutation({
     mutationFn: (data: CreateRentalData) => rentalService.createRental(data),
@@ -143,7 +187,7 @@ const CreateRentalPage: React.FC = () => {
         break;
 
       case "weekly": {
-        const weekly = pricing.weeklyRate || daily;
+        const weekly = pricing.weeklyRate || 0;
         const fullWeeks = Math.floor(days / 7);
         const extraDays = days % 7;
         totalPrice = fullWeeks * weekly + extraDays * daily;
@@ -151,7 +195,7 @@ const CreateRentalPage: React.FC = () => {
       }
 
       case "biweekly": {
-        const biweekly = pricing.biweeklyRate || daily;
+        const biweekly = pricing.biweeklyRate || 0;
         const fullPeriods = Math.floor(days / 15);
         const extraDays = days % 15;
         totalPrice = fullPeriods * biweekly + extraDays * daily;
@@ -159,7 +203,7 @@ const CreateRentalPage: React.FC = () => {
       }
 
       case "monthly": {
-        const monthly = pricing.monthlyRate || daily;
+        const monthly = pricing.monthlyRate || 0;
         const fullMonths = Math.floor(days / 30);
         const extraDays = days % 30;
         totalPrice = fullMonths * monthly + extraDays * daily;
@@ -286,6 +330,9 @@ const CreateRentalPage: React.FC = () => {
     };
 
     const rentalType = getRentalTypeFromItem(item);
+    const defaultPickupDate = pickupDate || selectedItems[0]?.pickupDate || "";
+    const defaultPickupTime = pickupTime || selectedItems[0]?.pickupTime || "";
+    const defaultReturnDate = returnDate || selectedItems[0]?.returnDate || "";
 
     const existingIndex = selectedItems.findIndex(
       (si) => si.itemId === item._id,
@@ -307,9 +354,9 @@ const CreateRentalPage: React.FC = () => {
     } else {
       //já calcula a devolução mínima
       const calculatedReturn =
-        pickupDate && !returnDate
-          ? calculateReturnDate(pickupDate, rentalType)
-          : returnDate || "";
+        defaultPickupDate && !defaultReturnDate
+          ? calculateReturnDate(defaultPickupDate, rentalType)
+          : defaultReturnDate || "";
 
       setSelectedItems([
         ...selectedItems,
@@ -317,7 +364,8 @@ const CreateRentalPage: React.FC = () => {
           itemId: item._id,
           quantity: 1,
           item,
-          pickupDate: pickupDate || "",
+          pickupDate: defaultPickupDate,
+          pickupTime: defaultPickupTime,
           returnDate: calculatedReturn,
           rentalType,
         },
@@ -392,13 +440,18 @@ const CreateRentalPage: React.FC = () => {
     setCustomerSearch("");
     setSelectedWorkAddressId("");
     setWorkAddress(null);
+    const customer = allCustomers.find((c) => c._id === newCustomerId);
+    setCustomerCpf(formatCpfInput(customer?.cpfCnpj || ""));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const missingFields: string[] = [];
     if (!selectedCustomer) missingFields.push("cliente");
+    const cpfToSubmit = rentalCpfDigits || selectedCustomerCpfDigits;
+    if (!cpfToSubmit) missingFields.push("CPF do cliente");
+    if (!fulfillmentMethod) missingFields.push("entrega ou retirada");
     if (selectedItems.length === 0) {
       if ((itemsData?.data || []).length === 0) {
         alert("Nenhum item disponível no inventário para alugar.");
@@ -409,6 +462,11 @@ const CreateRentalPage: React.FC = () => {
 
     if (missingFields.length > 0) {
       alert(`Preencha os campos obrigatórios: ${missingFields.join(", ")}.`);
+      return;
+    }
+
+    if (!isValidCpf(cpfToSubmit)) {
+      alert("Informe um CPF válido para o cliente.");
       return;
     }
 
@@ -434,16 +492,46 @@ const CreateRentalPage: React.FC = () => {
       if (!shouldContinue) return;
     }
 
-    //format dates
-    const formatDateToISO = (dateStr: string) => {
-      const d = new Date(dateStr);
+    const formatDateTimeToISO = (dateStr: string, timeStr = "00:00") => {
+      const [year, month, day] = dateStr.split("-").map(Number);
+      const [hours, minutes] = timeStr.split(":").map(Number);
+      const d = new Date(year, month - 1, day, hours || 0, minutes || 0);
       return d.toISOString();
     };
 
-    for (const si of selectedItems) {
+    const freshItemsResult = await refetchItems();
+    const freshItems = freshItemsResult.data?.data || itemsData?.data || [];
+    const refreshedSelectedItems = selectedItems.map((si) => {
+      const freshItem = freshItems.find((item) => item._id === si.itemId);
+      return freshItem ? { ...si, item: freshItem } : si;
+    });
+    setSelectedItems(refreshedSelectedItems);
+
+    for (const si of refreshedSelectedItems) {
+      const selectedRentalType = si.rentalType ?? rentalType;
+      if (getRateForRentalType(si.item, selectedRentalType) <= 0) {
+        alert(
+          `Cadastre o valor ${rentalTypeLabels[selectedRentalType]} do item "${si.item.name}" antes de concluir o aluguel.`,
+        );
+        return;
+      }
       if (si.item.trackingType === "unit" && !si.unitId) {
         alert(`O item "${si.item.name}" precisa de um unitId válido.`);
         return;
+      }
+      if (si.item.trackingType === "unit" && si.unitId) {
+        const unit = si.item.units?.find((u) => u.unitId === si.unitId);
+        if (!unit || unit.status !== "available") {
+          const availableUnits =
+            si.item.units
+              ?.filter((u) => u.status === "available")
+              .map((u) => u.unitId)
+              .join(", ") || "nenhuma";
+          alert(
+            `A unidade ${si.unitId} do item "${si.item.name}" não está mais disponível. Unidades disponíveis: ${availableUnits}.`,
+          );
+          return;
+        }
       }
       if (
         si.item.trackingType !== "unit" &&
@@ -456,6 +544,10 @@ const CreateRentalPage: React.FC = () => {
       }
       if (!si.pickupDate) {
         alert(`Informe a retirada do item "${si.item.name}".`);
+        return;
+      }
+      if (!si.pickupTime) {
+        alert(`Informe o horário de entrega/retirada do item "${si.item.name}".`);
         return;
       }
       if (si.returnDate && si.pickupDate && si.returnDate < si.pickupDate) {
@@ -476,16 +568,21 @@ const CreateRentalPage: React.FC = () => {
 
     const data: CreateRentalData = {
       customerId: selectedCustomer,
-      items: selectedItems.map((si) => {
+      customerCpf: cpfToSubmit,
+      fulfillmentMethod: fulfillmentMethod as RentalFulfillmentMethod,
+      items: refreshedSelectedItems.map((si) => {
         const uiType = si.rentalType ?? rentalType; // fallback da tela
         const row: CreateRentalData["items"][number] = {
           itemId: si.itemId,
           unitId: si.item.trackingType === "unit" ? si.unitId : undefined,
           quantity: si.quantity,
           rentalType: rentalTypeMapper[uiType],
-          pickupScheduled: formatDateToISO(si.pickupDate as string),
+          pickupScheduled: formatDateTimeToISO(
+            si.pickupDate as string,
+            si.pickupTime,
+          ),
           returnScheduled: si.returnDate
-            ? formatDateToISO(si.returnDate)
+            ? formatDateTimeToISO(si.returnDate, si.pickupTime)
             : undefined,
         };
         if (
@@ -504,10 +601,10 @@ const CreateRentalPage: React.FC = () => {
         pickupDate || returnDate
           ? {
               pickupScheduled: pickupDate
-                ? formatDateToISO(pickupDate)
+                ? formatDateTimeToISO(pickupDate, pickupTime)
                 : undefined,
               returnScheduled: returnDate
-                ? formatDateToISO(returnDate)
+                ? formatDateTimeToISO(returnDate, pickupTime)
                 : undefined,
             }
           : undefined,
@@ -753,12 +850,12 @@ const CreateRentalPage: React.FC = () => {
                 </div>
                 <div className="relative">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Buscar por nome ou CNPJ
+                    Buscar por nome ou CPF
                   </label>
                   <div className="relative">
                     <input
                       type="text"
-                      placeholder="Digite o nome ou CNPJ do cliente"
+                      placeholder="Digite o nome ou CPF do cliente"
                       value={selectedCustomer ? (selectedCustomerData?.name || "") : customerSearch}
                       onChange={(e) => {
                         setCustomerSearch(e.target.value);
@@ -783,6 +880,7 @@ const CreateRentalPage: React.FC = () => {
                         onClick={() => {
                           setSelectedCustomer("");
                           setCustomerSearch("");
+                          setCustomerCpf("");
                           setSelectedWorkAddressId("");
                           setWorkAddress(null);
                         }}
@@ -832,6 +930,29 @@ const CreateRentalPage: React.FC = () => {
                       <span className="font-medium">Cliente selecionado:</span>{" "}
                       {selectedCustomerData.name}
                     </p>
+                  </div>
+                )}
+                {selectedCustomer && selectedCustomerData && (
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      CPF do cliente *
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={customerCpf}
+                      onChange={(e) => setCustomerCpf(formatCpfInput(e.target.value))}
+                      placeholder="000.000.000-00"
+                      maxLength={14}
+                      required
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                    {!customerHasValidCpf && (
+                      <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                        Este cliente não possui CPF válido cadastrado. O CPF
+                        informado aqui será salvo no cadastro do cliente.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -935,7 +1056,7 @@ const CreateRentalPage: React.FC = () => {
                               )}
 
                               {/* BLOCO PRINCIPAL (tipo + datas) */}
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                                 <div className="flex flex-col">
                                   <label className="text-xs text-gray-500 mb-1">
                                     Tipo de cobrança
@@ -981,13 +1102,16 @@ const CreateRentalPage: React.FC = () => {
                                 {/* Retirada */}
                                 <div className="flex flex-col">
                                   <label className="text-xs text-gray-500 mb-1">
-                                    Retirada
+                                    Data de entrega/retirada
                                   </label>
                                   <input
                                     type="date"
                                     value={selectedItem.pickupDate || ""}
                                     onChange={(e) => {
                                       const value = e.target.value;
+                                      if (selectedIndex === 0) {
+                                        setPickupDate(value);
+                                      }
 
                                       const updated = selectedItems.map(
                                         (si) => {
@@ -1020,6 +1144,38 @@ const CreateRentalPage: React.FC = () => {
 
                                       setSelectedItems(updated);
                                     }}
+                                    required
+                                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                  />
+                                </div>
+
+                                {/* Horário */}
+                                <div className="flex flex-col">
+                                  <label className="text-xs text-gray-500 mb-1">
+                                    Horário *
+                                  </label>
+                                  <input
+                                    type="time"
+                                    value={selectedItem.pickupTime || ""}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      if (selectedIndex === 0) {
+                                        setPickupTime(value);
+                                      }
+
+                                      setSelectedItems(
+                                        selectedItems.map((si) => {
+                                          if (
+                                            selectedIndex !== 0 &&
+                                            si.itemId !== selectedItem.itemId
+                                          ) {
+                                            return si;
+                                          }
+                                          return { ...si, pickupTime: value };
+                                        }),
+                                      );
+                                    }}
+                                    required
                                     className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                   />
                                 </div>
@@ -1551,6 +1707,40 @@ const CreateRentalPage: React.FC = () => {
                 </h2>
 
                 <form onSubmit={handleSubmit} className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                      Entrega dos itens *
+                    </label>
+                    <div className="grid grid-cols-1 gap-2">
+                      <label className="flex items-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <input
+                          type="radio"
+                          name="fulfillmentMethod"
+                          value="delivery_service"
+                          checked={fulfillmentMethod === "delivery_service"}
+                          onChange={() => setFulfillmentMethod("delivery_service")}
+                          required
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                          Serviço de entrega
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-2 p-3 border border-gray-300 dark:border-gray-600 rounded-md cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <input
+                          type="radio"
+                          name="fulfillmentMethod"
+                          value="store_pickup"
+                          checked={fulfillmentMethod === "store_pickup"}
+                          onChange={() => setFulfillmentMethod("store_pickup")}
+                          required
+                        />
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                          Retirado na locadora
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
                   {/* Inputs de desconto e observações */}
                   <div className="space-y-4">
                     <div>

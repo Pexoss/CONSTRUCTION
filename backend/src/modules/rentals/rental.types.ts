@@ -11,6 +11,7 @@ export type RentalStatus =
 export type RentalType = "daily" | "weekly" | "biweekly" | "monthly";
 export type BillingCycle = "daily" | "weekly" | "biweekly" | "monthly";
 export type ApprovalStatus = "pending" | "approved" | "rejected";
+export type RentalFulfillmentMethod = "delivery_service" | "store_pickup";
 
 // NOVO: Interface para serviços adicionais
 export interface IRentalService {
@@ -138,6 +139,7 @@ export interface IRental extends Document {
 
   // NOVO: Endereço da obra
   workAddress?: IRentalWorkAddress;
+  fulfillmentMethod: RentalFulfillmentMethod;
 
   dates: IRentalDates;
   pricing: IRentalPricing;

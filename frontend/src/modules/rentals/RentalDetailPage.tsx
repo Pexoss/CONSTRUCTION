@@ -70,6 +70,29 @@ const RentalDetailPage: React.FC = () => {
     mensal: "monthly",
   };
 
+  const formatTimeForDisplay = (value?: string | Date | null) => {
+    if (!value) return "";
+    if (typeof value === "string" && /T00:00:00(?:\.000)?Z$/.test(value)) {
+      return "";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const formatPickupDateForDisplay = (value?: string | Date | null) => {
+    if (!value) return "";
+    if (typeof value === "string" && /T00:00:00(?:\.000)?Z$/.test(value)) {
+      return formatDateNoTimezoneShift(value);
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return formatDateNoTimezoneShift(value);
+    return date.toLocaleDateString("pt-BR");
+  };
+
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -697,6 +720,12 @@ const RentalDetailPage: React.FC = () => {
   const customer =
     typeof rental.customerId === "object" ? rental.customerId : null;
   const customerAddresses = customer?.addresses ?? [];
+  const fulfillmentMethodLabel =
+    rental.fulfillmentMethod === "delivery_service"
+      ? "Serviço de entrega"
+      : rental.fulfillmentMethod === "store_pickup"
+        ? "Retirado na locadora"
+        : "Não informado";
 
   const allReturned = rental.items.every((item) => item.returnActual);
 
@@ -1817,7 +1846,18 @@ const RentalDetailPage: React.FC = () => {
                       Retirada
                     </div>
                     <div className="text-sm font-medium text-gray-900 dark:text-white">
-                      {formatDateNoTimezoneShift(rental.dates.pickupScheduled)}
+                      {formatPickupDateForDisplay(rental.dates.pickupScheduled)}
+                      {formatTimeForDisplay(rental.dates.pickupScheduled)
+                        ? ` às ${formatTimeForDisplay(rental.dates.pickupScheduled)}`
+                        : ""}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Entrega dos itens
+                    </div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-white">
+                      {fulfillmentMethodLabel}
                     </div>
                   </div>
                   <div>
@@ -1887,8 +1927,11 @@ const RentalDetailPage: React.FC = () => {
                           <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                             Tipo: {formatRentalTypeLabel(item.rentalType)} • Retirada:{" "}
                             {item.pickupScheduled
-                              ? formatDateNoTimezoneShift(item.pickupScheduled)
+                              ? formatPickupDateForDisplay(item.pickupScheduled)
                               : "-"}{" "}
+                            {formatTimeForDisplay(item.pickupScheduled)
+                              ? `às ${formatTimeForDisplay(item.pickupScheduled)} `
+                              : ""}
                             • Devolução:{" "}
                             {item.returnScheduled
                               ? formatDateNoTimezoneShift(item.returnScheduled)
@@ -1986,22 +2029,27 @@ const RentalDetailPage: React.FC = () => {
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                       Fechamentos e cobranças
                     </h2>
-                    <button
-                      type="button"
-                      disabled={!features.financialUnifiedModule && processBillingMutation.isPending}
-                      onClick={() =>
-                        features.financialUnifiedModule
-                          ? navigate("/finance")
-                          : void handleAtualizarFechamentos()
-                      }
-                      className="ml-auto text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {features.financialUnifiedModule
-                        ? "Gerenciar no financeiro"
-                        : processBillingMutation.isPending
-                        ? "Atualizando…"
-                        : "Atualizar fechamentos"}
-                    </button>
+                    <div className="ml-auto flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        disabled={processBillingMutation.isPending}
+                        onClick={() => void handleAtualizarFechamentos()}
+                        className="text-xs px-3 py-1.5 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {processBillingMutation.isPending
+                          ? "Atualizando…"
+                          : "Atualizar fechamentos"}
+                      </button>
+                      {features.financialUnifiedModule && (
+                        <button
+                          type="button"
+                          onClick={() => navigate("/finance")}
+                          className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          Gerenciar no financeiro
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400 mb-4">
                     <span>

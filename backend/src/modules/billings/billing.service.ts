@@ -99,8 +99,9 @@ function buildRentalLineKey(item: any): string {
 }
 
 /**
- * Valor unitário de cobrança por período conforme o tipo (diária = valor/dia, semanal = valor/semana, etc.).
- * Se a taxa do tipo não existir, deriva da diária (×7, ×15 ou ×30) e retorna mensagem para log/aviso.
+ * Valor unitário de cobrança por período conforme o tipo selecionado.
+ * Não deriva valores de outro tipo: o contrato só pode ser faturado quando
+ * o preço do ciclo escolhido estiver cadastrado no produto.
  */
 export function periodRateFromInventory(
   pricing: { dailyRate?: number; weeklyRate?: number; biweeklyRate?: number; monthlyRate?: number } | undefined,
@@ -117,33 +118,15 @@ export function periodRateFromInventory(
       return { rate: 0, message: 'Cadastre a diária do equipamento.' };
     case 'weekly':
       if (w > 0) return { rate: w };
-      if (d > 0) {
-        return {
-          rate: 7 * d,
-          message: 'Taxa semanal não cadastrada; aplicada diária × 7 a partir do cadastro do equipamento.',
-        };
-      }
-      return { rate: 0, message: 'Cadastre a semanal ou a diária do equipamento.' };
+      return { rate: 0, message: 'Cadastre o valor semanal do equipamento.' };
     case 'biweekly':
       if (b > 0) return { rate: b };
-      if (d > 0) {
-        return {
-          rate: 15 * d,
-          message: 'Taxa quinzenal não cadastrada; aplicada diária × 15 a partir do cadastro do equipamento.',
-        };
-      }
-      return { rate: 0, message: 'Cadastre a quinzenal ou a diária do equipamento.' };
+      return { rate: 0, message: 'Cadastre o valor quinzenal do equipamento.' };
     case 'monthly':
       if (m > 0) return { rate: m };
-      if (d > 0) {
-        return {
-          rate: 30 * d,
-          message: 'Taxa mensal não cadastrada; aplicada diária × 30 a partir do cadastro do equipamento.',
-        };
-      }
-      return { rate: 0, message: 'Cadastre a mensal ou a diária do equipamento.' };
+      return { rate: 0, message: 'Cadastre o valor mensal do equipamento.' };
     default:
-      return d > 0 ? { rate: d } : { rate: 0, message: 'Cadastre a diária do equipamento.' };
+      return { rate: 0, message: 'Tipo de cobrança inválido.' };
   }
 }
 
@@ -173,6 +156,31 @@ async function createBillingWithRetry(payload: Record<string, unknown>): Promise
 }
 
 class BillingService {
+  private async resolvePeriodRateForBilling(
+    companyId: string,
+    item: any,
+    rentalType: RentalType,
+  ): Promise<{ lineUnit: number; autoNote?: string }> {
+    const inv = await Item.findOne({
+      _id: asIdString(item.itemId),
+      companyId,
+    }).lean();
+    if (!inv) {
+      throw new Error(
+        `Equipamento não encontrado. Não é possível definir valor do fechamento (item ${item.itemId}).`,
+      );
+    }
+
+    const { rate, message } = periodRateFromInventory(inv.pricing, rentalType);
+    if (rate <= 0) {
+      throw new Error(
+        message || `Cadastre no equipamento "${inv.name}" o valor da cobrança (${rentalType}).`,
+      );
+    }
+
+    return { lineUnit: rate, autoNote: message };
+  }
+
   private pickRentalItemsForBilling(rental: any, billing: any): any[] {
     const rentalItems = Array.isArray(rental?.items) ? rental.items : [];
     const billingItems = Array.isArray(billing?.items) ? billing.items : [];
@@ -225,22 +233,11 @@ class BillingService {
     const items: any[] = [];
 
     for (const item of scopedRentalItems) {
-      let lineUnit = Number(item.unitPrice || 0);
-      if (lineUnit <= 0) {
-        const inv = await Item.findOne({ _id: item.itemId, companyId }).lean();
-        if (!inv) {
-          throw new Error(
-            `Equipamento não encontrado. Não é possível definir valor do fechamento (item ${item.itemId}).`,
-          );
-        }
-        const { rate, message } = periodRateFromInventory(inv.pricing, rentalType);
-        if (rate <= 0) {
-          throw new Error(
-            message || `Cadastre no equipamento "${inv.name}" o valor da cobrança (${rentalType}) ou a diária.`,
-          );
-        }
-        lineUnit = rate;
-      }
+      const { lineUnit } = await this.resolvePeriodRateForBilling(
+        companyId,
+        item,
+        rentalType,
+      );
 
       const subtotal = lineUnit * Number(item.quantity || 0) * periodsCharged;
       equipmentSubtotal += subtotal;
@@ -307,7 +304,10 @@ class BillingService {
       const it = rental.items[i];
       if (Number(it.unitPrice) > 0) continue;
       const rt = (it.rentalType || 'daily') as RentalType;
-      const inv = await Item.findOne({ _id: it.itemId, companyId }).lean();
+      const inv = await Item.findOne({
+        _id: asIdString(it.itemId),
+        companyId,
+      }).lean();
       if (!inv) {
         throw new Error(
           `Equipamento não encontrado. Não é possível definir valor do fechamento (item ${it.itemId}).`,
@@ -548,20 +548,28 @@ class BillingService {
         : 1;
 
     let equipmentSubtotal = 0;
-    const billingItems = rental.items.map((item: any) => {
-      const unitPricePerPeriod = (item.unitPrice / contractedPeriods) * scaleFactor;
+    const billingItems: any[] = [];
+    for (const item of rental.items) {
+      const itemRentalType: RentalType = item.rentalType || rentalType;
+      const { lineUnit } = await this.resolvePeriodRateForBilling(
+        companyId,
+        item,
+        itemRentalType,
+      );
+      const unitPricePerPeriod = lineUnit * scaleFactor;
       const subtotal = unitPricePerPeriod * item.quantity * periodsCharged;
       equipmentSubtotal += subtotal;
 
-      return {
+      billingItems.push({
         itemId: item.itemId,
         unitId: item.unitId,
+        rentalLineKey: buildRentalLineKey(item),
         quantity: item.quantity,
         unitPrice: Number(unitPricePerPeriod.toFixed(2)),
         periodsCharged,
         subtotal: Number(subtotal.toFixed(2)),
-      };
-    });
+      });
+    }
 
     return { items: billingItems, equipmentSubtotal: Number(equipmentSubtotal.toFixed(2)) };
   }
@@ -707,28 +715,17 @@ class BillingService {
     const periodCalculation = calculateBillingPeriod(normalizedStart, normalizedEnd, rentalType);
     const periodsCharged = Math.max(1, periodCalculation.totalPeriods);
 
-    let lineUnit = Number(item.unitPrice);
     const autoNotes: string[] = [];
-    if (lineUnit <= 0) {
-      const inv = await Item.findOne({ _id: item.itemId, companyId }).lean();
-      if (!inv) {
-        throw new Error(
-          `Equipamento não encontrado. Não é possível definir valor do fechamento (item ${item.itemId}).`,
-        );
-      }
-      const { rate, message } = periodRateFromInventory(inv.pricing, rentalType);
-      if (rate <= 0) {
-        throw new Error(
-          message || `Cadastre no equipamento "${inv.name}" o valor da cobrança (${rentalType}) ou a diária.`,
-        );
-      }
-      lineUnit = rate;
-      if (message) {
-        console.warn('[Fechamento]', message);
-        autoNotes.push(message);
-      }
-      await this.persistRentalLineUnitPrice(companyId, rental._id, item, lineUnit);
+    const { lineUnit, autoNote } = await this.resolvePeriodRateForBilling(
+      companyId,
+      item,
+      rentalType,
+    );
+    if (autoNote) {
+      console.warn('[Fechamento]', autoNote);
+      autoNotes.push(autoNote);
     }
+    await this.persistRentalLineUnitPrice(companyId, rental._id, item, lineUnit);
 
     const itemSubtotal = lineUnit * item.quantity * periodsCharged;
     const rentalLineKey = buildRentalLineKey(item);
