@@ -3,7 +3,10 @@ import { ICustomer } from "./customer.types";
 import mongoose from "mongoose";
 import { cpfCnpjService } from "../../shared/services/cpfcnpj.service";
 import { Company } from "../companies/company.model";
-import { AppError } from "../../shared/middleware/error.middleware";
+import {
+  isValidCpfCnpj,
+  normalizeDocument,
+} from "../../shared/utils/document.utils";
 
 class CustomerService {
   /**
@@ -13,15 +16,17 @@ class CustomerService {
     const { validateDocument, ...customerData } = data;
 
     // 1. Limpar o CPF/CNPJ para garantir que não venha lixo
-    const cleanCpfCnpj = customerData.cpfCnpj
-      ? customerData.cpfCnpj.replace(/\D/g, "")
-      : "";
+    const cleanCpfCnpj = normalizeDocument(customerData.cpfCnpj);
+
+    if (cleanCpfCnpj && !isValidCpfCnpj(cleanCpfCnpj)) {
+      throw new Error("CPF/CNPJ inválido");
+    }
 
     // 2. SÓ checa duplicidade se o CPF/CNPJ foi preenchido
     if (cleanCpfCnpj) {
       const existingCustomer = await Customer.findOne({
         companyId,
-        cpfCnpj: customerData.cpfCnpj, // ou use o cleanCpfCnpj se seu banco salvar limpo
+        cpfCnpj: cleanCpfCnpj,
       });
 
       if (existingCustomer) {
@@ -45,7 +50,7 @@ class CustomerService {
       }
 
       const lookup = await cpfCnpjService.lookupName(
-        customerData.cpfCnpj,
+        cleanCpfCnpj,
         token,
         {
           cpfPackageId: company?.cpfCnpjCpfPackageId?.trim(),
@@ -69,6 +74,8 @@ class CustomerService {
     // Isso evita erros de index UNIQUE no MongoDB (string vazia conta como valor)
     if (!cleanCpfCnpj) {
       delete customerData.cpfCnpj;  
+    } else {
+      customerData.cpfCnpj = cleanCpfCnpj;
     }
 
     const customer = await Customer.create({
@@ -146,17 +153,28 @@ class CustomerService {
       throw new Error("Customer not found");
     }
 
-    // If CPF/CNPJ is being updated, check for duplicates
-    if (data.cpfCnpj && data.cpfCnpj !== customer.cpfCnpj) {
+    const normalizedCpfCnpj =
+      data.cpfCnpj !== undefined ? normalizeDocument(data.cpfCnpj) : undefined;
+
+    if (data.cpfCnpj !== undefined && normalizedCpfCnpj && !isValidCpfCnpj(normalizedCpfCnpj)) {
+      throw new Error("CPF/CNPJ inválido");
+    }
+
+    // If CPF/CNPJ is being updated, check for duplicates by normalized digits
+    if (normalizedCpfCnpj && normalizedCpfCnpj !== customer.cpfCnpj) {
       const existingCustomer = await Customer.findOne({
         companyId,
-        cpfCnpj: data.cpfCnpj,
+        cpfCnpj: normalizedCpfCnpj,
         _id: { $ne: customerId },
       });
 
       if (existingCustomer) {
         throw new Error("Customer with this CPF/CNPJ already exists");
       }
+    }
+    if (data.cpfCnpj !== undefined) {
+      if (normalizedCpfCnpj) data.cpfCnpj = normalizedCpfCnpj;
+      else data.cpfCnpj = undefined;
     }
 
     Object.assign(customer, data);
@@ -221,6 +239,7 @@ class CustomerService {
     if (!customer.addresses) {
       customer.addresses = [];
     }
+    addressData.type = addressData.type || "main";
 
     // Se for o primeiro endereço ou se isDefault for true, marcar como default
     if (customer.addresses.length === 0 || addressData.isDefault) {
@@ -255,6 +274,7 @@ class CustomerService {
       (a) => a._id?.toString() === addressId,
     );
     if (!addr) throw new Error("Address not found");
+    addressData.type = addressData.type || addr.type || "main";
 
     // Se marcar como default, remove o default de outros
     if (addressData.isDefault) {

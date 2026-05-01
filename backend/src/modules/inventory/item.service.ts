@@ -92,6 +92,7 @@ class ItemService {
       previousQuantity: {
         total: 0,
         available: 0,
+        reserved: 0,
         rented: 0,
         maintenance: 0,
         damaged: 0,
@@ -207,18 +208,24 @@ class ItemService {
       const previousQuantity = {
         total: item.quantity.total,
         available: item.quantity.available,
+        reserved: item.quantity.reserved || 0,
         rented: item.quantity.rented,
         maintenance: item.quantity.maintenance,
         damaged: item.quantity.damaged,
       };
 
       if (data.quantity.total !== undefined) item.quantity.total = data.quantity.total;
+      if (data.quantity.reserved !== undefined) item.quantity.reserved = data.quantity.reserved;
       if (data.quantity.rented !== undefined) item.quantity.rented = data.quantity.rented;
       if (data.quantity.maintenance !== undefined) item.quantity.maintenance = data.quantity.maintenance;
       if (data.quantity.damaged !== undefined) item.quantity.damaged = data.quantity.damaged;
 
       item.quantity.available =
-        item.quantity.total - item.quantity.rented - item.quantity.maintenance - item.quantity.damaged;
+        item.quantity.total -
+        (item.quantity.reserved || 0) -
+        item.quantity.rented -
+        item.quantity.maintenance -
+        item.quantity.damaged;
 
       if (item.quantity.available < 0) {
         throw new Error('Available quantity cannot be negative');
@@ -233,6 +240,7 @@ class ItemService {
         newQuantity: {
           total: item.quantity.total,
           available: item.quantity.available,
+          reserved: item.quantity.reserved || 0,
           rented: item.quantity.rented,
           maintenance: item.quantity.maintenance,
           damaged: item.quantity.damaged,
@@ -315,6 +323,7 @@ class ItemService {
     const previousQuantity = {
       total: item.quantity.total,
       available: item.quantity.available,
+      reserved: item.quantity.reserved || 0,
       rented: item.quantity.rented,
       maintenance: item.quantity.maintenance,
       damaged: item.quantity.damaged,
@@ -369,6 +378,7 @@ class ItemService {
       newQuantity: {
         total: item.quantity.total,
         available: item.quantity.available,
+        reserved: item.quantity.reserved || 0,
         rented: item.quantity.rented,
         maintenance: item.quantity.maintenance,
         damaged: item.quantity.damaged,

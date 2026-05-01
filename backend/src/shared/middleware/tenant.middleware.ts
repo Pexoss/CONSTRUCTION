@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { Company } from '../../modules/companies/company.model';
+import { UserRole } from '../constants/roles';
 
 /**
  * Middleware para identificar e validar tenant (empresa)
@@ -10,13 +11,21 @@ export const tenantMiddleware = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    // Prioridade 1: Header X-Company-Id
-    let companyId = req.headers['x-company-id'] as string;
+    const headerCompanyId = req.headers['x-company-id'] as string | undefined;
+    const userCompanyId = req.user?.companyId?.toString();
+    const isSuperadmin = req.user?.role === UserRole.SUPERADMIN;
 
-    // Prioridade 2: do usuário autenticado
-    if (!companyId && req.user?.companyId) {
-      companyId = req.user.companyId.toString();
+    if (headerCompanyId && userCompanyId && headerCompanyId !== userCompanyId && !isSuperadmin) {
+      res.status(403).json({
+        success: false,
+        message: 'Company header does not match authenticated user company',
+      });
+      return;
     }
+
+    const companyId = isSuperadmin && headerCompanyId
+      ? headerCompanyId
+      : userCompanyId || headerCompanyId;
 
     if (!companyId) {
       res.status(401).json({

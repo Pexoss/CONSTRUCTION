@@ -181,6 +181,12 @@ class InvoiceService {
       if (b.customerId.toString() !== customerId) {
         throw new Error("Todos os fechamentos devem ser do mesmo cliente");
       }
+      if (b.invoiceId) {
+        throw new Error("Fechamento já está vinculado a uma fatura");
+      }
+      if (b.status === "cancelled") {
+        throw new Error("Fechamento cancelado não pode ser faturado");
+      }
     }
 
     const rentalId = billings[0].rentalId;
@@ -193,6 +199,18 @@ class InvoiceService {
     }> = [];
 
     for (const bill of billings) {
+      const billingTotal = Number(bill.calculation?.total || 0);
+      const billingOutstanding = Number(bill.outstandingAmount ?? billingTotal);
+      if (billingOutstanding <= 0) {
+        throw new Error(`Fechamento ${bill.billingNumber} não possui saldo em aberto para faturar`);
+      }
+      const grossLinesTotal =
+        [...(bill.items || []), ...(bill.services || [])].reduce(
+          (sum: number, line: any) => sum + Number(line.subtotal || 0),
+          0,
+        ) || billingTotal;
+      const scale = grossLinesTotal > 0 ? billingOutstanding / grossLinesTotal : 1;
+
       for (const line of bill.items || []) {
         const itemDoc = line.itemId as unknown as { name?: string } | mongoose.Types.ObjectId;
         const name =
@@ -202,8 +220,8 @@ class InvoiceService {
         items.push({
           description: name,
           quantity: line.quantity,
-          unitPrice: line.unitPrice,
-          total: line.subtotal,
+          unitPrice: Number((line.unitPrice * scale).toFixed(2)),
+          total: Number((line.subtotal * scale).toFixed(2)),
         });
       }
 
@@ -211,8 +229,8 @@ class InvoiceService {
         items.push({
           description: String(svc.description || "Serviço"),
           quantity: svc.quantity,
-          unitPrice: svc.price,
-          total: svc.subtotal,
+          unitPrice: Number((svc.price * scale).toFixed(2)),
+          total: Number((svc.subtotal * scale).toFixed(2)),
         });
       }
 
@@ -220,8 +238,8 @@ class InvoiceService {
         items.push({
           description: "Aluguel",
           quantity: 1,
-          unitPrice: bill.calculation.total,
-          total: bill.calculation.total,
+          unitPrice: billingOutstanding,
+          total: billingOutstanding,
         });
       }
     }
@@ -230,10 +248,10 @@ class InvoiceService {
       throw new Error("Não há linhas para a fatura a partir dos fechamentos selecionados");
     }
 
-    const subtotal = items.reduce((s, it) => s + it.total, 0);
+    const subtotal = Number(items.reduce((s, it) => s + it.total, 0).toFixed(2));
     const tax = data.tax ?? 0;
     const discount = data.discount ?? 0;
-    const total = subtotal + tax - discount;
+    const total = Math.max(0, Number((subtotal + tax - discount).toFixed(2)));
 
     const issueDate = data.issueDate ? new Date(data.issueDate) : new Date();
     let dueDate: Date;
@@ -371,6 +389,19 @@ class InvoiceService {
     await invoice.save();
 
     if (invoice.governsFinancialStatus && invoice.billingIds && invoice.billingIds.length > 0) {
+      const payableBillings =
+        status === "paid"
+          ? await Billing.find({
+              _id: { $in: invoice.billingIds },
+              companyId,
+            })
+          : [];
+      const totalOutstanding = payableBillings.reduce(
+        (sum, bill) => sum + Number(bill.outstandingAmount ?? bill.calculation.total ?? 0),
+        0,
+      );
+      const cashToAllocate = Math.min(Number(invoice.total || 0), totalOutstanding);
+
       for (const billingId of invoice.billingIds) {
         if (status === "cancelled") {
           await Billing.updateOne(
@@ -379,11 +410,20 @@ class InvoiceService {
           );
         }
         if (status === "paid") {
-          const bill = await Billing.findOne({ _id: billingId, companyId });
+          const bill =
+            payableBillings.find((candidate) => String(candidate._id) === String(billingId)) ||
+            (await Billing.findOne({ _id: billingId, companyId }));
           if (!bill) continue;
-          const remaining = bill.outstandingAmount ?? bill.calculation.total;
+          const remaining = Number(bill.outstandingAmount ?? bill.calculation.total);
+          if (remaining <= 0) continue;
+          const amount =
+            totalOutstanding > 0
+              ? Number(((remaining / totalOutstanding) * cashToAllocate).toFixed(2))
+              : remaining;
+          const discount = Number((remaining - amount).toFixed(2));
           await financialService.appendBillingPayment(billingId, {
-            amount: remaining,
+            amount,
+            discount,
             paidAt: invoice.paidDate || new Date(),
             paymentMethod: invoice.paymentMethod,
             notes: `Baixa pela fatura ${invoice.invoiceNumber}`,

@@ -22,7 +22,7 @@ export const isValidCpf = (digits: string): boolean => {
   return check === Number(digits[10]);
 };
 
-const isValidCnpj = (digits: string): boolean => {
+export const isValidCnpj = (digits: string): boolean => {
   if (!/^\d{14}$/.test(digits) || /^(\d)\1{13}$/.test(digits)) return false;
 
   const calcCheckDigit = (base: string, weights: number[]): number => {
@@ -36,6 +36,13 @@ const isValidCnpj = (digits: string): boolean => {
   const d1 = calcCheckDigit(digits.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
   const d2 = calcCheckDigit(digits.slice(0, 12) + d1, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
   return digits.endsWith(`${d1}${d2}`);
+};
+
+export const isValidCpfCnpj = (value?: string | null): boolean => {
+  const digits = onlyDigits(value || "");
+  if (digits.length === 11) return isValidCpf(digits);
+  if (digits.length === 14) return isValidCnpj(digits);
+  return false;
 };
 
 export const formatDocumentForDisplay = (value?: string | null): string => {
@@ -88,6 +95,38 @@ export const formatDateNoTimezoneShift = (
   const year = d.getUTCFullYear();
   return `${day}/${month}/${year}`;
 };
+
+export const formatDateTimeForDisplay = (
+  value?: string | Date | null,
+): string => {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+};
+
+export const toDateInputValue = (value?: string | Date | null): string => {
+  if (!value) return "";
+  const str = value instanceof Date ? value.toISOString() : String(value);
+  const ymd = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return ymd ? `${ymd[1]}-${ymd[2]}-${ymd[3]}` : "";
+};
+
+export const todayDateInputValue = (): string => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+export const getBillingOutstandingAmount = (billing: {
+  outstandingAmount?: number | null;
+  calculation?: { total?: number | null } | null;
+}): number => Number(billing?.outstandingAmount ?? billing?.calculation?.total ?? 0);
 
 export const formatRentalTypeLabel = (value?: string | null): string => {
   const key = (value || "").toLowerCase();

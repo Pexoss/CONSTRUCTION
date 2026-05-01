@@ -14,6 +14,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import Layout from "../../components/Layout";
+import { todayDateInputValue } from "../../utils/formatters";
 
 const ReportsPage: React.FC = () => {
   type ReportType =
@@ -25,13 +26,18 @@ const ReportsPage: React.FC = () => {
 
   const [reportType, setReportType] = useState<ReportType>("rentals");
   const [startDate, setStartDate] = useState(
-    new Date(new Date().setMonth(new Date().getMonth() - 1))
-      .toISOString()
-      .split("T")[0],
+    (() => {
+      const date = new Date();
+      date.setMonth(date.getMonth() - 1);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    })(),
   );
-  const [endDate, setEndDate] = useState(
-    new Date().toISOString().split("T")[0],
-  );
+  const [endDate, setEndDate] = useState(todayDateInputValue());
+  const formatCurrency = (value?: number | null) =>
+    `R$ ${Number(value || 0).toFixed(2)}`;
 
   const { data: rentalsReport } = useQuery({
     queryKey: ["rentals-report", startDate, endDate],
@@ -288,10 +294,10 @@ const ReportsPage: React.FC = () => {
                   </div>
                   <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
                     <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
-                      Valor Total do Patrimônio
+                      Valor do Patrimônio
                     </h3>
                     <p className="text-3xl font-bold text-gray-900 dark:text-white">
-                      R$ {inventoryReport.data.totalCompletedRevenue}
+                      {formatCurrency(inventoryReport.data.totalInventoryValue ?? inventoryReport.data.totalValue)}
                     </p>
                   </div>
                 </div>
@@ -391,10 +397,22 @@ const ReportsPage: React.FC = () => {
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
                   <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
-                    Receita Total
+                    Receita faturada
                   </h3>
                   <p className="text-3xl font-bold text-green-600 dark:text-green-400">
-                    R$ {rentalsReport.data.totalRevenue.toFixed(2)}
+                    {formatCurrency(rentalsReport.data.billedRevenue ?? rentalsReport.data.totalRevenue)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Contratado: {formatCurrency(rentalsReport.data.contractedRevenue)} | Caução:{" "}
+                    {formatCurrency(rentalsReport.data.depositTotal)}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                  <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
+                    Saldo pendente
+                  </h3>
+                  <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">
+                    {formatCurrency(rentalsReport.data.pendingRevenue)}
                   </p>
                 </div>
               </div>
@@ -422,7 +440,8 @@ const ReportsPage: React.FC = () => {
                     />
                     <Legend />
                     <Bar dataKey="count" fill="#6B7280" name="Quantidade" />
-                    <Bar dataKey="revenue" fill="#10B981" name="Receita (R$)" />
+                    <Bar dataKey="contractedRevenue" fill="#9CA3AF" name="Contratado (R$)" />
+                    <Bar dataKey="revenue" fill="#10B981" name="Faturado (R$)" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -481,7 +500,10 @@ const ReportsPage: React.FC = () => {
                     Receitas
                   </h3>
                   <p className="text-3xl font-bold text-green-600 dark:text-green-400">
-                    R$ {financialReport.data.totalIncome.toFixed(2)}
+                    {formatCurrency(financialReport.data.receivedInPeriod ?? financialReport.data.totalIncome)}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Lançamentos recebidos no período
                   </p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
@@ -489,7 +511,7 @@ const ReportsPage: React.FC = () => {
                     Despesas
                   </h3>
                   <p className="text-3xl font-bold text-red-600 dark:text-red-400">
-                    R$ {financialReport.data.totalExpenses.toFixed(2)}
+                    {formatCurrency(financialReport.data.totalExpenses)}
                   </p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
@@ -503,7 +525,18 @@ const ReportsPage: React.FC = () => {
                         : "text-red-600 dark:text-red-400"
                     }`}
                   >
-                    R$ {financialReport.data.profit.toFixed(2)}
+                    {formatCurrency(financialReport.data.profit)}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                  <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
+                    Faturado / Pendente
+                  </h3>
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {formatCurrency(financialReport.data.billedInPeriod)}
+                  </p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                    Pendente total: {formatCurrency(financialReport.data.pendingTotal)}
                   </p>
                 </div>
               </div>

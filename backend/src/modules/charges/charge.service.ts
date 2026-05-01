@@ -47,17 +47,48 @@ class ChargeService {
     userId: string,
     data: { billingIds: string[]; dueDate?: Date; notes?: string; totalOverride?: number },
   ): Promise<ICharge> {
-    const billingIds = [...new Set(data.billingIds)].map((id) => new mongoose.Types.ObjectId(id));
-    const billings = await Billing.find({ _id: { $in: billingIds }, companyId });
+    let billingIds = [...new Set(data.billingIds)].map((id) => new mongoose.Types.ObjectId(id));
+    let billings = await Billing.find({ _id: { $in: billingIds }, companyId });
 
     if (billings.length !== billingIds.length) {
       throw new Error("Um ou mais fechamentos não foram encontrados");
+    }
+
+    const rentalIds = [
+      ...new Set(billings.map((billing) => String(billing.rentalId)).filter(Boolean)),
+    ];
+    if (rentalIds.length > 0) {
+      const alreadySelected = new Set(billingIds.map((id) => String(id)));
+      const serviceBillings = await Billing.find({
+        companyId,
+        rentalId: { $in: rentalIds.map((id) => new mongoose.Types.ObjectId(id)) },
+        status: { $nin: ["paid", "cancelled"] },
+        chargeId: null,
+        invoiceId: null,
+        "services.0": { $exists: true },
+        items: { $size: 0 },
+      });
+      const eligibleServiceBillings = serviceBillings.filter((billing) => {
+        const outstanding = Number(billing.outstandingAmount ?? billing.calculation?.total ?? 0);
+        return !alreadySelected.has(String(billing._id)) && outstanding > 0.01;
+      });
+      if (eligibleServiceBillings.length > 0) {
+        billingIds = [
+          ...billingIds,
+          ...eligibleServiceBillings.map((billing) => billing._id as mongoose.Types.ObjectId),
+        ];
+        billings = [...billings, ...eligibleServiceBillings];
+      }
     }
 
     const customerId = String(billings[0].customerId);
     for (const bill of billings) {
       if (String(bill.customerId) !== customerId) {
         throw new Error("Todos os fechamentos devem ser do mesmo cliente");
+      }
+      const outstanding = Number(bill.outstandingAmount ?? bill.calculation?.total ?? 0);
+      if (bill.status === "paid" || bill.status === "cancelled" || outstanding <= 0.01) {
+        throw new Error("Fechamento não está elegível para cobrança");
       }
       if (bill.chargeId || bill.invoiceId) {
         throw new Error("Fechamento já está em cobrança/fatura e não pode ser reutilizado");
@@ -106,13 +137,84 @@ class ChargeService {
     }
 
     const paidAt = data.paidAt || new Date();
-    const discount = data.discount || 0;
-    const net = data.amount + discount;
-    charge.paidAmount += data.amount;
-    charge.outstandingAmount = Math.max(0, charge.outstandingAmount - net);
+    const amount = Number(data.amount || 0);
+    const discount = Number(data.discount || 0);
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new Error("Valor da baixa inválido");
+    }
+    if (!Number.isFinite(discount) || discount < 0) {
+      throw new Error("Valor do desconto inválido");
+    }
+
+    const net = Number((amount + discount).toFixed(2));
+    if (net <= 0) {
+      throw new Error("Informe um valor de baixa ou desconto maior que zero");
+    }
+    const chargeOutstanding = Number(charge.outstandingAmount || 0);
+    if (net - chargeOutstanding > 0.01) {
+      throw new Error("Valor da baixa/desconto não pode exceder o saldo da cobrança");
+    }
+
+    const billings = await Billing.find({
+      _id: { $in: charge.billingIds },
+      companyId,
+      status: { $ne: "cancelled" },
+    }).sort({ billingDate: 1, billingNumber: 1, _id: 1 });
+
+    const allocations: Array<{
+      billingId: mongoose.Types.ObjectId;
+      amount: number;
+      discount: number;
+    }> = [];
+    let remainingNet = net;
+    let remainingAmount = amount;
+    let remainingDiscount = discount;
+
+    for (const billing of billings) {
+      if (remainingNet <= 0.01) break;
+      const billingOutstanding = Number(
+        billing.outstandingAmount ?? billing.calculation?.total ?? 0,
+      );
+      if (billingOutstanding <= 0) continue;
+
+      const allocationNet = Number(
+        Math.min(remainingNet, billingOutstanding).toFixed(2),
+      );
+      const amountShare =
+        remainingNet <= allocationNet
+          ? remainingAmount
+          : Number(Math.min(remainingAmount, (allocationNet * amount) / net).toFixed(2));
+      const discountShare = Number((allocationNet - amountShare).toFixed(2));
+
+      allocations.push({
+        billingId: billing._id,
+        amount: amountShare,
+        discount: discountShare,
+      });
+
+      remainingNet = Number((remainingNet - allocationNet).toFixed(2));
+      remainingAmount = Number((remainingAmount - amountShare).toFixed(2));
+      remainingDiscount = Number((remainingDiscount - discountShare).toFixed(2));
+    }
+
+    if (remainingNet > 0.01) {
+      throw new Error("Os fechamentos vinculados não possuem saldo suficiente para a baixa");
+    }
+
+    if (remainingAmount > 0.01 || remainingDiscount > 0.01) {
+      const lastAllocation = allocations[allocations.length - 1];
+      if (lastAllocation) {
+        lastAllocation.amount = Number((lastAllocation.amount + remainingAmount).toFixed(2));
+        lastAllocation.discount = Number((lastAllocation.discount + remainingDiscount).toFixed(2));
+      }
+    }
+
+    charge.paidAmount += amount;
+    const nextChargeOutstanding = Math.max(0, Number((chargeOutstanding - net).toFixed(2)));
+    charge.outstandingAmount = nextChargeOutstanding <= 0.01 ? 0 : nextChargeOutstanding;
     charge.status = charge.outstandingAmount === 0 ? "paid" : "partial";
     charge.payments.push({
-      amount: data.amount,
+      amount,
       discount,
       paidAt,
       paymentMethod: data.paymentMethod,
@@ -121,11 +223,10 @@ class ChargeService {
     });
     await charge.save();
 
-    const each = net / Math.max(1, charge.billingIds.length);
-    for (const billingId of charge.billingIds) {
-      await financialService.appendBillingPayment(billingId, {
-        amount: each,
-        discount: 0,
+    for (const allocation of allocations) {
+      await financialService.appendBillingPayment(allocation.billingId, {
+        amount: allocation.amount,
+        discount: allocation.discount,
         paidAt,
         paymentMethod: data.paymentMethod,
         notes: data.notes,
@@ -136,7 +237,7 @@ class ChargeService {
     }
 
     await transactionService.createSystemIncomeFromSettlement(companyId, {
-      amount: data.amount,
+      amount,
       description: `Recebimento da cobrança ${charge.chargeNumber}`,
       dueDate: charge.dueDate,
       paidDate: paidAt,
@@ -195,6 +296,10 @@ class ChargeService {
           throw new Error("Todos os fechamentos devem ser do mesmo cliente da cobrança");
         }
         const billChargeId = bill.chargeId ? String(bill.chargeId) : "";
+        const outstanding = Number(bill.outstandingAmount ?? bill.calculation?.total ?? 0);
+        if (bill.status === "paid" || bill.status === "cancelled" || outstanding <= 0.01) {
+          throw new Error("Fechamento não está elegível para cobrança");
+        }
         if ((billChargeId && billChargeId !== String(charge._id)) || bill.invoiceId) {
           throw new Error("Fechamento já pertence a outra cobrança/fatura e não pode ser reutilizado");
         }

@@ -14,7 +14,11 @@ import {
 } from "../../types/rental.types";
 import { Item } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
-import { formatDocumentForDisplay, isValidCpf } from "../../utils/formatters";
+import {
+  formatDocumentForDisplay,
+  isValidCpfCnpj,
+  todayDateInputValue,
+} from "../../utils/formatters";
 import { toast } from "react-toastify";
 import axios from "axios";
 
@@ -127,7 +131,10 @@ const CreateRentalPage: React.FC = () => {
     const search = customerSearch.toLowerCase().trim();
     return allCustomers.filter((customer) => {
       const matchesName = customer.name.toLowerCase().includes(search);
-      const matchesCnpj = customer.cpfCnpj?.toLowerCase().includes(search);
+      const searchDigits = normalizeDocument(search);
+      const matchesCnpj =
+        customer.cpfCnpj?.toLowerCase().includes(search) ||
+        (!!searchDigits && normalizeDocument(customer.cpfCnpj || "").includes(searchDigits));
       return matchesName || matchesCnpj;
     });
   }, [allCustomers, customerSearch]);
@@ -137,21 +144,30 @@ const CreateRentalPage: React.FC = () => {
     [allCustomers, selectedCustomer],
   );
 
-  const normalizeCpf = (value: string) => value.replace(/\D/g, "");
+  function normalizeDocument(value: string) {
+    return value.replace(/\D/g, "");
+  }
 
-  const formatCpfInput = (value: string) => {
-    const digits = normalizeCpf(value).slice(0, 11);
+  const formatDocumentInput = (value: string) => {
+    const digits = normalizeDocument(value).slice(0, 14);
+    if (digits.length <= 11) {
+      return digits
+        .replace(/^(\d{3})(\d)/, "$1.$2")
+        .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+        .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3-$4");
+    }
     return digits
-      .replace(/^(\d{3})(\d)/, "$1.$2")
-      .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
-      .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3-$4");
+      .replace(/^(\d{2})(\d)/, "$1.$2")
+      .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+      .replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4")
+      .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, "$1.$2.$3/$4-$5");
   };
 
-  const selectedCustomerCpfDigits = normalizeCpf(
+  const selectedCustomerDocumentDigits = normalizeDocument(
     selectedCustomerData?.cpfCnpj || "",
   );
-  const rentalCpfDigits = normalizeCpf(customerCpf);
-  const customerHasValidCpf = isValidCpf(selectedCustomerCpfDigits);
+  const rentalDocumentDigits = normalizeDocument(customerCpf);
+  const customerHasValidDocument = isValidCpfCnpj(selectedCustomerDocumentDigits);
   
   const createMutation = useMutation({
     mutationFn: (data: CreateRentalData) => rentalService.createRental(data),
@@ -314,7 +330,7 @@ const CreateRentalPage: React.FC = () => {
       const availableUnits =
         item.units?.filter((u) => u.status === "available") || [];
       if (availableUnits.length === 0) {
-        alert(
+        toast.warning(
           `O item "${item.name}" não possui unidades disponíveis para aluguel.`,
         );
         return;
@@ -441,7 +457,7 @@ const CreateRentalPage: React.FC = () => {
     setSelectedWorkAddressId("");
     setWorkAddress(null);
     const customer = allCustomers.find((c) => c._id === newCustomerId);
-    setCustomerCpf(formatCpfInput(customer?.cpfCnpj || ""));
+    setCustomerCpf(formatDocumentInput(customer?.cpfCnpj || ""));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -449,33 +465,33 @@ const CreateRentalPage: React.FC = () => {
 
     const missingFields: string[] = [];
     if (!selectedCustomer) missingFields.push("cliente");
-    const cpfToSubmit = rentalCpfDigits || selectedCustomerCpfDigits;
-    if (!cpfToSubmit) missingFields.push("CPF do cliente");
+    const documentToSubmit = rentalDocumentDigits || selectedCustomerDocumentDigits;
+    if (!documentToSubmit) missingFields.push("CPF/CNPJ do cliente");
     if (!fulfillmentMethod) missingFields.push("entrega ou retirada");
     if (selectedItems.length === 0) {
       if ((itemsData?.data || []).length === 0) {
-        alert("Nenhum item disponível no inventário para alugar.");
+        toast.warning("Nenhum item disponível no inventário para alugar.");
         return;
       }
       missingFields.push("itens do aluguel");
     }
 
     if (missingFields.length > 0) {
-      alert(`Preencha os campos obrigatórios: ${missingFields.join(", ")}.`);
+      toast.warning(`Preencha os campos obrigatórios: ${missingFields.join(", ")}.`);
       return;
     }
 
-    if (!isValidCpf(cpfToSubmit)) {
-      alert("Informe um CPF válido para o cliente.");
+    if (!isValidCpfCnpj(documentToSubmit)) {
+      toast.warning("Informe um CPF/CNPJ válido para o cliente.");
       return;
     }
 
     if (selectedItems.length === 0) {
-      alert("Adicione pelo menos um item.");
+      toast.warning("Adicione pelo menos um item.");
       return;
     }
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayDateInputValue();
     const hasRetroactive = selectedItems.some(
       (si) =>
         (si.pickupDate && si.pickupDate < today) ||
@@ -510,13 +526,13 @@ const CreateRentalPage: React.FC = () => {
     for (const si of refreshedSelectedItems) {
       const selectedRentalType = si.rentalType ?? rentalType;
       if (getRateForRentalType(si.item, selectedRentalType) <= 0) {
-        alert(
+        toast.warning(
           `Cadastre o valor ${rentalTypeLabels[selectedRentalType]} do item "${si.item.name}" antes de concluir o aluguel.`,
         );
         return;
       }
       if (si.item.trackingType === "unit" && !si.unitId) {
-        alert(`O item "${si.item.name}" precisa de um unitId válido.`);
+        toast.warning(`Selecione uma unidade disponível para o item "${si.item.name}".`);
         return;
       }
       if (si.item.trackingType === "unit" && si.unitId) {
@@ -527,7 +543,7 @@ const CreateRentalPage: React.FC = () => {
               ?.filter((u) => u.status === "available")
               .map((u) => u.unitId)
               .join(", ") || "nenhuma";
-          alert(
+          toast.warning(
             `A unidade ${si.unitId} do item "${si.item.name}" não está mais disponível. Unidades disponíveis: ${availableUnits}.`,
           );
           return;
@@ -537,21 +553,21 @@ const CreateRentalPage: React.FC = () => {
         si.item.trackingType !== "unit" &&
         si.quantity > (si.item.quantity.available || 0)
       ) {
-        alert(
+        toast.warning(
           `Estoque insuficiente para "${si.item.name}". Disponível: ${si.item.quantity.available || 0}. Solicitado: ${si.quantity}.`,
         );
         return;
       }
       if (!si.pickupDate) {
-        alert(`Informe a retirada do item "${si.item.name}".`);
+        toast.warning(`Informe a retirada do item "${si.item.name}".`);
         return;
       }
       if (!si.pickupTime) {
-        alert(`Informe o horário de entrega/retirada do item "${si.item.name}".`);
+        toast.warning(`Informe o horário de entrega/retirada do item "${si.item.name}".`);
         return;
       }
       if (si.returnDate && si.pickupDate && si.returnDate < si.pickupDate) {
-        alert(
+        toast.warning(
           `A devolução do item "${si.item.name}" deve ser posterior à retirada.`,
         );
         return;
@@ -568,7 +584,7 @@ const CreateRentalPage: React.FC = () => {
 
     const data: CreateRentalData = {
       customerId: selectedCustomer,
-      customerCpf: cpfToSubmit,
+      customerCpf: documentToSubmit,
       fulfillmentMethod: fulfillmentMethod as RentalFulfillmentMethod,
       items: refreshedSelectedItems.map((si) => {
         const uiType = si.rentalType ?? rentalType; // fallback da tela
@@ -634,7 +650,7 @@ const CreateRentalPage: React.FC = () => {
           if (!workAddress.state?.trim()) missing.push("estado");
           if (!workAddress.zipCode?.trim()) missing.push("CEP");
           if (missing.length > 0) {
-            alert(`Preencha o endereço da obra: ${missing.join(", ")}.`);
+            toast.warning(`Preencha o endereço da obra: ${missing.join(", ")}.`);
             return;
           }
           try {
@@ -653,7 +669,7 @@ const CreateRentalPage: React.FC = () => {
               isDefault: false,
             });
           } catch {
-            alert("Não foi possível salvar o endereço do cliente.");
+            toast.error("Aluguel criado, mas não foi possível salvar o endereço no cadastro do cliente.");
           }
         }
 
@@ -686,6 +702,7 @@ const CreateRentalPage: React.FC = () => {
         const message =
           err.response?.data?.message || "Erro ao processar a requisição";
         setServerError(message);
+        toast.error(message);
       },
     });
   };
@@ -850,12 +867,12 @@ const CreateRentalPage: React.FC = () => {
                 </div>
                 <div className="relative">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Buscar por nome ou CPF
+                    Buscar por nome ou CPF/CNPJ
                   </label>
                   <div className="relative">
                     <input
                       type="text"
-                      placeholder="Digite o nome ou CPF do cliente"
+                      placeholder="Digite o nome ou CPF/CNPJ do cliente"
                       value={selectedCustomer ? (selectedCustomerData?.name || "") : customerSearch}
                       onChange={(e) => {
                         setCustomerSearch(e.target.value);
@@ -935,21 +952,21 @@ const CreateRentalPage: React.FC = () => {
                 {selectedCustomer && selectedCustomerData && (
                   <div className="mt-4">
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      CPF do cliente *
+                      CPF/CNPJ do cliente *
                     </label>
                     <input
                       type="text"
                       inputMode="numeric"
                       value={customerCpf}
-                      onChange={(e) => setCustomerCpf(formatCpfInput(e.target.value))}
-                      placeholder="000.000.000-00"
-                      maxLength={14}
+                      onChange={(e) => setCustomerCpf(formatDocumentInput(e.target.value))}
+                      placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                      maxLength={18}
                       required
                       className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     />
-                    {!customerHasValidCpf && (
+                    {!customerHasValidDocument && (
                       <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
-                        Este cliente não possui CPF válido cadastrado. O CPF
+                        Este cliente não possui CPF/CNPJ válido cadastrado. O documento
                         informado aqui será salvo no cadastro do cliente.
                       </p>
                     )}
@@ -1190,9 +1207,7 @@ const CreateRentalPage: React.FC = () => {
                                     value={selectedItem.returnDate || ""}
                                     onChange={(e) => {
                                       const v = e.target.value;
-                                      const todayStr = new Date()
-                                        .toISOString()
-                                        .split("T")[0];
+                                      const todayStr = todayDateInputValue();
                                       const updated = selectedItems.map((si) =>
                                         si.itemId === selectedItem.itemId
                                           ? {
@@ -1213,8 +1228,7 @@ const CreateRentalPage: React.FC = () => {
                               </div>
 
                               {selectedItem.returnDate &&
-                                selectedItem.returnDate <
-                                  new Date().toISOString().split("T")[0] && (
+                                selectedItem.returnDate < todayDateInputValue() && (
                                   <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
                                     <input
                                       type="checkbox"

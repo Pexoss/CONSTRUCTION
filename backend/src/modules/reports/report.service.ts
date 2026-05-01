@@ -61,32 +61,67 @@ class ReportService {
   ): Promise<{
     totalRentals: number;
     totalRevenue: number;
+    contractedRevenue: number;
+    billedRevenue: number;
+    pendingRevenue: number;
+    depositTotal: number;
     byStatus: Record<string, number>;
-    byMonth: Array<{ month: string; count: number; revenue: number }>;
+    byMonth: Array<{ month: string; count: number; revenue: number; contractedRevenue: number }>;
   }> {
-    const rentals = await Rental.find({
-      companyId,
-      createdAt: { $gte: startDate, $lte: endDate },
-    });
+    const { start, end } = this.normalizeReportRange(startDate, endDate);
+    const [rentals, billings] = await Promise.all([
+      Rental.find({
+        companyId,
+        createdAt: { $gte: start, $lte: end },
+      }),
+      Billing.find({
+        companyId,
+        status: { $ne: "cancelled" },
+        billingDate: { $gte: start, $lte: end },
+      }).lean(),
+    ]);
 
     const totalRentals = rentals.length;
-    const totalRevenue = rentals.reduce((sum, r) => sum + r.pricing.total, 0);
+    const contractedRevenue = rentals.reduce((sum, r) => sum + Number(r.pricing.total || 0), 0);
+    const depositTotal = rentals.reduce((sum, r) => sum + Number(r.pricing.deposit || 0), 0);
+    const billedRevenue = billings.reduce(
+      (sum, b) => sum + Number(b.calculation?.total || 0),
+      0,
+    );
+    const pendingRevenue = billings.reduce(
+      (sum, b) => sum + Number(b.outstandingAmount ?? b.calculation?.total ?? 0),
+      0,
+    );
+    const totalRevenue = billedRevenue;
 
     const byStatus: Record<string, number> = {};
     rentals.forEach((rental) => {
       byStatus[rental.status] = (byStatus[rental.status] || 0) + 1;
     });
 
-    const byMonthMap: Record<string, { count: number; revenue: number }> = {};
+    const byMonthMap: Record<
+      string,
+      { count: number; revenue: number; contractedRevenue: number }
+    > = {};
     rentals.forEach((rental) => {
       const month = new Date(rental.createdAt || rental.dates.reservedAt)
         .toISOString()
         .slice(0, 7);
       if (!byMonthMap[month]) {
-        byMonthMap[month] = { count: 0, revenue: 0 };
+        byMonthMap[month] = { count: 0, revenue: 0, contractedRevenue: 0 };
       }
       byMonthMap[month].count += 1;
-      byMonthMap[month].revenue += rental.pricing.total;
+      byMonthMap[month].revenue += 0;
+      byMonthMap[month].contractedRevenue += Number(rental.pricing.total || 0);
+    });
+    billings.forEach((billing) => {
+      const month = new Date(billing.billingDate || billing.createdAt || new Date())
+        .toISOString()
+        .slice(0, 7);
+      if (!byMonthMap[month]) {
+        byMonthMap[month] = { count: 0, revenue: 0, contractedRevenue: 0 };
+      }
+      byMonthMap[month].revenue += Number(billing.calculation?.total || 0);
     });
 
     const byMonth = Object.entries(byMonthMap)
@@ -94,12 +129,17 @@ class ReportService {
         month,
         count: data.count,
         revenue: data.revenue,
+        contractedRevenue: data.contractedRevenue,
       }))
       .sort((a, b) => a.month.localeCompare(b.month));
 
     return {
       totalRentals,
       totalRevenue,
+      contractedRevenue,
+      billedRevenue,
+      pendingRevenue,
+      depositTotal,
       byStatus,
       byMonth,
     };
@@ -116,6 +156,10 @@ class ReportService {
     totalIncome: number;
     totalExpenses: number;
     profit: number;
+    billedInPeriod: number;
+    receivedInPeriod: number;
+    pendingTotal: number;
+    invoicedInPeriod: number;
     byCategory: Array<{ category: string; income: number; expenses: number }>;
     byMonth: Array<{
       month: string;
@@ -124,10 +168,31 @@ class ReportService {
       profit: number;
     }>;
   }> {
-    const transactions = await Transaction.find({
-      companyId,
-      createdAt: { $gte: startDate, $lte: endDate },
-    });
+    const { start, end } = this.normalizeReportRange(startDate, endDate);
+    const [transactions, billings, invoices, pendingBillings, pendingInvoices] = await Promise.all([
+      Transaction.find({
+        companyId,
+        createdAt: { $gte: start, $lte: end },
+      }),
+      Billing.find({
+        companyId,
+        status: { $ne: "cancelled" },
+        billingDate: { $gte: start, $lte: end },
+      }).lean(),
+      Invoice.find({
+        companyId,
+        status: { $ne: "cancelled" },
+        issueDate: { $gte: start, $lte: end },
+      }).lean(),
+      Billing.find({
+        companyId,
+        status: { $nin: ["paid", "cancelled"] },
+      }).lean(),
+      Invoice.find({
+        companyId,
+        status: { $in: ["draft", "sent"] },
+      }).lean(),
+    ]);
 
     let totalIncome = 0;
     let totalExpenses = 0;
@@ -161,6 +226,31 @@ class ReportService {
       }
     });
 
+    const billedInPeriod = billings.reduce(
+      (sum, billing) => sum + Number(billing.calculation?.total || 0),
+      0,
+    );
+    const receivedFromBillings = billings.reduce(
+      (sum, billing: any) =>
+        sum +
+        (billing.paymentHistory || []).reduce(
+          (acc: number, payment: any) => acc + Number(payment.amount || 0),
+          0,
+        ),
+      0,
+    );
+    const receivedInPeriod = totalIncome || receivedFromBillings;
+    const pendingTotal =
+      pendingBillings.reduce(
+        (sum, billing) => sum + Number(billing.outstandingAmount ?? billing.calculation?.total ?? 0),
+        0,
+      ) +
+      pendingInvoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
+    const invoicedInPeriod = invoices.reduce(
+      (sum, invoice) => sum + Number(invoice.total || 0),
+      0,
+    );
+
     const byCategory = Object.entries(categoryMap).map(([category, data]) => ({
       category,
       income: data.income,
@@ -180,6 +270,10 @@ class ReportService {
       totalIncome,
       totalExpenses,
       profit: totalIncome - totalExpenses,
+      billedInPeriod,
+      receivedInPeriod,
+      pendingTotal,
+      invoicedInPeriod,
       byCategory,
       byMonth,
     };
@@ -516,12 +610,20 @@ class ReportService {
         ? String((c as { name?: string }).name || "—")
         : "—";
 
-    const fechReceived = paidBillings.reduce(
-      (s, b) => s + (b.calculation?.total ?? 0),
-      0,
-    );
+    const paidBillingAmount = (billing: any) => {
+      const payments = billing.paymentHistory || [];
+      const paid = payments.reduce(
+        (sum: number, payment: any) => sum + Number(payment.amount || 0),
+        0,
+      );
+      return paid > 0 ? paid : Number(billing.calculation?.total || 0);
+    };
+    const billingOutstanding = (billing: any) =>
+      Number(billing.outstandingAmount ?? billing.calculation?.total ?? 0);
+
+    const fechReceived = paidBillings.reduce((s, b) => s + paidBillingAmount(b), 0);
     const fechPending = pendingBillings.reduce(
-      (s, b) => s + (b.calculation?.total ?? 0),
+      (s, b) => s + billingOutstanding(b),
       0,
     );
 
@@ -542,7 +644,7 @@ class ReportService {
         id: String(b._id),
         documentNumber: b.billingNumber,
         customerName: customerName(b.customerId),
-        amount: b.calculation?.total ?? 0,
+        amount: paidBillingAmount(b),
         paymentDate: b.paymentDate
           ? new Date(b.paymentDate).toISOString()
           : null,
@@ -572,7 +674,7 @@ class ReportService {
         id: String(b._id),
         documentNumber: b.billingNumber,
         customerName: customerName(b.customerId),
-        amount: b.calculation?.total ?? 0,
+        amount: billingOutstanding(b),
         dueDate: null,
         referenceDate: b.billingDate
           ? new Date(b.billingDate).toISOString()
@@ -642,6 +744,7 @@ class ReportService {
     let totalMaintenance = 0;
     let totalDamaged = 0;
     let totalActive = 0;
+    let totalInventoryValue = 0;
 
     let totalCompletedRevenue = 0;
 
@@ -667,6 +770,10 @@ class ReportService {
       totalReserved += q.reserved ?? 0;
       totalMaintenance += q.maintenance ?? 0;
       totalDamaged += q.damaged ?? 0;
+
+      const currentValue = Number(item.depreciation?.currentValue ?? item.depreciation?.initialValue ?? 0);
+      const unitsCount = item.trackingType === "unit" ? item.units?.length || 0 : q.total || 0;
+      totalInventoryValue += currentValue * unitsCount;
     });
 
     return {
@@ -679,6 +786,8 @@ class ReportService {
       totalMaintenance,
       totalDamaged,
       totalCompletedRevenue,
+      totalInventoryValue,
+      totalValue: totalInventoryValue,
       totalActive,
     };
   }

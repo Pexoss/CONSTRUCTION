@@ -114,8 +114,16 @@ const CustomerSchema = new Schema<ICustomer>(
   }
 );
 
-// Compound index for unique CPF/CNPJ per company
-CustomerSchema.index({ companyId: 1, cpfCnpj: 1 }, { unique: true });
+// Compound index for unique CPF/CNPJ per company, only when document exists.
+CustomerSchema.index(
+  { companyId: 1, cpfCnpj: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      cpfCnpj: { $type: 'string', $gt: '' },
+    },
+  },
+);
 
 // Index for search
 CustomerSchema.index({ companyId: 1, name: 1 });

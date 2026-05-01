@@ -36,19 +36,61 @@ export function calculateBillingPeriod(
   const diffDays = Math.ceil(
     (returnDate.getTime() - pickupDate.getTime()) / (1000 * 60 * 60 * 24)
   );
-  const daysPassed = Math.max(1, diffDays);
+  // Para ciclos semanais/quinzenais/mensais, o período é de calendário:
+  // 01/04 até 30/04 representa 1 mensal completo, não 29/30 de um mês.
+  // Diária mantém a regra operacional de devolução no dia seguinte = 1 diária.
+  const daysPassed = Math.max(1, rentalType === 'daily' ? diffDays : diffDays + 1);
   const periodsCompleted = Math.floor(daysPassed / periodLength);
   const extraDays = daysPassed % periodLength;
 
-  // Se tem dias extras, cobra mais um período completo
-  const chargeExtraPeriod = extraDays > 0;
-  const totalPeriods = chargeExtraPeriod ? periodsCompleted + 1 : periodsCompleted;
+  // Regra canônica: dias excedentes são cobrados por diária, não por período cheio.
+  const chargeExtraPeriod = false;
+  const totalPeriods = periodsCompleted;
 
   return {
     periodsCompleted,
     extraDays,
     totalPeriods,
     chargeExtraPeriod,
+  };
+}
+
+export function calculateRentalLineAmount(
+  pricing: {
+    dailyRate?: number;
+    weeklyRate?: number;
+    biweeklyRate?: number;
+    monthlyRate?: number;
+  } | undefined,
+  rentalType: RentalType,
+  period: {
+    periodsCompleted: number;
+    extraDays: number;
+  },
+): { amount: number; periodRate: number; dailyRate: number } {
+  const dailyRate = Math.max(0, Number(pricing?.dailyRate ?? 0));
+  const periodRates: Record<RentalType, number> = {
+    daily: dailyRate,
+    weekly: Math.max(0, Number(pricing?.weeklyRate ?? 0)),
+    biweekly: Math.max(0, Number(pricing?.biweeklyRate ?? 0)),
+    monthly: Math.max(0, Number(pricing?.monthlyRate ?? 0)),
+  };
+  const periodRate = periodRates[rentalType];
+  const periodsCompleted = Math.max(0, Number(period.periodsCompleted || 0));
+  const extraDays = Math.max(0, Number(period.extraDays || 0));
+
+  if (rentalType !== 'daily' && extraDays > 0 && dailyRate <= 0) {
+    throw new Error('Cadastre a diária do equipamento para cobrar dias extras.');
+  }
+
+  const amount = rentalType === 'daily'
+    ? dailyRate * Math.max(1, periodsCompleted)
+    : periodRate * periodsCompleted + dailyRate * extraDays;
+
+  return {
+    amount: Number(amount.toFixed(2)),
+    periodRate,
+    dailyRate,
   };
 }
 
@@ -160,7 +202,7 @@ class BillingService {
     companyId: string,
     item: any,
     rentalType: RentalType,
-  ): Promise<{ lineUnit: number; autoNote?: string }> {
+  ): Promise<{ lineUnit: number; pricing: any; autoNote?: string }> {
     const inv = await Item.findOne({
       _id: asIdString(item.itemId),
       companyId,
@@ -178,7 +220,7 @@ class BillingService {
       );
     }
 
-    return { lineUnit: rate, autoNote: message };
+    return { lineUnit: rate, pricing: inv.pricing, autoNote: message };
   }
 
   private pickRentalItemsForBilling(rental: any, billing: any): any[] {
@@ -227,19 +269,20 @@ class BillingService {
     companyId: string,
     scopedRentalItems: any[],
     rentalType: RentalType,
-    periodsCharged: number,
+    periodCalculation: ReturnType<typeof calculateBillingPeriod>,
   ): Promise<{ items: any[]; equipmentSubtotal: number }> {
     let equipmentSubtotal = 0;
     const items: any[] = [];
 
     for (const item of scopedRentalItems) {
-      const { lineUnit } = await this.resolvePeriodRateForBilling(
+      const { lineUnit, pricing } = await this.resolvePeriodRateForBilling(
         companyId,
         item,
         rentalType,
       );
 
-      const subtotal = lineUnit * Number(item.quantity || 0) * periodsCharged;
+      const { amount } = calculateRentalLineAmount(pricing, rentalType, periodCalculation);
+      const subtotal = amount * Number(item.quantity || 0);
       equipmentSubtotal += subtotal;
       items.push({
         itemId: item.itemId,
@@ -247,7 +290,7 @@ class BillingService {
         rentalLineKey: buildRentalLineKey(item),
         quantity: item.quantity,
         unitPrice: Number(lineUnit.toFixed(2)),
-        periodsCharged,
+        periodsCharged: periodCalculation.totalPeriods,
         subtotal: Number(subtotal.toFixed(2)),
       });
     }
@@ -356,26 +399,27 @@ class BillingService {
     const periodEnd = new Date(billing.periodEnd);
     const rentalType: RentalType = billing.rentalType || rental.dates?.billingCycle || rental.items[0]?.rentalType || 'daily';
     const periodCalculation = calculateBillingPeriod(periodStart, periodEnd, rentalType);
-    const periodsCharged = Math.max(1, periodCalculation.totalPeriods);
-    const scopedRentalItems = this.pickRentalItemsForBilling(rental, billing);
+    const isServiceOnlyBilling =
+      (billing.items?.length ?? 0) === 0 &&
+      ((billing.services?.length ?? 0) > 0 || Number(billing.calculation?.servicesAmount ?? 0) > 0);
+    const scopedRentalItems = isServiceOnlyBilling ? [] : this.pickRentalItemsForBilling(rental, billing);
     const isScopedBilling = scopedRentalItems.length > 0 && scopedRentalItems.length < rental.items.length;
-    const { equipmentSubtotal } = isScopedBilling
-      ? await this.buildScopedBillingItems(
-        companyId,
-        scopedRentalItems,
-        rentalType,
-        periodsCharged,
-      )
-      : await this.buildBillingItems(
-        companyId,
-        rental,
-        rentalType,
-        periodsCharged,
-      );
-    const hadServices =
-      (billing.services?.length ?? 0) > 0 ||
-      Number(billing.calculation?.servicesAmount ?? 0) > 0;
-    const { servicesSubtotal } = this.buildBillingServices(rental, hadServices);
+    const { equipmentSubtotal } = isServiceOnlyBilling
+      ? { equipmentSubtotal: 0 }
+      : isScopedBilling
+        ? await this.buildScopedBillingItems(
+          companyId,
+          scopedRentalItems,
+          rentalType,
+          periodCalculation,
+        )
+        : await this.buildBillingItems(
+          companyId,
+          rental,
+          rentalType,
+          periodCalculation,
+        );
+    const { servicesSubtotal } = this.buildBillingServices(rental, isServiceOnlyBilling);
     const subtotal = equipmentSubtotal + servicesSubtotal;
     const discount = billing.calculation?.discount || 0;
     const nextTotal = Math.max(0, subtotal - discount + (rental.pricing?.lateFee || 0));
@@ -419,27 +463,31 @@ class BillingService {
     const periodEnd = new Date(billing.periodEnd);
     const rentalType: RentalType = billing.rentalType || rental.dates?.billingCycle || rental.items[0]?.rentalType || 'daily';
     const periodCalculation = calculateBillingPeriod(periodStart, periodEnd, rentalType);
-    const periodsCharged = Math.max(1, periodCalculation.totalPeriods);
 
-    const scopedRentalItems = this.pickRentalItemsForBilling(rental, billing);
+    const isServiceOnlyBilling =
+      (billing.items?.length ?? 0) === 0 &&
+      ((billing.services?.length ?? 0) > 0 || Number(billing.calculation?.servicesAmount ?? 0) > 0);
+    const hadLegacyServicesOnItemBilling =
+      !isServiceOnlyBilling &&
+      ((billing.services?.length ?? 0) > 0 || Number(billing.calculation?.servicesAmount ?? 0) > 0);
+    const scopedRentalItems = isServiceOnlyBilling ? [] : this.pickRentalItemsForBilling(rental, billing);
     const isScopedBilling = scopedRentalItems.length > 0 && scopedRentalItems.length < rental.items.length;
-    const { items, equipmentSubtotal } = isScopedBilling
-      ? await this.buildScopedBillingItems(
-        companyId,
-        scopedRentalItems,
-        rentalType,
-        periodsCharged,
-      )
-      : await this.buildBillingItems(
-        companyId,
-        rental,
-        rentalType,
-        periodsCharged,
-      );
-    const hadServices =
-      (billing.services?.length ?? 0) > 0 ||
-      Number(billing.calculation?.servicesAmount ?? 0) > 0;
-    const { services, servicesSubtotal } = this.buildBillingServices(rental, hadServices);
+    const { items, equipmentSubtotal } = isServiceOnlyBilling
+      ? { items: [], equipmentSubtotal: 0 }
+      : isScopedBilling
+        ? await this.buildScopedBillingItems(
+          companyId,
+          scopedRentalItems,
+          rentalType,
+          periodCalculation,
+        )
+        : await this.buildBillingItems(
+          companyId,
+          rental,
+          rentalType,
+          periodCalculation,
+        );
+    const { services, servicesSubtotal } = this.buildBillingServices(rental, isServiceOnlyBilling);
     const subtotal = equipmentSubtotal + servicesSubtotal;
     const discount = billing.calculation?.discount || 0;
     const total = Math.max(0, subtotal - discount + (rental.pricing?.lateFee || 0));
@@ -464,6 +512,31 @@ class BillingService {
     billing.outstandingAmount = Math.max(0, total - paidAmount);
     billing.notes = `${billing.notes || ''}\nAtualizado com dados atuais do aluguel em ${new Date().toISOString()}`.trim();
     await billing.save();
+
+    const serviceBilling = hadLegacyServicesOnItemBilling
+      ? await this.createServiceBillingIfNeeded(
+        companyId,
+        rental,
+        periodStart,
+        periodEnd,
+        String(billing.requestedBy || billing.approvedBy || rental.createdBy),
+        { notes: rental.notes, status: billing.status as BillingStatus },
+      )
+      : null;
+
+    if (serviceBilling && billing.chargeId) {
+      const charge = await Charge.findOne({ _id: billing.chargeId, companyId });
+      if (
+        charge &&
+        charge.status !== 'paid' &&
+        charge.status !== 'cancelled' &&
+        !(charge.billingIds || []).some((id: any) => String(id) === String(serviceBilling._id))
+      ) {
+        charge.billingIds.push(serviceBilling._id as any);
+        await financialService.attachBillingToCharge(serviceBilling._id, charge._id);
+        await charge.save();
+      }
+    }
 
     if (billing.chargeId) {
       const charge = await Charge.findOne({ _id: billing.chargeId, companyId });
@@ -531,7 +604,7 @@ class BillingService {
     companyId: string,
     rental: any,
     rentalType: RentalType,
-    periodsCharged: number,
+    periodCalculation: ReturnType<typeof calculateBillingPeriod>,
     targetEquipmentSubtotal?: number
   ): Promise<{ items: any[]; equipmentSubtotal: number }> {
     await this.ensureRentalItemsHavePeriodRates(companyId, rental);
@@ -551,13 +624,14 @@ class BillingService {
     const billingItems: any[] = [];
     for (const item of rental.items) {
       const itemRentalType: RentalType = item.rentalType || rentalType;
-      const { lineUnit } = await this.resolvePeriodRateForBilling(
+      const { lineUnit, pricing } = await this.resolvePeriodRateForBilling(
         companyId,
         item,
         itemRentalType,
       );
       const unitPricePerPeriod = lineUnit * scaleFactor;
-      const subtotal = unitPricePerPeriod * item.quantity * periodsCharged;
+      const { amount } = calculateRentalLineAmount(pricing, itemRentalType, periodCalculation);
+      const subtotal = amount * scaleFactor * item.quantity;
       equipmentSubtotal += subtotal;
 
       billingItems.push({
@@ -566,7 +640,7 @@ class BillingService {
         rentalLineKey: buildRentalLineKey(item),
         quantity: item.quantity,
         unitPrice: Number(unitPricePerPeriod.toFixed(2)),
-        periodsCharged,
+        periodsCharged: periodCalculation.totalPeriods,
         subtotal: Number(subtotal.toFixed(2)),
       });
     }
@@ -581,16 +655,75 @@ class BillingService {
 
     let servicesSubtotal = 0;
     const billingServices = (rental.services || []).map((service: any) => {
-      servicesSubtotal += service.subtotal;
+      const quantity = Number(service.quantity || 1);
+      const subtotal = Number(service.subtotal ?? Number(service.price || 0) * quantity);
+      servicesSubtotal += subtotal;
       return {
         description: service.description,
-        price: service.price,
-        quantity: service.quantity,
-        subtotal: service.subtotal,
+        price: Number(service.price || 0),
+        quantity,
+        subtotal,
       };
     });
 
-    return { services: billingServices, servicesSubtotal };
+    return { services: billingServices, servicesSubtotal: Number(servicesSubtotal.toFixed(2)) };
+  }
+
+  private async createServiceBillingIfNeeded(
+    companyId: string,
+    rental: any,
+    periodStart: Date,
+    periodEnd: Date,
+    userId: string,
+    options?: { notes?: string; status?: BillingStatus },
+  ): Promise<IBilling | null> {
+    const { services, servicesSubtotal } = this.buildBillingServices(rental, true);
+    if (!services.length || servicesSubtotal <= 0) return null;
+
+    const existing = await Billing.findOne({
+      companyId,
+      rentalId: rental._id,
+      'services.0': { $exists: true },
+      items: { $size: 0 },
+      status: { $ne: 'cancelled' },
+    });
+    if (existing) return existing as IBilling;
+
+    const normalizedStart = new Date(periodStart);
+    normalizedStart.setHours(0, 0, 0, 0);
+    const normalizedEnd = new Date(periodEnd);
+    normalizedEnd.setHours(0, 0, 0, 0);
+    const rentalType: RentalType = rental.dates?.billingCycle || rental.items?.[0]?.rentalType || 'daily';
+
+    return createBillingWithRetry({
+      companyId,
+      rentalId: rental._id,
+      customerId: rental.customerId,
+      billingDate: new Date(),
+      periodStart: normalizedStart,
+      periodEnd: normalizedEnd,
+      rentalType,
+      calculation: {
+        baseRate: 0,
+        periodsCompleted: 0,
+        extraDays: 0,
+        chargeExtraPeriod: false,
+        baseAmount: 0,
+        servicesAmount: servicesSubtotal,
+        subtotal: servicesSubtotal,
+        discount: 0,
+        total: servicesSubtotal,
+      },
+      items: [],
+      services,
+      status: options?.status || 'approved',
+      financialStage: 'pending',
+      governance: 'charge',
+      outstandingAmount: servicesSubtotal,
+      approvalRequired: false,
+      requestedBy: userId,
+      notes: options?.notes ? `${options.notes}\nServiços do aluguel em fechamento separado.` : 'Serviços do aluguel em fechamento separado.',
+    });
   }
 
   async createPeriodicBilling(
@@ -621,13 +754,12 @@ class BillingService {
       rental.dates.billingCycle || rental.items[0]?.rentalType || 'daily';
 
     const periodCalculation = calculateBillingPeriod(periodStart, periodEnd, rentalType);
-    const periodsCharged = Math.max(1, periodCalculation.totalPeriods);
 
     const { items, equipmentSubtotal } = await this.buildBillingItems(
       companyId,
       rental,
       rentalType,
-      periodsCharged,
+      periodCalculation,
       options?.targetEquipmentSubtotal
     );
 
@@ -713,10 +845,9 @@ class BillingService {
     normalizedEnd.setHours(0, 0, 0, 0);
 
     const periodCalculation = calculateBillingPeriod(normalizedStart, normalizedEnd, rentalType);
-    const periodsCharged = Math.max(1, periodCalculation.totalPeriods);
 
     const autoNotes: string[] = [];
-    const { lineUnit, autoNote } = await this.resolvePeriodRateForBilling(
+    const { lineUnit, pricing, autoNote } = await this.resolvePeriodRateForBilling(
       companyId,
       item,
       rentalType,
@@ -727,7 +858,8 @@ class BillingService {
     }
     await this.persistRentalLineUnitPrice(companyId, rental._id, item, lineUnit);
 
-    const itemSubtotal = lineUnit * item.quantity * periodsCharged;
+    const { amount } = calculateRentalLineAmount(pricing, rentalType, periodCalculation);
+    const itemSubtotal = amount * item.quantity;
     const rentalLineKey = buildRentalLineKey(item);
     const items = [
       {
@@ -736,7 +868,7 @@ class BillingService {
         rentalLineKey,
         quantity: item.quantity,
         unitPrice: lineUnit,
-        periodsCharged,
+        periodsCharged: periodCalculation.totalPeriods,
         subtotal: Number(itemSubtotal.toFixed(2)),
       },
     ];
@@ -846,15 +978,32 @@ class BillingService {
 
     await this.ensureRentalItemsHavePeriodRates(companyId, rental);
 
-    let includeServicesAvailable =
+    const shouldCreateServiceBilling =
       (await Billing.countDocuments({
         companyId,
         rentalId,
+        'services.0': { $exists: true },
+        items: { $size: 0 },
+        status: { $ne: 'cancelled' },
       })) === 0;
 
     const createdBillings: IBilling[] = [];
     const normalizedReturnDate = new Date(returnDate);
     normalizedReturnDate.setHours(0, 0, 0, 0);
+
+    if (shouldCreateServiceBilling) {
+      const serviceBilling = await this.createServiceBillingIfNeeded(
+        companyId,
+        rental,
+        new Date(rental.dates?.pickupScheduled || rental.items?.[0]?.pickupScheduled || normalizedReturnDate),
+        normalizedReturnDate,
+        userId,
+        { notes: rental.notes, status: 'approved' },
+      );
+      if (serviceBilling) {
+        createdBillings.push(serviceBilling);
+      }
+    }
 
     for (const item of rental.items) {
       const periodStart = item.lastBillingDate
@@ -894,16 +1043,15 @@ class BillingService {
         normalizedReturnDate,
         userId,
         {
-          includeServices: includeServicesAvailable,
+          includeServices: false,
           notes: rental.notes,
-          discount: createdBillings.length === 0 ? discount : 0,
-          discountReason: createdBillings.length === 0 ? discountReason : undefined,
+          discount: createdBillings.filter((b) => (b.items?.length ?? 0) > 0).length === 0 ? discount : 0,
+          discountReason: createdBillings.filter((b) => (b.items?.length ?? 0) > 0).length === 0 ? discountReason : undefined,
           status: "approved",
         },
       );
 
       createdBillings.push(billing);
-      includeServicesAvailable = false;
     }
 
     if (createdBillings.length === 0) {
@@ -1266,6 +1414,15 @@ class BillingService {
       doc.font('Helvetica-Bold').fontSize(12);
       doc.text(`Total:`, 350, y, { width: 80, align: 'right' });
       doc.text(`R$ ${billing.calculation.total.toFixed(2)}`, 450, y, { width: 80, align: 'right' });
+      y += itemHeight;
+      doc.font('Helvetica').fontSize(10);
+      doc.text(`Saldo em aberto:`, 350, y, { width: 80, align: 'right' });
+      doc.text(
+        `R$ ${Number(billing.outstandingAmount ?? billing.calculation.total ?? 0).toFixed(2)}`,
+        450,
+        y,
+        { width: 80, align: 'right' },
+      );
 
       if (billing.notes) {
         y += itemHeight * 2;

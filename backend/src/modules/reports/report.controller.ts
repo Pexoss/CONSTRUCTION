@@ -283,7 +283,8 @@ export class ReportController {
         { header: "Data Retirada", key: "pickupDate", width: 15 },
         { header: "Data Devolução", key: "returnDate", width: 15 },
         { header: "Status", key: "status", width: 15 },
-        { header: "Valor Total", key: "total", width: 15 },
+        { header: "Total Locação", key: "total", width: 15 },
+        { header: "Caução", key: "deposit", width: 15 },
       ];
 
       rentals.forEach((rental) => {
@@ -309,6 +310,7 @@ export class ReportController {
           ),
           status: rental.status,
           total: rental.pricing.total,
+          deposit: rental.pricing.deposit || 0,
         });
       });
 
@@ -907,9 +909,15 @@ export class ReportController {
         sections: [
           {
             title: "Resumo",
-            headers: ["Total de aluguéis", "Receita total (R$)"],
+            headers: ["Total de aluguéis", "Contratado (R$)", "Faturado (R$)", "Pendente (R$)", "Caução (R$)"],
             rows: [
-              [String(report.totalRentals), money(report.totalRevenue)],
+              [
+                String(report.totalRentals),
+                money(report.contractedRevenue || 0),
+                money(report.billedRevenue || report.totalRevenue || 0),
+                money(report.pendingRevenue || 0),
+                money(report.depositTotal || 0),
+              ],
             ],
           },
           {
@@ -921,7 +929,8 @@ export class ReportController {
               "Retirada",
               "Devolução",
               "Status",
-              "Total (R$)",
+              "Locação (R$)",
+              "Caução (R$)",
             ],
             rows: rentals.map((r) => {
               const c = r.customerId as { name?: string } | undefined;
@@ -933,6 +942,7 @@ export class ReportController {
                 new Date(r.dates.returnScheduled).toLocaleDateString("pt-BR"),
                 r.status,
                 money(r.pricing?.total ?? 0),
+                money(r.pricing?.deposit ?? 0),
               ];
             }),
           },
@@ -995,12 +1005,14 @@ export class ReportController {
         sections: [
           {
             title: "Resumo",
-            headers: ["Receitas", "Despesas", "Lucro (R$)"],
+            headers: ["Recebido", "Despesas", "Lucro", "Faturado", "Pendente"],
             rows: [
               [
-                money(report.totalIncome),
+                money(report.receivedInPeriod ?? report.totalIncome),
                 money(report.totalExpenses),
                 money(report.profit),
+                money(report.billedInPeriod || 0),
+                money(report.pendingTotal || 0),
               ],
             ],
           },

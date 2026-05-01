@@ -27,6 +27,7 @@ const ItemMovementSchema = new Schema<IItemMovement>(
     previousQuantity: {
       total: Number,
       available: Number,
+      reserved: Number,
       rented: Number,
       maintenance: Number,
       damaged: Number,
@@ -34,6 +35,7 @@ const ItemMovementSchema = new Schema<IItemMovement>(
     newQuantity: {
       total: Number,
       available: Number,
+      reserved: Number,
       rented: Number,
       maintenance: Number,
       damaged: Number,

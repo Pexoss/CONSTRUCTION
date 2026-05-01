@@ -1,8 +1,18 @@
 import { z } from 'zod';
 
+const rentalStatusSchema = z.enum([
+  'reserved',
+  'active',
+  'overdue',
+  'completed',
+  'ready_to_close',
+  'cancelled',
+]);
+const dateOnlyOrDateTime = z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).or(z.date());
+
 export const createRentalSchema = z.object({
   customerId: z.string().min(1, 'Customer ID is required'),
-  customerCpf: z.string().min(1, 'Customer CPF is required'),
+  customerCpf: z.string().min(1, 'Customer CPF/CNPJ is required'),
   fulfillmentMethod: z.enum(['delivery_service', 'store_pickup'], {
     required_error: 'Fulfillment method is required',
   }),
@@ -14,7 +24,7 @@ export const createRentalSchema = z.object({
         quantity: z.number().int().min(1, 'Quantity must be at least 1'),
         rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']),
         pickupScheduled: z.string().datetime().or(z.date()),
-        returnScheduled: z.string().datetime().or(z.date()).optional(),
+        returnScheduled: dateOnlyOrDateTime.optional(),
         /** Data de devolução retroativa: item já entregue (só histórico) */
         historicalDelivery: z.boolean().optional(),
       })
@@ -34,7 +44,7 @@ export const createRentalSchema = z.object({
   dates: z
     .object({
       pickupScheduled: z.string().datetime().or(z.date()).optional(),
-      returnScheduled: z.string().datetime().or(z.date()).optional(),
+      returnScheduled: dateOnlyOrDateTime.optional(),
       billingCycle: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
       lastBillingDate: z.string().datetime().or(z.date()).optional(),
       nextBillingDate: z.string().datetime().or(z.date()).optional(),
@@ -73,7 +83,7 @@ export const updateRentalSchema = z.object({
         quantity: z.number().int().min(1).optional(),
         rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
         pickupScheduled: z.string().datetime().or(z.date()).optional(),
-        returnScheduled: z.string().datetime().or(z.date()).optional(),
+        returnScheduled: dateOnlyOrDateTime.optional(),
         historicalDelivery: z.boolean().optional(),
         recalculateScheduledReturn: z.boolean().optional(),
       })
@@ -82,7 +92,7 @@ export const updateRentalSchema = z.object({
   dates: z
     .object({
       pickupScheduled: z.string().datetime().or(z.date()).optional(),
-      returnScheduled: z.string().datetime().or(z.date()).optional(),
+      returnScheduled: dateOnlyOrDateTime.optional(),
     })
     .optional(),
   workAddress: z
@@ -101,10 +111,10 @@ export const updateRentalSchema = z.object({
 });
 
 export const updateRentalStatusSchema = z.object({
-  status: z.enum(['reserved', 'active', 'overdue', 'completed', 'cancelled']),
+  status: rentalStatusSchema,
   adjustments: z
     .object({
-      returnDate: z.string().datetime().or(z.date()).optional(),
+      returnDate: dateOnlyOrDateTime.optional(),
       rentalType: z.enum(['daily', 'weekly', 'biweekly', 'monthly']).optional(),
       pricingOverride: z
         .object({
@@ -121,7 +131,7 @@ export const updateRentalStatusSchema = z.object({
 });
 
 export const extendRentalSchema = z.object({
-  newReturnDate: z.string().datetime().or(z.date()),
+  newReturnDate: dateOnlyOrDateTime,
 });
 
 export const updateChecklistSchema = z.object({
@@ -145,7 +155,7 @@ export const rejectApprovalSchema = z.object({
 });
 
 export const returnRentalItemsSchema = z.object({
-  returnDate: z.string().datetime().or(z.date()).optional(),
+  returnDate: dateOnlyOrDateTime.optional(),
   notes: z.string().optional(),
   items: z
     .array(
@@ -162,6 +172,6 @@ export const changeRentalTypeEventSchema = z.object({
   itemId: z.string().min(1, "Item ID is required"),
   unitId: z.string().optional(),
   newRentalType: z.enum(["daily", "weekly", "biweekly", "monthly"]),
-  effectiveDate: z.string().datetime().or(z.date()).optional(),
+  effectiveDate: dateOnlyOrDateTime.optional(),
   notes: z.string().optional(),
 });

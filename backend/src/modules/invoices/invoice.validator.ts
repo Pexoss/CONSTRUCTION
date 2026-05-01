@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const dateOnlyOrDateTime = z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).or(z.date());
+
 export const createInvoiceFromRentalSchema = z.object({
   rentalId: z.string().min(1, 'Rental ID is required'),
   tax: z.number().min(0).optional(),
@@ -16,8 +18,8 @@ export const createInvoiceFromBillingsSchema = z.object({
   notes: z.string().optional(),
   paymentMethod: z.string().optional(),
   obraDescription: z.string().optional(),
-  issueDate: z.string().datetime().or(z.date()).optional(),
-  dueDate: z.string().datetime().or(z.date()).optional(),
+  issueDate: dateOnlyOrDateTime.optional(),
+  dueDate: dateOnlyOrDateTime.optional(),
 });
 
 export const updateInvoiceSchema = z.object({
@@ -26,5 +28,5 @@ export const updateInvoiceSchema = z.object({
   discount: z.number().min(0).optional(),
   terms: z.string().optional(),
   notes: z.string().optional(),
-  dueDate: z.string().datetime().or(z.date()).optional(),
+  dueDate: dateOnlyOrDateTime.optional(),
 });

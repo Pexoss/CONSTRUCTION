@@ -24,8 +24,17 @@ import {
 } from "../../helpers/UserPermission";
 import { notificationService } from "../notification/notification.service";
 import { User } from "../users/user.model";
-import billingService from "../billings/billing.service";
+import billingService, {
+  calculateBillingPeriod,
+  calculateRentalLineAmount,
+} from "../billings/billing.service";
+import {
+  isValidCpfCnpj,
+  normalizeDocument,
+} from "../../shared/utils/document.utils";
 import { Billing } from "../billings/billing.model";
+import { Charge } from "../charges/charge.model";
+import { Invoice } from "../invoices/invoice.model";
 import { NOTFOUND } from "dns";
 import fs from "fs";
 import path from "path";
@@ -55,30 +64,11 @@ class RentalService {
   }
 
   private normalizeCpf(value?: string | null): string {
-    return String(value || "").replace(/\D/g, "");
+    return normalizeDocument(value);
   }
 
   private isValidCpf(value?: string | null): boolean {
-    const digits = this.normalizeCpf(value);
-    if (!/^\d{11}$/.test(digits) || /^(\d)\1{10}$/.test(digits)) {
-      return false;
-    }
-
-    let sum = 0;
-    for (let i = 0; i < 9; i += 1) {
-      sum += Number(digits[i]) * (10 - i);
-    }
-    let check = (sum * 10) % 11;
-    if (check === 10) check = 0;
-    if (check !== Number(digits[9])) return false;
-
-    sum = 0;
-    for (let i = 0; i < 10; i += 1) {
-      sum += Number(digits[i]) * (11 - i);
-    }
-    check = (sum * 10) % 11;
-    if (check === 10) check = 0;
-    return check === Number(digits[10]);
+    return isValidCpfCnpj(value);
   }
 
   private normalizeDateKey(value?: Date): string {
@@ -102,13 +92,203 @@ class RentalService {
     return [itemId, unitId, rentalType, pickup, ret].join("|");
   }
 
-  private addMonthsKeepingDay(date: Date, months: number): Date {
-    const year = date.getFullYear();
-    const month = date.getMonth() + months;
-    const day = date.getDate();
-    const maxDay = new Date(year, month + 1, 0).getDate();
-    const targetDay = Math.min(day, maxDay);
-    return new Date(year, month, targetDay);
+  private async removeObsoleteUnpaidItemBillings(
+    companyId: string,
+    rentalId: mongoose.Types.ObjectId,
+    itemId: any,
+    unitId?: string,
+  ): Promise<void> {
+    const filter: Record<string, unknown> = {
+      companyId,
+      rentalId,
+      "items.itemId": itemId,
+      status: { $ne: "paid" },
+    };
+    if (unitId) {
+      filter["items.unitId"] = unitId;
+    }
+
+    const billings = await Billing.find(filter).select(
+      "_id status calculation outstandingAmount paymentHistory chargeId invoiceId",
+    );
+    await this.deleteUnpaidBillingDocuments(companyId, billings);
+  }
+
+  private async deleteUnpaidBillingDocuments(
+    companyId: string,
+    billings: any[],
+  ): Promise<void> {
+    const removable = billings.filter((billing) => {
+      const hasPayments = (billing.paymentHistory?.length ?? 0) > 0;
+      const total = Number(billing.calculation?.total ?? 0);
+      const outstanding = Number(billing.outstandingAmount ?? total);
+      return !hasPayments && outstanding >= total - 0.01;
+    });
+    if (!removable.length) return;
+
+    const candidateIds = removable.map((billing) => billing._id);
+    const protectedIds = new Set<string>();
+
+    const paidOrPartialCharges = await Charge.find({
+      companyId,
+      billingIds: { $in: candidateIds },
+      $or: [
+        { status: { $in: ["paid", "partial"] } },
+        { paidAmount: { $gt: 0 } },
+        { "payments.0": { $exists: true } },
+      ],
+    }).select("billingIds");
+    for (const charge of paidOrPartialCharges) {
+      for (const id of charge.billingIds || []) {
+        if (candidateIds.some((candidateId) => String(candidateId) === String(id))) {
+          protectedIds.add(String(id));
+        }
+      }
+    }
+
+    const paidInvoices = await Invoice.find({
+      companyId,
+      billingIds: { $in: candidateIds },
+      status: "paid",
+    }).select("billingIds");
+    for (const invoice of paidInvoices) {
+      for (const id of invoice.billingIds || []) {
+        if (candidateIds.some((candidateId) => String(candidateId) === String(id))) {
+          protectedIds.add(String(id));
+        }
+      }
+    }
+
+    const removableIds = candidateIds.filter((id) => !protectedIds.has(String(id)));
+    if (!removableIds.length) return;
+
+    const charges = await Charge.find({
+      companyId,
+      billingIds: { $in: removableIds },
+      status: { $ne: "paid" },
+    });
+    for (const charge of charges) {
+      if ((charge.payments?.length ?? 0) > 0 || Number(charge.paidAmount || 0) > 0) {
+        continue;
+      }
+      const removedTotal = removable
+        .filter((billing) =>
+          (charge.billingIds || []).some((id: any) => String(id) === String(billing._id)),
+        )
+        .reduce(
+          (acc, billing) =>
+            acc + Number(billing.outstandingAmount ?? billing.calculation?.total ?? 0),
+          0,
+        );
+      charge.billingIds = (charge.billingIds || []).filter(
+        (id: any) => !removableIds.some((billingId) => String(billingId) === String(id)),
+      );
+      charge.total = Math.max(0, Number((charge.total - removedTotal).toFixed(2)));
+      charge.outstandingAmount = Math.max(
+        0,
+        Number((charge.outstandingAmount - removedTotal).toFixed(2)),
+      );
+      if (charge.billingIds.length === 0) {
+        await charge.deleteOne();
+      } else {
+        await charge.save();
+      }
+    }
+
+    const invoices = await Invoice.find({
+      companyId,
+      billingIds: { $in: removableIds },
+      status: { $ne: "paid" },
+    });
+    for (const invoice of invoices) {
+      invoice.billingIds = (invoice.billingIds || []).filter(
+        (id: any) => !removableIds.some((billingId) => String(billingId) === String(id)),
+      );
+      if (!invoice.billingIds.length) {
+        await invoice.deleteOne();
+      } else {
+        await invoice.save();
+      }
+    }
+
+    await Billing.deleteMany({
+      _id: { $in: removableIds },
+      companyId,
+    });
+  }
+
+  private async removeObsoleteUnpaidBillingsForCurrentRental(
+    companyId: string,
+    rental: IRental,
+  ): Promise<void> {
+    const validLineKeys = new Map<string, RentalType>();
+    const validFallbackKeys = new Set<string>();
+
+    for (const item of rental.items || []) {
+      const rentalType = item.rentalType || "daily";
+      validLineKeys.set(this.buildRentalLineKey(item as any), rentalType);
+      const itemId = item.itemId?.toString?.() || String(item.itemId);
+      const unitId = item.unitId ? String(item.unitId) : "no-unit";
+      validFallbackKeys.add(`${itemId}|${unitId}|${rentalType}`);
+    }
+
+    const billings = await Billing.find({
+      companyId,
+      rentalId: rental._id,
+      status: { $ne: "paid" },
+      "items.0": { $exists: true },
+    }).select(
+      "_id rentalType items calculation outstandingAmount paymentHistory chargeId invoiceId",
+    );
+
+    const obsolete = billings.filter((billing) => {
+      const items = billing.items || [];
+      if (!items.length) return false;
+
+      return !items.some((billingItem: any) => {
+        const lineKey = billingItem.rentalLineKey
+          ? String(billingItem.rentalLineKey)
+          : "";
+        if (lineKey) {
+          const currentType = validLineKeys.get(lineKey);
+          return currentType === billing.rentalType;
+        }
+
+        const itemId =
+          billingItem.itemId?.toString?.() || String(billingItem.itemId);
+        const unitId = billingItem.unitId ? String(billingItem.unitId) : "no-unit";
+        const fallbackKey = `${itemId}|${unitId}|${billing.rentalType || "daily"}`;
+        return validFallbackKeys.has(fallbackKey);
+      });
+    });
+
+    await this.deleteUnpaidBillingDocuments(companyId, obsolete);
+  }
+
+  private async getLatestLockedItemBillingEnd(
+    companyId: string,
+    rentalId: mongoose.Types.ObjectId,
+    itemId: any,
+    unitId?: string,
+  ): Promise<Date | undefined> {
+    const filter: Record<string, unknown> = {
+      companyId,
+      rentalId,
+      "items.itemId": itemId,
+      $or: [
+        { status: "paid" },
+        { "paymentHistory.0": { $exists: true } },
+      ],
+    };
+    if (unitId) {
+      filter["items.unitId"] = unitId;
+    }
+
+    const billing = await Billing.findOne(filter)
+      .sort({ periodEnd: -1 })
+      .select("periodEnd")
+      .lean();
+    return billing?.periodEnd ? this.normalizeDate(billing.periodEnd) : undefined;
   }
 
   private getPricingEndDate(startDate: Date, rentalType: RentalType): Date {
@@ -204,11 +384,6 @@ class RentalService {
 
   private getPeriodEnd(startDate: Date, rentalType: RentalType): Date {
     const normalizedStart = this.normalizeDate(startDate);
-    if (rentalType === "monthly") {
-      const nextStart = this.addMonthsKeepingDay(normalizedStart, 1);
-      return this.addDays(nextStart, -1);
-    }
-
     return this.addDays(
       normalizedStart,
       this.getPeriodLengthDays(rentalType) - 1,
@@ -362,7 +537,7 @@ class RentalService {
 
     const customerCpf = this.normalizeCpf(data.customerCpf || customer.cpfCnpj);
     if (!this.isValidCpf(customerCpf)) {
-      throw new Error("Informe um CPF válido para o cliente");
+      throw new Error("Informe um CPF/CNPJ válido para o cliente");
     }
 
     const duplicateCpfCustomer = await Customer.findOne({
@@ -371,7 +546,7 @@ class RentalService {
       cpfCnpj: customerCpf,
     });
     if (duplicateCpfCustomer) {
-      throw new Error("CPF já cadastrado para outro cliente");
+      throw new Error("CPF/CNPJ já cadastrado para outro cliente");
     }
 
     if (this.normalizeCpf(customer.cpfCnpj) !== customerCpf) {
@@ -400,44 +575,12 @@ class RentalService {
       endDate: Date,
       rentalType: RentalType,
     ) => {
-      const diffTime = endDate.getTime() - startDate.getTime();
-      if (diffTime <= 0) return 0;
-
-      const days = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-
-      switch (rentalType) {
-        case "daily":
-          if (dailyRate <= 0) {
-            throw new Error("Valor diário não configurado");
-          }
-          return dailyRate * days;
-        case "weekly": {
-          if (weeklyRate <= 0) {
-            throw new Error("Valor semanal não configurado");
-          }
-          const fullWeeks = Math.floor(days / 7);
-          const extraDays = days % 7;
-          return fullWeeks * weeklyRate + extraDays * dailyRate;
-        }
-        case "biweekly": {
-          if (biweeklyRate <= 0) {
-            throw new Error("Valor quinzenal não configurado");
-          }
-          const fullPeriods = Math.floor(days / 15);
-          const extraDays = days % 15;
-          return fullPeriods * biweeklyRate + extraDays * dailyRate;
-        }
-        case "monthly": {
-          if (monthlyRate <= 0) {
-            throw new Error("Valor mensal não configurado");
-          }
-          const fullMonths = Math.floor(days / 30);
-          const extraDays = days % 30;
-          return fullMonths * monthlyRate + extraDays * dailyRate;
-        }
-        default:
-          return 0;
-      }
+      const period = calculateBillingPeriod(startDate, endDate, rentalType);
+      return calculateRentalLineAmount(
+        { dailyRate, weeklyRate, biweeklyRate, monthlyRate },
+        rentalType,
+        period,
+      ).amount;
     };
 
     // Validar disponibilidade e preço do tipo escolhido
@@ -703,32 +846,12 @@ class RentalService {
 
       const rentalType = item.rentalType || "daily";
 
-      let unitPrice = 0;
-
-      // Cálculo proporcional correto para cada tipo de aluguel
-      switch (rentalType) {
-        case "daily":
-          unitPrice = (inventoryItem.pricing.dailyRate || 0) * usedDays;
-          break;
-
-        case "weekly":
-          // Taxa semanal dividida pelos 7 dias, multiplicada pelo uso real
-          unitPrice = ((inventoryItem.pricing.weeklyRate || 0) / 7) * usedDays;
-          break;
-
-        case "biweekly":
-          // Taxa quinzenal dividida pelos 15 dias, multiplicada pelo uso real
-          unitPrice = ((inventoryItem.pricing.biweeklyRate || 0) / 15) * usedDays;
-          break;
-
-        case "monthly":
-          // Taxa mensal dividida pelos 30 dias, multiplicada pelo uso real
-          unitPrice = ((inventoryItem.pricing.monthlyRate || 0) / 30) * usedDays;
-          break;
-
-        default:
-          unitPrice = inventoryItem.pricing.dailyRate * usedDays;
-      }
+      const period = calculateBillingPeriod(pickupDate, returnDate, rentalType);
+      const unitPrice = calculateRentalLineAmount(
+        inventoryItem.pricing,
+        rentalType,
+        period,
+      ).amount;
 
       const subtotal = unitPrice * item.quantity;
       const deposit =
@@ -750,7 +873,7 @@ class RentalService {
     const lateFee = 0;
 
     //Total final
-    const total = equipmentSubtotal + servicesSubtotal + totalDeposit - discount + lateFee;
+    const total = equipmentSubtotal + servicesSubtotal - discount + lateFee;
 
     //Atualiza pricing
     rental.pricing.equipmentSubtotal = equipmentSubtotal;
@@ -809,24 +932,21 @@ class RentalService {
     // Calcular valor proporcional de cada item
     let recalculatedEquipment = 0;
     for (const item of rental.items) {
-      const { unitPrice, rentalType, quantity } = item;
-      let proportional = 0;
-      if (rentalType === "weekly") {
-        proportional = (unitPrice / 7) * usedDays;
-      } else if (rentalType === "biweekly") {
-        proportional = (unitPrice / 15) * usedDays;
-      } else if (rentalType === "monthly") {
-        proportional = (unitPrice / 30) * usedDays;
-      } else {
-        proportional = (unitPrice / 1) * usedDays; // diária
-      }
-      recalculatedEquipment += proportional * quantity;
+      const inventoryItem = await Item.findOne({ _id: item.itemId, companyId }).lean();
+      if (!inventoryItem) continue;
+      const itemRentalType = item.rentalType || "daily";
+      const period = calculateBillingPeriod(startDate, endDate, itemRentalType);
+      const { amount } = calculateRentalLineAmount(
+        inventoryItem.pricing,
+        itemRentalType,
+        period,
+      );
+      recalculatedEquipment += amount * item.quantity;
     }
 
     const recalculatedTotal =
       recalculatedEquipment +
-      (rental.pricing.servicesSubtotal || 0) +
-      (rental.pricing.deposit || 0) -
+      (rental.pricing.servicesSubtotal || 0) -
       (rental.pricing.discount || 0) +
       (rental.pricing.lateFee || 0);
 
@@ -882,18 +1002,18 @@ class RentalService {
     const rentalType = targetItem.rentalType || "daily";
     const originalTotal = targetItem.subtotal || 0;
 
-    let proportional = 0;
-    if (rentalType === "weekly") {
-      proportional = (targetItem.unitPrice / 7) * usedDays;
-    } else if (rentalType === "biweekly") {
-      proportional = (targetItem.unitPrice / 15) * usedDays;
-    } else if (rentalType === "monthly") {
-      proportional = (targetItem.unitPrice / 30) * usedDays;
-    } else {
-      proportional = (targetItem.unitPrice / 1) * usedDays;
+    const inventoryItem = await Item.findOne({ _id: targetItem.itemId, companyId }).lean();
+    if (!inventoryItem) {
+      throw new Error("Item do inventário não encontrado");
     }
+    const period = calculateBillingPeriod(startDate, endDate, rentalType);
+    const { amount } = calculateRentalLineAmount(
+      inventoryItem.pricing,
+      rentalType,
+      period,
+    );
 
-    const recalculatedTotal = proportional * targetItem.quantity;
+    const recalculatedTotal = amount * targetItem.quantity;
 
     // Calcula o total do aluguel APÓS fechar este item
     let rentalTotalAfterClose = 0;
@@ -907,12 +1027,11 @@ class RentalService {
       }
     }
 
-    // Adiciona serviços, desconto, taxa de atraso e caução
+    // Caução é garantia separada e não compõe receita da locação.
     const servicesSubtotal =
       rental.services?.reduce((acc, s) => acc + s.subtotal, 0) || 0;
     rentalTotalAfterClose +=
-      servicesSubtotal +
-      (rental.pricing.deposit || 0) -
+      servicesSubtotal -
       (rental.pricing.discount || 0) +
       (rental.pricing.lateFee || 0);
     rentalTotalAfterClose = Math.max(0, rentalTotalAfterClose);
@@ -1023,21 +1142,26 @@ class RentalService {
       : targetItem.pickupScheduled || rental.dates.pickupScheduled;
 
     const periodEnd = finalReturnDate;
+    let finalBillingSubtotal: number | undefined;
 
     if (periodEnd > periodStart) {
+      const normalizedPeriodStart = new Date(periodStart);
+      normalizedPeriodStart.setHours(0, 0, 0, 0);
+      const normalizedPeriodEnd = new Date(periodEnd);
+      normalizedPeriodEnd.setHours(0, 0, 0, 0);
       const rentalLineKey = this.buildRentalLineKey(targetItem as any);
-      const existing = await Billing.findOne({
+      let finalBilling: any = await Billing.findOne({
         companyId,
         rentalId: rental._id,
         "items.itemId": targetItem.itemId,
         ...(targetItem.unitId ? { "items.unitId": targetItem.unitId } : {}),
         "items.rentalLineKey": rentalLineKey,
-        periodStart,
-        periodEnd,
-      }).lean();
+        periodStart: normalizedPeriodStart,
+        periodEnd: normalizedPeriodEnd,
+      });
 
-      if (!existing) {
-        await billingService.createPeriodicBillingForItem(
+      if (!finalBilling) {
+        finalBilling = await billingService.createPeriodicBillingForItem(
           companyId,
           rental,
           targetItem,
@@ -1052,6 +1176,12 @@ class RentalService {
         );
       }
 
+      const billingItem = finalBilling.items?.find((item: any) => {
+        const sameItem = String(item.itemId) === String(targetItem.itemId);
+        const sameUnit = targetItem.unitId ? item.unitId === targetItem.unitId : true;
+        return sameItem && sameUnit;
+      });
+      finalBillingSubtotal = Number(billingItem?.subtotal || finalBilling.calculation?.baseAmount || 0);
       targetItem.lastBillingDate = periodEnd;
       targetItem.nextBillingDate = undefined;
     }
@@ -1059,32 +1189,20 @@ class RentalService {
     // =========================
     // 3. RECALCULAR ITEM - USANDO PERÍODO DESDE ÚLTIMA COBRANÇA
     // =========================
-    // IMPORTANTE: Usar lastBillingDate se disponível para evitar duplicação
-    const startDate = targetItem.lastBillingDate
-      ? this.addDays(targetItem.lastBillingDate, 1)
-      : targetItem.pickupScheduled || rental.dates.pickupScheduled;
-
-    const diffTime = finalReturnDate.getTime() - new Date(startDate).getTime();
+    const diffTime = finalReturnDate.getTime() - new Date(periodStart).getTime();
 
     // Cálculo proporcional de dias (não arredonda para cima)
     const usedDaysExact = diffTime / (1000 * 60 * 60 * 24);
     const usedDays = Math.max(1, usedDaysExact);
 
-    const rentalType = targetItem.rentalType || "daily";
-
-    let proportional = 0;
-
-    if (rentalType === "weekly") {
-      proportional = (targetItem.unitPrice / 7) * usedDays;
-    } else if (rentalType === "biweekly") {
-      proportional = (targetItem.unitPrice / 15) * usedDays;
-    } else if (rentalType === "monthly") {
-      proportional = (targetItem.unitPrice / 30) * usedDays;
-    } else {
-      proportional = targetItem.unitPrice * usedDays;
-    }
-
-    targetItem.subtotal = proportional * targetItem.quantity;
+    targetItem.subtotal =
+      finalBillingSubtotal ??
+      this.computeItemPartialSubtotal(
+        targetItem,
+        periodStart,
+        periodEnd,
+        targetItem.quantity,
+      );
     targetItem.usedDays = Math.ceil(usedDays);
 
     // =========================
@@ -1102,8 +1220,7 @@ class RentalService {
     const total =
       equipmentSubtotal +
       servicesSubtotal +
-      (rental.pricing.deposit || 0) -
-      (rental.pricing.discount || 0) +
+      -(rental.pricing.discount || 0) +
       (rental.pricing.lateFee || 0);
 
     rental.pricing.equipmentSubtotal = equipmentSubtotal;
@@ -1485,6 +1602,8 @@ class RentalService {
       return { created: 0, draftsCreated: 0, refreshed: 0 };
     }
 
+    await this.removeObsoleteUnpaidBillingsForCurrentRental(companyId, rental);
+
     let created = 0;
     let draftsCreated = 0;
 
@@ -1600,6 +1719,8 @@ class RentalService {
       return { created: 0, draftsCreated: 0, skipReason: "rental_not_active" };
     }
 
+    await this.removeObsoleteUnpaidBillingsForCurrentRental(companyId, rental);
+
     const now = this.normalizeDate(new Date());
     let createdCount = 0;
     let draftsCreated = 0;
@@ -1681,9 +1802,17 @@ class RentalService {
         ? this.normalizeDate(item.lastBillingDate)
         : this.addDays(pickupBase, -1);
       let periodStart = this.addDays(lastBillingDate, 1);
+      let expectedNextBillingDate = this.getPeriodEnd(periodStart, cycle);
       let nextBillingDate = item.nextBillingDate
         ? this.normalizeDate(item.nextBillingDate)
-        : this.getPeriodEnd(periodStart, cycle);
+        : expectedNextBillingDate;
+      if (
+        nextBillingDate < periodStart ||
+        nextBillingDate > expectedNextBillingDate
+      ) {
+        nextBillingDate = expectedNextBillingDate;
+        item.nextBillingDate = expectedNextBillingDate;
+      }
 
       while (nextBillingDate <= now && nextBillingDate <= horizon) {
         const existing = await Billing.findOne({
@@ -1716,7 +1845,8 @@ class RentalService {
 
         item.lastBillingDate = this.normalizeDate(nextBillingDate);
         periodStart = this.addDays(nextBillingDate, 1);
-        item.nextBillingDate = this.getPeriodEnd(periodStart, cycle);
+        expectedNextBillingDate = this.getPeriodEnd(periodStart, cycle);
+        item.nextBillingDate = expectedNextBillingDate;
         nextBillingDate = item.nextBillingDate;
       }
 
@@ -2424,6 +2554,7 @@ class RentalService {
         ) ?? 0;
       const subtotalTable = sumItems + sumServices;
       const discount = Number(rental.pricing?.discount ?? 0);
+      const deposit = Number(rental.pricing?.deposit ?? 0);
       const contractTotal =
         rental.pricing?.total != null
           ? Number(rental.pricing.total)
@@ -2446,12 +2577,21 @@ class RentalService {
       }
 
       doc.font("Helvetica-Bold").fontSize(9);
-      doc.text("TOTAL:", col.tot - 120, y, { width: 100, align: "right" });
+      doc.text("TOTAL LOCAÇÃO:", col.tot - 120, y, { width: 100, align: "right" });
       doc.text(fmtMoney(contractTotal), col.tot, y, {
         width: right - col.tot,
         align: "right",
       });
       y += rowH + 6;
+      if (deposit > 0) {
+        doc.font("Helvetica").fontSize(8);
+        doc.text("Caução (garantia):", col.tot - 120, y, { width: 100, align: "right" });
+        doc.text(fmtMoney(deposit), col.tot, y, {
+          width: right - col.tot,
+          align: "right",
+        });
+        y += rowH + 4;
+      }
       if (y > 520) {
         doc.addPage();
         y = 32;
@@ -2549,8 +2689,7 @@ class RentalService {
 
     const recalculatedTotal =
       recalculatedEquipmentSubtotal +
-      (rental.pricing.servicesSubtotal || 0) +
-      (rental.pricing.deposit || 0) -
+      (rental.pricing.servicesSubtotal || 0) -
       (rental.pricing.discount || 0) +
       (rental.pricing.lateFee || 0);
 
@@ -2613,8 +2752,7 @@ class RentalService {
       Math.max(
         0,
         rental.pricing.subtotal +
-          rental.pricing.deposit -
-          rental.pricing.discount +
+          -rental.pricing.discount +
           rental.pricing.lateFee,
       ).toFixed(2),
     );
@@ -2781,8 +2919,7 @@ class RentalService {
         Math.max(
           0,
           rental.pricing.subtotal +
-            rental.pricing.deposit -
-            rental.pricing.discount +
+            -rental.pricing.discount +
             rental.pricing.lateFee,
         ).toFixed(2),
       );
@@ -2820,8 +2957,7 @@ class RentalService {
             : Number(
                 (
                   rental.pricing.subtotal +
-                  rental.pricing.deposit -
-                  rental.pricing.discount +
+                  -rental.pricing.discount +
                   rental.pricing.lateFee
                 ).toFixed(2),
               );
@@ -3228,7 +3364,10 @@ class RentalService {
     }
 
     rental.pricing.subtotal = totalSubtotal;
-    rental.pricing.total = Math.max(0, totalSubtotal + (rental.pricing.deposit || 0) - rental.pricing.discount);
+    rental.pricing.total = Math.max(
+      0,
+      totalSubtotal - rental.pricing.discount + (rental.pricing.lateFee || 0),
+    );
 
     await rental.save();
     await this.syncBillingsAfterRentalChange(companyId, rentalId, userId);
@@ -3593,13 +3732,26 @@ class RentalService {
           item.lastBillingDate = undefined;
           item.nextBillingDate = undefined;
         }
-        await Billing.deleteMany({
-          companyId: rental.companyId,
-          rentalId: rental._id,
-          "items.itemId": changed.itemId,
-          ...(changed.unitId ? { "items.unitId": changed.unitId } : {}),
-          status: "draft",
-        });
+        await this.removeObsoleteUnpaidItemBillings(
+          companyId,
+          rental._id,
+          changed.itemId,
+          changed.unitId,
+        );
+        const lockedEnd = await this.getLatestLockedItemBillingEnd(
+          companyId,
+          rental._id,
+          changed.itemId,
+          changed.unitId,
+        );
+        if (item && lockedEnd) {
+          item.lastBillingDate = lockedEnd;
+          const nextStart = this.addDays(lockedEnd, 1);
+          item.nextBillingDate = this.getPeriodEnd(
+            nextStart,
+            item.rentalType || "daily",
+          );
+        }
       }
 
       await this.recalcPricingForRental(rental, companyId);
@@ -3901,6 +4053,7 @@ class RentalService {
     // =========================
     // ITEM QUANTITATIVO
     // =========================
+    item.quantity.reserved = Number(item.quantity.reserved || 0);
     const previousQuantity = { ...item.quantity };
 
     switch (action) {
@@ -4111,12 +4264,26 @@ class RentalService {
               item.rentalType = itemChange.newRentalType;
               item.lastBillingDate = undefined;
               item.nextBillingDate = undefined;
-              await Billing.deleteMany({
-                companyId: rental.companyId,
-                rentalId: rental._id,
-                "items.itemId": item.itemId,
-                status: "draft",
-              });
+              await this.removeObsoleteUnpaidItemBillings(
+                rental.companyId.toString(),
+                rental._id,
+                item.itemId,
+                item.unitId,
+              );
+              const lockedEnd = await this.getLatestLockedItemBillingEnd(
+                rental.companyId.toString(),
+                rental._id,
+                item.itemId,
+                item.unitId,
+              );
+              if (lockedEnd) {
+                item.lastBillingDate = lockedEnd;
+                const nextStart = this.addDays(lockedEnd, 1);
+                item.nextBillingDate = this.getPeriodEnd(
+                  nextStart,
+                  item.rentalType || "daily",
+                );
+              }
             }
           }
           await this.recalcPricingForRental(
@@ -4135,12 +4302,26 @@ class RentalService {
             item.rentalType = requestDetails.newRentalType;
             item.lastBillingDate = undefined;
             item.nextBillingDate = undefined;
-            await Billing.deleteMany({
-              companyId: rental.companyId,
-              rentalId: rental._id,
-              "items.itemId": item.itemId,
-              status: "draft",
-            });
+            await this.removeObsoleteUnpaidItemBillings(
+              rental.companyId.toString(),
+              rental._id,
+              item.itemId,
+              item.unitId,
+            );
+            const lockedEnd = await this.getLatestLockedItemBillingEnd(
+              rental.companyId.toString(),
+              rental._id,
+              item.itemId,
+              item.unitId,
+            );
+            if (lockedEnd) {
+              item.lastBillingDate = lockedEnd;
+              const nextStart = this.addDays(lockedEnd, 1);
+              item.nextBillingDate = this.getPeriodEnd(
+                nextStart,
+                item.rentalType || "daily",
+              );
+            }
             await this.recalcPricingForRental(
               rental,
               rental.companyId.toString(),
@@ -4364,13 +4545,26 @@ class RentalService {
               item.lastBillingDate = undefined;
               item.nextBillingDate = undefined;
             }
-            await Billing.deleteMany({
-              companyId: rental.companyId,
-              rentalId: rental._id,
-              "items.itemId": changed.itemId,
-              ...(changed.unitId ? { "items.unitId": changed.unitId } : {}),
-              status: "draft",
-            });
+            await this.removeObsoleteUnpaidItemBillings(
+              rental.companyId.toString(),
+              rental._id,
+              changed.itemId,
+              changed.unitId,
+            );
+            const lockedEnd = await this.getLatestLockedItemBillingEnd(
+              rental.companyId.toString(),
+              rental._id,
+              changed.itemId,
+              changed.unitId,
+            );
+            if (item && lockedEnd) {
+              item.lastBillingDate = lockedEnd;
+              const nextStart = this.addDays(lockedEnd, 1);
+              item.nextBillingDate = this.getPeriodEnd(
+                nextStart,
+                item.rentalType || "daily",
+              );
+            }
           }
 
           await this.recalcPricingForRental(

@@ -47,12 +47,31 @@ class FinancialService {
       return;
     }
 
-    const currentOutstanding = billing.outstandingAmount ?? billing.calculation.total;
-    const nextOutstanding = Math.max(0, currentOutstanding - entry.amount - (entry.discount || 0));
+    const amount = Number(entry.amount || 0);
+    const discount = Number(entry.discount || 0);
+    const settlement = Number((amount + discount).toFixed(2));
+    if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(discount) || discount < 0) {
+      throw new Error("Valores de baixa inválidos");
+    }
+    if (settlement <= 0) {
+      return;
+    }
+
+    const currentOutstanding = Number(billing.outstandingAmount ?? billing.calculation.total ?? 0);
+    if (settlement - currentOutstanding > 0.01) {
+      throw new Error("Valor de baixa + desconto não pode ser maior que o saldo em aberto");
+    }
+
+    const calculatedOutstanding = Math.max(0, Number((currentOutstanding - settlement).toFixed(2)));
+    const nextOutstanding = calculatedOutstanding <= 0.01 ? 0 : calculatedOutstanding;
     const nextStage: FinancialStage = nextOutstanding === 0 ? "paid" : "charge";
 
     billing.outstandingAmount = nextOutstanding;
-    billing.paymentHistory = [...(billing.paymentHistory || []), entry];
+    billing.paymentHistory = [...(billing.paymentHistory || []), {
+      ...entry,
+      amount,
+      discount,
+    }];
     billing.financialStage = nextStage;
     if (nextOutstanding === 0) {
       billing.status = "paid";

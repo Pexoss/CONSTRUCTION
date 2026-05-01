@@ -98,6 +98,7 @@ export interface IItemMovement extends Document {
   previousQuantity: {
     total: number;
     available: number;
+    reserved: number;
     rented: number;
     maintenance: number;
     damaged: number;
@@ -105,6 +106,7 @@ export interface IItemMovement extends Document {
   newQuantity: {
     total: number;
     available: number;
+    reserved: number;
     rented: number;
     maintenance: number;
     damaged: number;

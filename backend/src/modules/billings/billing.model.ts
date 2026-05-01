@@ -328,7 +328,7 @@ BillingSchema.pre('validate', async function (next) {
 // Pre-save hook (fallback)
 BillingSchema.pre('save', async function (next) {
   await assignBillingNumber(this);
-  if ((this as any).outstandingAmount === 0 || (this as any).outstandingAmount === undefined) {
+  if ((this as any).outstandingAmount === undefined || (this as any).outstandingAmount === null) {
     (this as any).outstandingAmount = Math.max(0, (this as any).calculation?.total || 0);
   }
   next();

@@ -21,7 +21,10 @@ import {
   formatDocumentForDisplay,
   formatPhoneForDisplay,
   formatDateNoTimezoneShift,
+  formatDateTimeForDisplay,
   formatRentalTypeLabel,
+  getBillingOutstandingAmount,
+  todayDateInputValue,
 } from "../../utils/formatters";
 import { features } from "../../config/features";
 const RentalDetailPage: React.FC = () => {
@@ -68,6 +71,38 @@ const RentalDetailPage: React.FC = () => {
     semanal: "weekly",
     quinzenal: "biweekly",
     mensal: "monthly",
+  };
+
+  const toDateInput = (value?: string | Date | null) => {
+    if (!value) return "";
+    const str = value instanceof Date ? value.toISOString() : String(value);
+    const match = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return match ? `${match[1]}-${match[2]}-${match[3]}` : "";
+  };
+
+  const toTimeInput = (value?: string | Date | null) => {
+    if (!value) return "";
+    if (typeof value === "string" && /T00:00:00(?:\.000)?Z$/.test(value)) {
+      return "";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return `${String(date.getHours()).padStart(2, "0")}:${String(
+      date.getMinutes(),
+    ).padStart(2, "0")}`;
+  };
+
+  const toLocalDateTimeIso = (date: string, time = "00:00") => {
+    if (!date) return undefined;
+    const [year, month, day] = date.split("-").map(Number);
+    const [hours, minutes] = time.split(":").map(Number);
+    return new Date(
+      year,
+      month - 1,
+      day,
+      hours || 0,
+      minutes || 0,
+    ).toISOString();
   };
 
   const formatTimeForDisplay = (value?: string | Date | null) => {
@@ -163,6 +198,7 @@ const RentalDetailPage: React.FC = () => {
   const [editForm, setEditForm] = useState({
     notes: "",
     pickupDate: "",
+    pickupTime: "",
     returnDate: "",
     items: [] as Array<{
       itemId: string;
@@ -170,6 +206,7 @@ const RentalDetailPage: React.FC = () => {
       quantity: number;
       rentalType: RentalTypeUI;
       pickupDate: string;
+      pickupTime: string;
       returnDate: string;
       returnActualDate?: string;
       historicalDelivery?: boolean;
@@ -193,6 +230,7 @@ const RentalDetailPage: React.FC = () => {
     quantity: number;
     rentalType: RentalTypeUI;
     pickupDate: string;
+    pickupTime: string;
     returnDate: string;
   }>({
     itemId: "",
@@ -200,6 +238,7 @@ const RentalDetailPage: React.FC = () => {
     quantity: 1,
     rentalType: "diario",
     pickupDate: "",
+    pickupTime: "",
     returnDate: "",
   });
   const [showAddItemModal, setShowAddItemModal] = useState(false);
@@ -576,7 +615,7 @@ const RentalDetailPage: React.FC = () => {
         (item.rentalType as "daily" | "weekly" | "biweekly" | "monthly") ||
         "daily",
     });
-    setCloseItemReturnDate(new Date().toISOString().split("T")[0]);
+    setCloseItemReturnDate(todayDateInputValue());
     setCloseItemReturnedQuantity(Number(item.quantity || 1));
     setCloseItemNewRentalType("");
     setCloseItemLoading(true);
@@ -609,7 +648,7 @@ const RentalDetailPage: React.FC = () => {
         contractedDays: response.contractedDays ?? 1,
         rentalType: response.rentalType ?? "daily",
       });
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayDateInputValue();
       setCloseForm({
         returnDate: today,
         rentalType: response.rentalType ?? "daily",
@@ -751,7 +790,7 @@ const RentalDetailPage: React.FC = () => {
     .reduce((sum, billing) => sum + (billing.calculation?.total || 0), 0);
   const totalOpen = billings
     .filter((billing) => !["paid", "cancelled"].includes(billing.status))
-    .reduce((sum, billing) => sum + (billing.calculation?.total || 0), 0);
+    .reduce((sum, billing) => sum + getBillingOutstandingAmount(billing), 0);
   const pendingApprovals =
     rental.pendingApprovals?.filter(
       (approval) => approval.status === "pending",
@@ -776,7 +815,7 @@ const RentalDetailPage: React.FC = () => {
                 </button>
               </div>
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Data de retirada
@@ -784,9 +823,43 @@ const RentalDetailPage: React.FC = () => {
                     <input
                       type="date"
                       value={editForm.pickupDate}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, pickupDate: e.target.value })
-                      }
+                      onChange={(e) => {
+                        const pickupDate = e.target.value;
+                        setEditForm({
+                          ...editForm,
+                          pickupDate,
+                          items: editForm.items.map((item) => ({
+                            ...item,
+                            pickupDate,
+                            returnDate: computeReturnFromPickupAndType(
+                              pickupDate,
+                              item.rentalType,
+                            ),
+                            recalculateOnSave: true,
+                          })),
+                        });
+                      }}
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Horário de retirada/entrega
+                    </label>
+                    <input
+                      type="time"
+                      value={editForm.pickupTime}
+                      onChange={(e) => {
+                        const pickupTime = e.target.value;
+                        setEditForm({
+                          ...editForm,
+                          pickupTime,
+                          items: editForm.items.map((item) => ({
+                            ...item,
+                            pickupTime,
+                          })),
+                        });
+                      }}
                       className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     />
                   </div>
@@ -797,9 +870,18 @@ const RentalDetailPage: React.FC = () => {
                     <input
                       type="date"
                       value={editForm.returnDate}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, returnDate: e.target.value })
-                      }
+                      onChange={(e) => {
+                        const returnDate = e.target.value;
+                        setEditForm({
+                          ...editForm,
+                          returnDate,
+                          items: editForm.items.map((item) => ({
+                            ...item,
+                            returnDate,
+                            historicalDelivery: undefined,
+                          })),
+                        });
+                      }}
                       className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     />
                   </div>
@@ -837,7 +919,7 @@ const RentalDetailPage: React.FC = () => {
                               Remover
                             </button>
                           </div>
-                          <div className="grid grid-cols-2 gap-2 mt-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-2">
                             <div>
                               <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
                                 Tipo
@@ -849,6 +931,11 @@ const RentalDetailPage: React.FC = () => {
                                   updated[index] = {
                                     ...updated[index],
                                     rentalType: e.target.value as RentalTypeUI,
+                                    returnDate: computeReturnFromPickupAndType(
+                                      updated[index].pickupDate,
+                                      e.target.value as RentalTypeUI,
+                                    ),
+                                    recalculateOnSave: true,
                                   };
                                   setEditForm({
                                     ...editForm,
@@ -875,6 +962,32 @@ const RentalDetailPage: React.FC = () => {
                                   updated[index] = {
                                     ...updated[index],
                                     pickupDate: e.target.value,
+                                    returnDate: computeReturnFromPickupAndType(
+                                      e.target.value,
+                                      updated[index].rentalType,
+                                    ),
+                                    recalculateOnSave: true,
+                                  };
+                                  setEditForm({
+                                    ...editForm,
+                                    items: updated,
+                                  });
+                                }}
+                                className="w-full px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                                Horário
+                              </label>
+                              <input
+                                type="time"
+                                value={item.pickupTime}
+                                onChange={(e) => {
+                                  const updated = [...editForm.items];
+                                  updated[index] = {
+                                    ...updated[index],
+                                    pickupTime: e.target.value,
                                   };
                                   setEditForm({
                                     ...editForm,
@@ -893,9 +1006,7 @@ const RentalDetailPage: React.FC = () => {
                                 value={item.returnDate}
                                 onChange={(e) => {
                                   const v = e.target.value;
-                                  const todayStr = new Date()
-                                    .toISOString()
-                                    .split("T")[0];
+                                  const todayStr = todayDateInputValue();
                                   const updated = [...editForm.items];
                                   updated[index] = {
                                     ...updated[index],
@@ -939,8 +1050,7 @@ const RentalDetailPage: React.FC = () => {
                               retirada
                             </button>
                             {item.returnDate &&
-                              item.returnDate <
-                                new Date().toISOString().split("T")[0] &&
+                              item.returnDate < todayDateInputValue() &&
                               !item.returnActualDate && (
                                 <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
                                   <input
@@ -977,7 +1087,18 @@ const RentalDetailPage: React.FC = () => {
                   <div className="mt-4 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-3">
                     <button
                       type="button"
-                      onClick={() => setShowAddItemModal(true)}
+                      onClick={() => {
+                        setNewItemForm({
+                          itemId: "",
+                          unitId: "",
+                          quantity: 1,
+                          rentalType: "diario",
+                          pickupDate: editForm.pickupDate,
+                          pickupTime: editForm.pickupTime,
+                          returnDate: editForm.returnDate,
+                        });
+                        setShowAddItemModal(true);
+                      }}
                       className="px-3 py-2 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-md text-sm font-medium"
                     >
                       + Adicionar item
@@ -1274,10 +1395,10 @@ const RentalDetailPage: React.FC = () => {
                     if (editForm.pickupDate || editForm.returnDate) {
                       payload.dates = {
                         pickupScheduled: editForm.pickupDate
-                          ? new Date(editForm.pickupDate).toISOString()
+                          ? toLocalDateTimeIso(editForm.pickupDate, editForm.pickupTime)
                           : undefined,
                         returnScheduled: editForm.returnDate
-                          ? new Date(editForm.returnDate).toISOString()
+                          ? toLocalDateTimeIso(editForm.returnDate, editForm.pickupTime)
                           : undefined,
                       };
                     }
@@ -1309,9 +1430,7 @@ const RentalDetailPage: React.FC = () => {
                         );
                         return;
                       }
-                      const todayStr = new Date()
-                        .toISOString()
-                        .split("T")[0];
+                      const todayStr = todayDateInputValue();
                       payload.items = editForm.items.map((item) => {
                         const row: {
                           itemId: string;
@@ -1336,10 +1455,10 @@ const RentalDetailPage: React.FC = () => {
                             | "biweekly"
                             | "monthly",
                           pickupScheduled: item.pickupDate
-                            ? new Date(item.pickupDate).toISOString()
+                            ? toLocalDateTimeIso(item.pickupDate, item.pickupTime)
                             : undefined,
                           returnScheduled: item.returnDate
-                            ? new Date(item.returnDate).toISOString()
+                            ? toLocalDateTimeIso(item.returnDate, item.pickupTime)
                             : undefined,
                         };
                         if (item.recalculateOnSave && item.pickupDate) {
@@ -1449,6 +1568,10 @@ const RentalDetailPage: React.FC = () => {
                         setNewItemForm({
                           ...newItemForm,
                           rentalType: e.target.value as RentalTypeUI,
+                          returnDate: computeReturnFromPickupAndType(
+                            newItemForm.pickupDate,
+                            e.target.value as RentalTypeUI,
+                          ),
                         })
                       }
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -1467,10 +1590,27 @@ const RentalDetailPage: React.FC = () => {
                         setNewItemForm({
                           ...newItemForm,
                           pickupDate: e.target.value,
+                          returnDate: computeReturnFromPickupAndType(
+                            e.target.value,
+                            newItemForm.rentalType,
+                          ),
                         })
                       }
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     />
+                    <input
+                      type="time"
+                      value={newItemForm.pickupTime}
+                      onChange={(e) =>
+                        setNewItemForm({
+                          ...newItemForm,
+                          pickupTime: e.target.value,
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
                     <input
                       type="date"
                       value={newItemForm.returnDate}
@@ -1506,6 +1646,10 @@ const RentalDetailPage: React.FC = () => {
                           toast.error("Informe a retirada do item.");
                           return;
                         }
+                        if (!newItemForm.pickupTime) {
+                          toast.error("Informe o horário de retirada/entrega do item.");
+                          return;
+                        }
                         if (newItemForm.returnDate && newItemForm.returnDate < newItemForm.pickupDate) {
                           toast.error("A devolução deve ser posterior à retirada.");
                           return;
@@ -1520,6 +1664,7 @@ const RentalDetailPage: React.FC = () => {
                               quantity: newItemForm.quantity,
                               rentalType: newItemForm.rentalType,
                               pickupDate: newItemForm.pickupDate,
+                              pickupTime: newItemForm.pickupTime,
                               returnDate: newItemForm.returnDate,
                             },
                           ],
@@ -1530,6 +1675,7 @@ const RentalDetailPage: React.FC = () => {
                           quantity: 1,
                           rentalType: "diario",
                           pickupDate: "",
+                          pickupTime: "",
                           returnDate: "",
                         });
                         setShowAddItemModal(false);
@@ -1639,18 +1785,20 @@ const RentalDetailPage: React.FC = () => {
                   onClick={() => {
                     const workAddress =
                       rental.workAddress || ({} as RentalWorkAddress);
+                    const defaultPickupTime = toTimeInput(rental.dates.pickupScheduled);
                     setEditForm({
                       notes: rental.notes || "",
-                      pickupDate: rental.dates.pickupScheduled.split("T")[0],
+                      pickupDate: toDateInput(rental.dates.pickupScheduled),
+                      pickupTime: defaultPickupTime,
                       returnDate: rental.dates.returnScheduled
-                        ? rental.dates.returnScheduled.split("T")[0]
+                        ? toDateInput(rental.dates.returnScheduled)
                         : "",
                       items: rental.items.map((item: any) => {
                         const ra = item.returnActual
-                          ? String(item.returnActual).split("T")[0]
+                          ? toDateInput(item.returnActual)
                           : "";
                         const rs = item.returnScheduled
-                          ? String(item.returnScheduled).split("T")[0]
+                          ? toDateInput(item.returnScheduled)
                           : "";
                         return {
                           itemId:
@@ -1662,10 +1810,11 @@ const RentalDetailPage: React.FC = () => {
                           rentalType:
                             rentalTypeApiToUi[item.rentalType] || "diario",
                           pickupDate: item.pickupScheduled
-                            ? item.pickupScheduled.split("T")[0]
+                            ? toDateInput(item.pickupScheduled)
                             : "",
+                          pickupTime: toTimeInput(item.pickupScheduled) || defaultPickupTime,
                           returnDate: item.returnScheduled
-                            ? item.returnScheduled.split("T")[0]
+                            ? toDateInput(item.returnScheduled)
                             : "",
                           returnActualDate: ra || undefined,
                           historicalDelivery: !!(ra && rs && ra === rs),
@@ -1836,9 +1985,7 @@ const RentalDetailPage: React.FC = () => {
                       Criado em
                     </div>
                     <div className="text-sm font-medium text-gray-900 dark:text-white">
-                      {new Date(rental.dates.reservedAt).toLocaleString(
-                        "pt-BR",
-                      )}
+                      {formatDateTimeForDisplay(rental.dates.reservedAt)}
                     </div>
                   </div>
                   <div>
@@ -2176,9 +2323,7 @@ const RentalDetailPage: React.FC = () => {
                             {approval.requestType}
                           </div>
                           <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                            {new Date(approval.requestDate).toLocaleString(
-                              "pt-BR",
-                            )}
+                            {formatDateTimeForDisplay(approval.requestDate)}
                           </div>
                           <div className="mt-2 flex gap-2">
                             <button
@@ -2420,7 +2565,7 @@ const RentalDetailPage: React.FC = () => {
                         className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-900/50"
                       >
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {new Date(history.date).toLocaleString("pt-BR")}
+                          {formatDateTimeForDisplay(history.date)}
                         </div>
                         <div className="text-sm font-medium text-gray-900 dark:text-white">
                           {getChangeTypeLabel(history.changeType)}
@@ -2997,12 +3142,8 @@ const RentalDetailPage: React.FC = () => {
 
                     if (editForm.pickupDate || editForm.returnDate) {
                       payload.dates = {
-                        pickupScheduled: editForm.pickupDate
-                          ? new Date(editForm.pickupDate).toISOString()
-                          : undefined,
-                        returnScheduled: editForm.returnDate
-                          ? new Date(editForm.returnDate).toISOString()
-                          : undefined,
+                        pickupScheduled: editForm.pickupDate || undefined,
+                        returnScheduled: editForm.returnDate || undefined,
                       };
                     }
 
@@ -3033,9 +3174,7 @@ const RentalDetailPage: React.FC = () => {
                         );
                         return;
                       }
-                      const todayStr = new Date()
-                        .toISOString()
-                        .split("T")[0];
+                      const todayStr = todayDateInputValue();
                       payload.items = editForm.items.map((item) => {
                         const row: {
                           itemId: string;
@@ -3059,12 +3198,8 @@ const RentalDetailPage: React.FC = () => {
                             | "weekly"
                             | "biweekly"
                             | "monthly",
-                          pickupScheduled: item.pickupDate
-                            ? new Date(item.pickupDate).toISOString()
-                            : undefined,
-                          returnScheduled: item.returnDate
-                            ? new Date(item.returnDate).toISOString()
-                            : undefined,
+                          pickupScheduled: item.pickupDate || undefined,
+                          returnScheduled: item.returnDate || undefined,
                         };
                         if (item.recalculateOnSave && item.pickupDate) {
                           row.recalculateScheduledReturn = true;
@@ -3500,9 +3635,7 @@ const RentalDetailPage: React.FC = () => {
                   onClick={async () => {
                     if (!selectedCloseItem || !id) return;
                     try {
-                      const returnDateIso = closeItemReturnDate
-                        ? new Date(closeItemReturnDate).toISOString()
-                        : undefined;
+                      const returnDateIso = closeItemReturnDate || undefined;
                       const isPartial =
                         selectedCloseItem.quantity > 1 &&
                         closeItemReturnedQuantity < selectedCloseItem.quantity;
@@ -3794,6 +3927,7 @@ const RentalDetailPage: React.FC = () => {
                             quantity: newItemForm.quantity,
                             rentalType: newItemForm.rentalType,
                             pickupDate: newItemForm.pickupDate,
+                            pickupTime: newItemForm.pickupTime,
                             returnDate: newItemForm.returnDate,
                           },
                         ],
@@ -3804,6 +3938,7 @@ const RentalDetailPage: React.FC = () => {
                         quantity: 1,
                         rentalType: "diario",
                         pickupDate: "",
+                        pickupTime: "",
                         returnDate: "",
                       });
                       setShowAddItemModal(false);

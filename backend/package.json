@@ -10,7 +10,8 @@
     "type-check": "tsc --noEmit",
     "migrate:rentals": "ts-node scripts/migrate-rentals.ts",
     "migrate:financial:from-rentals": "ts-node scripts/migrate-rentals-to-financial.ts",
-    "audit:financial:migration": "ts-node scripts/audit-financial-migration.ts"
+    "audit:financial:migration": "ts-node scripts/audit-financial-migration.ts",
+    "audit:system:consistency": "ts-node scripts/audit-system-consistency.ts"
   },
   "keywords": [],
   "author": "",

@@ -104,6 +104,12 @@ const ItemSchema = new Schema<IItem>(
         default: 0,
         min: [0, 'Available quantity cannot be negative'],
       },
+      reserved: {
+        type: Number,
+        required: true,
+        default: 0,
+        min: [0, 'Reserved quantity cannot be negative'],
+      },
       rented: {
         type: Number,
         required: true,

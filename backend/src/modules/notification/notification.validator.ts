@@ -39,7 +39,7 @@ const NotificationSchema = new Schema(
 
         requestedStatus: {
             type: String,
-            enum: ["reserved", "active", "overdue", "completed", "cancelled"],
+            enum: ["reserved", "active", "overdue", "completed", "ready_to_close", "cancelled"],
         },
 
         resolved: {

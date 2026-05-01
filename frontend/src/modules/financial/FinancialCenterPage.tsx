@@ -15,7 +15,11 @@ import {
 } from "./financialBoardFilters";
 import { RentalDeliveryQuickModal } from "./RentalDeliveryQuickModal";
 import { rentalTypeLabel } from "../../utils/statusLabels";
-import { formatDateNoTimezoneShift } from "../../utils/formatters";
+import {
+  formatDateNoTimezoneShift,
+  getBillingOutstandingAmount,
+  toDateInputValue,
+} from "../../utils/formatters";
 
 const stageLabel: Record<string, string> = {
   pending: "Pendentes",
@@ -38,6 +42,22 @@ const invoiceStatusLabel: Record<string, string> = {
   paid: "Paga",
   cancelled: "Cancelada",
 };
+
+const getBillingOutstanding = getBillingOutstandingAmount;
+
+const isBillingEligibleForCharge = (billing: any): boolean =>
+  billing?.financialStage === "pending" &&
+  billing?.status !== "paid" &&
+  billing?.status !== "cancelled" &&
+  !billing?.chargeId &&
+  !billing?.invoiceId &&
+  getBillingOutstanding(billing) > 0.01;
+
+const isBillingEligibleForInvoice = (billing: any): boolean =>
+  billing?.status !== "paid" &&
+  billing?.status !== "cancelled" &&
+  !billing?.invoiceId &&
+  getBillingOutstanding(billing) > 0.01;
 
 const FinancialCenterPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -110,6 +130,9 @@ const FinancialCenterPage: React.FC = () => {
   const charges = useMemo(() => boardData?.charges || [], [boardData]);
   const invoices = useMemo(() => boardData?.invoices || [], [boardData]);
   const selectedBillings = billings.filter((bill: any) => selectedBillingIds.includes(bill._id));
+  const selectedEligibleBillingIds = selectedBillings
+    .filter(isBillingEligibleForCharge)
+    .map((bill: any) => bill._id);
   const selectedCustomerIds = Array.from(
     new Set(selectedBillings.map((bill: any) => String(bill.customerId?._id || bill.customerId))),
   );
@@ -118,7 +141,7 @@ const FinancialCenterPage: React.FC = () => {
   const createChargeMutation = useMutation({
     mutationFn: () =>
       chargeService.create({
-        billingIds: selectedBillingIds,
+        billingIds: selectedEligibleBillingIds,
       }),
     onSuccess: () => {
       setSelectedBillingIds([]);
@@ -383,13 +406,18 @@ const FinancialCenterPage: React.FC = () => {
       if (billCustomerId !== customerId) return false;
       const billId = String(bill._id);
       if (currentIds.has(billId)) return true;
-      return !bill.chargeId && !bill.invoiceId;
+      return isBillingEligibleForCharge(bill);
     });
   }, [chargeModal, billings]);
 
   const handleCreateCharge = () => {
     if (selectedBillingIds.length < 1) {
       toast.info("Selecione ao menos um fechamento.");
+      return;
+    }
+    if (selectedEligibleBillingIds.length !== selectedBillingIds.length) {
+      toast.warning("Selecione apenas fechamentos pendentes, em aberto e sem cobrança/fatura.");
+      setSelectedBillingIds(selectedEligibleBillingIds);
       return;
     }
     if (hasMixedCustomers) {
@@ -404,12 +432,26 @@ const FinancialCenterPage: React.FC = () => {
       toast.info("Selecione uma cobrança para dar baixa.");
       return;
     }
+    const selectedCharge = charges.find((charge: any) => charge._id === selectedChargeId);
+    const outstanding = Number(selectedCharge?.outstandingAmount || 0);
     const amount = Number(paymentValue || 0);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      toast.warning("Informe um valor de baixa maior que zero.");
+    const discount = Number(paymentDiscountValue || 0);
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast.warning("Informe um valor de baixa válido.");
       return;
     }
-    const discount = Number(paymentDiscountValue || 0);
+    if (!Number.isFinite(discount) || discount < 0) {
+      toast.warning("Informe um desconto válido.");
+      return;
+    }
+    if (amount + discount <= 0) {
+      toast.warning("Informe baixa ou desconto maior que zero.");
+      return;
+    }
+    if (amount + discount - outstanding > 0.01) {
+      toast.warning("Baixa + desconto não pode exceder o saldo da cobrança.");
+      return;
+    }
     payChargeMutation.mutate({
       chargeId: selectedChargeId,
       amount,
@@ -433,11 +475,18 @@ const FinancialCenterPage: React.FC = () => {
   };
 
   const handleGenerateInvoiceFromCharge = (charge: any) => {
-    const billingIds = (charge.billingIds || []).map((billing: any) =>
-      String(billing?._id || billing),
-    );
+    const relatedBillings = (charge.billingIds || []).filter((billing: any) => !!billing);
+    const billingIds = relatedBillings
+      .filter((billing: any) =>
+        typeof billing === "string" ? true : isBillingEligibleForInvoice(billing),
+      )
+      .map((billing: any) => String(billing?._id || billing));
     if (!billingIds.length) {
-      toast.warning("Cobrança sem fechamentos vinculados. Não é possível gerar fatura.");
+      toast.warning("Cobrança sem fechamentos elegíveis para gerar fatura.");
+      return;
+    }
+    if (billingIds.length !== relatedBillings.length) {
+      toast.warning("A cobrança possui fechamentos já pagos, cancelados ou faturados.");
       return;
     }
     generateInvoiceMutation.mutate({ chargeId: charge._id, billingIds });
@@ -446,9 +495,7 @@ const FinancialCenterPage: React.FC = () => {
   const openChargeModal = (charge: any) => {
     setChargeModal(charge);
     setChargeModalNotes(String(charge.notes || ""));
-    setChargeModalDueDate(
-      charge.dueDate ? new Date(charge.dueDate).toISOString().slice(0, 10) : "",
-    );
+    setChargeModalDueDate(toDateInputValue(charge.dueDate));
     setChargeModalTotal(String(Number(charge.total || 0)));
     setChargeModalBillingIds((charge.billingIds || []).map((b: any) => String(b?._id || b)));
   };
@@ -525,7 +572,7 @@ const FinancialCenterPage: React.FC = () => {
               </Link>
               <button
                 onClick={handleCreateCharge}
-                disabled={selectedBillingIds.length === 0 || createChargeMutation.isPending}
+                disabled={selectedEligibleBillingIds.length === 0 || createChargeMutation.isPending}
                 className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm disabled:opacity-50"
               >
                 Criar cobrança
@@ -718,7 +765,7 @@ const FinancialCenterPage: React.FC = () => {
                               : [];
                           const tipo =
                             rentalTypeLabel[String(bill.rentalType || "")] || bill.rentalType || "—";
-                          const canSelectForCharge = bill.financialStage === "pending";
+                          const canSelectForCharge = isBillingEligibleForCharge(bill);
                           return (
                             <tr key={bill._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/80">
                               <td className="px-2 py-2 text-center">
@@ -770,7 +817,7 @@ const FinancialCenterPage: React.FC = () => {
                                 {stageLabel[String(bill.financialStage)] || bill.financialStage || "—"}
                               </td>
                               <td className="px-2 py-2 text-right whitespace-nowrap">
-                                R$ {(bill.outstandingAmount ?? bill.calculation?.total ?? 0).toFixed(2)}
+                                R$ {getBillingOutstanding(bill).toFixed(2)}
                               </td>
                               <td className="px-2 py-2">
                                 <div className="flex flex-wrap gap-1">
@@ -845,7 +892,7 @@ const FinancialCenterPage: React.FC = () => {
                           <label key={bill._id} className="block border rounded-md p-2 bg-white dark:bg-gray-800">
                             <div className="flex justify-between text-sm">
                               <span className="font-medium">{bill.customerId?.name || "Cliente"}</span>
-                              <span>R$ {(bill.outstandingAmount ?? bill.calculation?.total ?? 0).toFixed(2)}</span>
+                              <span>R$ {getBillingOutstanding(bill).toFixed(2)}</span>
                             </div>
                             <p className="text-xs text-gray-500 mt-1">
                               Período:{" "}
@@ -905,7 +952,7 @@ const FinancialCenterPage: React.FC = () => {
                                   Atualizar fechamento
                                 </button>
                               )}
-                              {stage === "pending" && (
+                              {isBillingEligibleForCharge(bill) && (
                                 <input
                                   type="checkbox"
                                   checked={selectedBillingIds.includes(bill._id)}
@@ -1103,7 +1150,7 @@ const FinancialCenterPage: React.FC = () => {
                           <strong>{bill.billingNumber || bill._id}</strong> -{" "}
                           {bill.periodStart ? formatDateNoTimezoneShift(bill.periodStart) : "-"} ate{" "}
                           {bill.periodEnd ? formatDateNoTimezoneShift(bill.periodEnd) : "-"} | R${" "}
-                          {(bill.outstandingAmount ?? bill.calculation?.total ?? 0).toFixed(2)}
+                          {getBillingOutstanding(bill).toFixed(2)}
                         </span>
                       </label>
                     );

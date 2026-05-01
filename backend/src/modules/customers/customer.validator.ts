@@ -10,7 +10,7 @@ const customerBaseSchema = z.object({
     .array(
       z.object({
         addressName: z.string().optional(),
-        type: z.enum(["main", "billing", "work", "other"]).optional(),
+        type: z.enum(["main", "billing", "work", "other"]).optional().default("main"),
         street: z.string().optional(),
         number: z.string().optional(),
         complement: z.string().optional(),

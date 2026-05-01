@@ -1,14 +1,27 @@
 export interface RentalsReport {
   totalRentals: number;
   totalRevenue: number;
+  contractedRevenue?: number;
+  billedRevenue?: number;
+  pendingRevenue?: number;
+  depositTotal?: number;
   byStatus: Record<string, number>;
-  byMonth: Array<{ month: string; count: number; revenue: number }>;
+  byMonth: Array<{
+    month: string;
+    count: number;
+    revenue: number;
+    contractedRevenue?: number;
+  }>;
 }
 
 export interface FinancialReport {
   totalIncome: number;
   totalExpenses: number;
   profit: number;
+  billedInPeriod?: number;
+  receivedInPeriod?: number;
+  pendingTotal?: number;
+  invoicedInPeriod?: number;
   byCategory: Array<{ category: string; income: number; expenses: number }>;
   byMonth: Array<{
     month: string;
@@ -60,6 +73,7 @@ export interface MaintenanceReport {
 export interface InventoryReport {
   totalItems: number;
   totalValue: number;
+  totalInventoryValue?: number;
   lowStockItems: number;
   totalCompletedRevenue: number;
   activeItems: number;
