@@ -93,7 +93,6 @@ const CreateRentalPage: React.FC = () => {
     useState<string>("");
   const [pickupDate, setPickupDate] = useState("");
   const [pickupTime, setPickupTime] = useState("");
-  const [returnDate, setReturnDate] = useState("");
   const [customerCpf, setCustomerCpf] = useState("");
   const [fulfillmentMethod, setFulfillmentMethod] =
     useState<RentalFulfillmentMethod | "">("");
@@ -348,7 +347,6 @@ const CreateRentalPage: React.FC = () => {
     const rentalType = getRentalTypeFromItem(item);
     const defaultPickupDate = pickupDate || selectedItems[0]?.pickupDate || "";
     const defaultPickupTime = pickupTime || selectedItems[0]?.pickupTime || "";
-    const defaultReturnDate = returnDate || selectedItems[0]?.returnDate || "";
 
     const existingIndex = selectedItems.findIndex(
       (si) => si.itemId === item._id,
@@ -369,10 +367,9 @@ const CreateRentalPage: React.FC = () => {
       setSelectedItems(updated);
     } else {
       //já calcula a devolução mínima
-      const calculatedReturn =
-        defaultPickupDate && !defaultReturnDate
-          ? calculateReturnDate(defaultPickupDate, rentalType)
-          : defaultReturnDate || "";
+      const calculatedReturn = defaultPickupDate
+        ? calculateReturnDate(defaultPickupDate, rentalType)
+        : "";
 
       setSelectedItems([
         ...selectedItems,
@@ -499,8 +496,7 @@ const CreateRentalPage: React.FC = () => {
     );
     if (
       hasRetroactive ||
-      (pickupDate && pickupDate < today) ||
-      (returnDate && returnDate < today)
+      (pickupDate && pickupDate < today)
     ) {
       const shouldContinue = window.confirm(
         "Você informou uma data anterior a hoje. Tem certeza de que deseja continuar?",
@@ -613,17 +609,11 @@ const CreateRentalPage: React.FC = () => {
 
       services: servicesToSend.length > 0 ? servicesToSend : undefined,
       workAddress: workAddress || undefined,
-      dates:
-        pickupDate || returnDate
-          ? {
-              pickupScheduled: pickupDate
-                ? formatDateTimeToISO(pickupDate, pickupTime)
-                : undefined,
-              returnScheduled: returnDate
-                ? formatDateTimeToISO(returnDate, pickupTime)
-                : undefined,
-            }
-          : undefined,
+      dates: pickupDate
+        ? {
+            pickupScheduled: formatDateTimeToISO(pickupDate, pickupTime),
+          }
+        : undefined,
       pricing: {
         discount:
           discountType === "percentage"
@@ -1197,33 +1187,14 @@ const CreateRentalPage: React.FC = () => {
                                   />
                                 </div>
 
-                                {/* Devolução */}
+                                {/* Devolução prevista */}
                                 <div className="flex flex-col">
                                   <label className="text-xs text-gray-500 mb-1">
-                                    Devolução
+                                    Devolução prevista
                                   </label>
-                                  <input
-                                    type="date"
-                                    value={selectedItem.returnDate || ""}
-                                    onChange={(e) => {
-                                      const v = e.target.value;
-                                      const todayStr = todayDateInputValue();
-                                      const updated = selectedItems.map((si) =>
-                                        si.itemId === selectedItem.itemId
-                                          ? {
-                                              ...si,
-                                              returnDate: v,
-                                              historicalDelivery:
-                                                v && v < todayStr
-                                                  ? si.historicalDelivery
-                                                  : undefined,
-                                            }
-                                          : si,
-                                      );
-                                      setSelectedItems(updated);
-                                    }}
-                                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                  />
+                                  <div className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-gray-100 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300">
+                                    {selectedItem.returnDate || "Calculada após a retirada"}
+                                  </div>
                                 </div>
                               </div>
 

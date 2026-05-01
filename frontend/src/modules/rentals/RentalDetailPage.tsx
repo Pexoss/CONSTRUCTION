@@ -815,7 +815,7 @@ const RentalDetailPage: React.FC = () => {
                 </button>
               </div>
               <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Data de retirada
@@ -857,28 +857,6 @@ const RentalDetailPage: React.FC = () => {
                           items: editForm.items.map((item) => ({
                             ...item,
                             pickupTime,
-                          })),
-                        });
-                      }}
-                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Data de devolução
-                    </label>
-                    <input
-                      type="date"
-                      value={editForm.returnDate}
-                      onChange={(e) => {
-                        const returnDate = e.target.value;
-                        setEditForm({
-                          ...editForm,
-                          returnDate,
-                          items: editForm.items.map((item) => ({
-                            ...item,
-                            returnDate,
-                            historicalDelivery: undefined,
                           })),
                         });
                       }}
@@ -999,56 +977,14 @@ const RentalDetailPage: React.FC = () => {
                             </div>
                             <div>
                               <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                                Devolução
+                                Devolução prevista
                               </label>
-                              <input
-                                type="date"
-                                value={item.returnDate}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  const todayStr = todayDateInputValue();
-                                  const updated = [...editForm.items];
-                                  updated[index] = {
-                                    ...updated[index],
-                                    returnDate: v,
-                                    historicalDelivery:
-                                      v && v < todayStr
-                                        ? updated[index].historicalDelivery
-                                        : undefined,
-                                  };
-                                  setEditForm({
-                                    ...editForm,
-                                    items: updated,
-                                  });
-                                }}
-                                className="w-full px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                              />
+                              <div className="w-full px-2 py-2 border border-gray-200 dark:border-gray-700 rounded-md text-sm bg-gray-100 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300">
+                                {item.returnDate || "Calculada após a retirada"}
+                              </div>
                             </div>
                           </div>
                           <div className="mt-2 space-y-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const updated = [...editForm.items];
-                                const cur = updated[index];
-                                updated[index] = {
-                                  ...cur,
-                                  returnDate: computeReturnFromPickupAndType(
-                                    cur.pickupDate,
-                                    cur.rentalType,
-                                  ),
-                                  recalculateOnSave: true,
-                                };
-                                setEditForm({
-                                  ...editForm,
-                                  items: updated,
-                                });
-                              }}
-                              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
-                            >
-                              Recalcular devolução a partir do tipo e da
-                              retirada
-                            </button>
                             {item.returnDate &&
                               item.returnDate < todayDateInputValue() &&
                               !item.returnActualDate && (
@@ -1095,7 +1031,10 @@ const RentalDetailPage: React.FC = () => {
                           rentalType: "diario",
                           pickupDate: editForm.pickupDate,
                           pickupTime: editForm.pickupTime,
-                          returnDate: editForm.returnDate,
+                          returnDate: computeReturnFromPickupAndType(
+                            editForm.pickupDate,
+                            "diario",
+                          ),
                         });
                         setShowAddItemModal(true);
                       }}
@@ -1392,14 +1331,12 @@ const RentalDetailPage: React.FC = () => {
                       notes: editForm.notes,
                     };
 
-                    if (editForm.pickupDate || editForm.returnDate) {
+                    if (editForm.pickupDate) {
                       payload.dates = {
-                        pickupScheduled: editForm.pickupDate
-                          ? toLocalDateTimeIso(editForm.pickupDate, editForm.pickupTime)
-                          : undefined,
-                        returnScheduled: editForm.returnDate
-                          ? toLocalDateTimeIso(editForm.returnDate, editForm.pickupTime)
-                          : undefined,
+                        pickupScheduled: toLocalDateTimeIso(
+                          editForm.pickupDate,
+                          editForm.pickupTime,
+                        ),
                       };
                     }
 
@@ -1611,17 +1548,10 @@ const RentalDetailPage: React.FC = () => {
                     />
                   </div>
                   <div className="grid grid-cols-1 gap-2">
-                    <input
-                      type="date"
-                      value={newItemForm.returnDate}
-                      onChange={(e) =>
-                        setNewItemForm({
-                          ...newItemForm,
-                          returnDate: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
+                    <div className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md text-sm bg-gray-100 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300">
+                      Devolução prevista:{" "}
+                      {newItemForm.returnDate || "calculada após a retirada"}
+                    </div>
                   </div>
                   <div className="flex justify-end gap-2 pt-2">
                     <button
@@ -1648,10 +1578,6 @@ const RentalDetailPage: React.FC = () => {
                         }
                         if (!newItemForm.pickupTime) {
                           toast.error("Informe o horário de retirada/entrega do item.");
-                          return;
-                        }
-                        if (newItemForm.returnDate && newItemForm.returnDate < newItemForm.pickupDate) {
-                          toast.error("A devolução deve ser posterior à retirada.");
                           return;
                         }
                         setEditForm({
@@ -2706,7 +2632,7 @@ const RentalDetailPage: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Data de devolução
+                      Devolução prevista
                     </label>
                     <input
                       type="date"
@@ -3140,10 +3066,9 @@ const RentalDetailPage: React.FC = () => {
                       notes: editForm.notes,
                     };
 
-                    if (editForm.pickupDate || editForm.returnDate) {
+                    if (editForm.pickupDate) {
                       payload.dates = {
                         pickupScheduled: editForm.pickupDate || undefined,
-                        returnScheduled: editForm.returnDate || undefined,
                       };
                     }
 
@@ -3332,7 +3257,7 @@ const RentalDetailPage: React.FC = () => {
                   <div className="mt-5 space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Data de devolução
+                        Data real da devolução
                       </label>
                       <input
                         type="date"
@@ -3563,7 +3488,7 @@ const RentalDetailPage: React.FC = () => {
               ) : null}
 
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Data de devolução
+                Data real da devolução
               </label>
               <input
                 type="date"
@@ -3856,6 +3781,10 @@ const RentalDetailPage: React.FC = () => {
                       setNewItemForm({
                         ...newItemForm,
                         rentalType: e.target.value as RentalTypeUI,
+                        returnDate: computeReturnFromPickupAndType(
+                          newItemForm.pickupDate,
+                          e.target.value as RentalTypeUI,
+                        ),
                       })
                     }
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -3874,21 +3803,18 @@ const RentalDetailPage: React.FC = () => {
                       setNewItemForm({
                         ...newItemForm,
                         pickupDate: e.target.value,
+                        returnDate: computeReturnFromPickupAndType(
+                          e.target.value,
+                          newItemForm.rentalType,
+                        ),
                       })
                     }
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   />
-                  <input
-                    type="date"
-                    value={newItemForm.returnDate}
-                    onChange={(e) =>
-                      setNewItemForm({
-                        ...newItemForm,
-                        returnDate: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  />
+                  <div className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md text-sm bg-gray-100 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300">
+                    Devolução prevista:{" "}
+                    {newItemForm.returnDate || "calculada após a retirada"}
+                  </div>
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
                   <button
@@ -3911,10 +3837,6 @@ const RentalDetailPage: React.FC = () => {
                       }
                       if (!newItemForm.pickupDate) {
                         toast.error("Informe a retirada do item.");
-                        return;
-                      }
-                      if (newItemForm.returnDate && newItemForm.returnDate < newItemForm.pickupDate) {
-                        toast.error("A devolução deve ser posterior à retirada.");
                         return;
                       }
                       setEditForm({
