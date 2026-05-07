@@ -490,6 +490,28 @@ class ChargeService {
             y = 36;
           }
         }
+
+        for (const service of bill.services || []) {
+          const serviceName = service.description || "Serviço";
+          const rowH = Math.max(14, doc.heightOfString(serviceName, { width: descW }) + 2);
+          if (y + rowH > 760) {
+            doc.addPage();
+            y = 36;
+          }
+          doc.text(serviceName, colDesc, y, { width: descW });
+          doc.text(period, colPeriod, y, { width: 120 });
+          doc.text("Serviço", colType, y, { width: 55 });
+          doc.text(String(service.quantity || 1), colQ, y, { width: 35 });
+          doc.text(`R$ ${Number(service.subtotal ?? 0).toFixed(2)}`, colTot, y, {
+            width: 70,
+            align: "right",
+          });
+          y += rowH;
+          if (y > 760) {
+            doc.addPage();
+            y = 36;
+          }
+        }
       }
 
       y += 8;

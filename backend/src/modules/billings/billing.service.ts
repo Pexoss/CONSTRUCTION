@@ -7,6 +7,7 @@ import PDFDocument from 'pdfkit';
 import { financialService } from '../financial/financial.service';
 import { transactionService } from '../transactions/transaction.service';
 import { Charge } from '../charges/charge.model';
+import { asIdString, buildRentalLineKey } from '../../shared/utils/rental-line-key.util';
 
 /**
  * Calcula os períodos de aluguel baseado nas datas
@@ -109,35 +110,6 @@ function addPeriod(date: Date, rentalType: RentalType): Date {
   const next = new Date(date);
   next.setDate(next.getDate() + getPeriodLengthDays(rentalType));
   return next;
-}
-
-function normalizeDateKey(value?: Date | string): string {
-  if (!value) return "na";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "na";
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString().slice(0, 10);
-}
-
-function asIdString(value: any): string {
-  if (!value) return "";
-  if (typeof value === "string") return value;
-  if (value?._id) {
-    const nested = value._id;
-    if (typeof nested === "string") return nested;
-    if (nested?.toString) return nested.toString();
-  }
-  if (value?.toString) return value.toString();
-  return String(value);
-}
-
-function buildRentalLineKey(item: any): string {
-  const itemId = asIdString(item?.itemId) || "na";
-  const unitId = item?.unitId ? String(item.unitId) : "no-unit";
-  const rentalType = String(item?.rentalType || "daily");
-  const pickup = normalizeDateKey(item?.pickupScheduled);
-  const ret = normalizeDateKey(item?.returnScheduled);
-  return [itemId, unitId, rentalType, pickup, ret].join("|");
 }
 
 /**
@@ -249,6 +221,7 @@ class BillingService {
       if (matchIdx === -1) {
         matchIdx = rentalItems.findIndex((ri: any, idx: number) => {
           if (usedIndices.has(idx)) return false;
+          if (ri.returnActual) return false;
           const riId = asIdString(ri?.itemId);
           if (riId !== billingItemId) return false;
           if (billingUnitId) return String(ri?.unitId || "") === billingUnitId;
@@ -262,7 +235,9 @@ class BillingService {
       }
     }
 
-    return selected.length ? selected : rentalItems;
+    return selected.length
+      ? selected
+      : rentalItems.filter((ri: any) => !ri.returnActual);
   }
 
   private async buildScopedBillingItems(
@@ -326,10 +301,26 @@ class BillingService {
     if (!rental) return;
     const lineItemId = asIdString(lineItem.itemId);
     const idx = rental.items.findIndex((ri: any) => {
+      if (ri.returnActual) return false;
       const id = asIdString(ri.itemId);
       if (id !== lineItemId) return false;
-      if (lineItem.unitId) return ri.unitId === lineItem.unitId;
-      return !ri.unitId;
+      if (lineItem.unitId) {
+        if (ri.unitId !== lineItem.unitId) return false;
+      } else if (ri.unitId) {
+        return false;
+      }
+      const reqLine =
+        typeof lineItem.lineId === "string" && lineItem.lineId.trim().length > 0
+          ? lineItem.lineId.trim()
+          : undefined;
+      if (reqLine != null && reqLine !== "") {
+        const riLine =
+          typeof ri.lineId === "string" && ri.lineId.trim().length > 0
+            ? ri.lineId.trim()
+            : "";
+        return riLine === reqLine;
+      }
+      return !ri.lineId;
     });
     if (idx === -1) return;
     if (Number(rental.items[idx].unitPrice) <= 0) {
@@ -623,6 +614,7 @@ class BillingService {
     let equipmentSubtotal = 0;
     const billingItems: any[] = [];
     for (const item of rental.items) {
+      if (item.returnActual) continue;
       const itemRentalType: RentalType = item.rentalType || rentalType;
       const { lineUnit, pricing } = await this.resolvePeriodRateForBilling(
         companyId,
@@ -1006,6 +998,9 @@ class BillingService {
     }
 
     for (const item of rental.items) {
+      if (item.returnActual) {
+        continue;
+      }
       const periodStart = item.lastBillingDate
         ? new Date(new Date(item.lastBillingDate).setDate(new Date(item.lastBillingDate).getDate() + 1))
         : new Date(item.pickupScheduled || rental.dates.pickupActual || rental.dates.pickupScheduled);

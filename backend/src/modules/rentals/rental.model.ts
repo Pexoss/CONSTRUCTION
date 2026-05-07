@@ -8,6 +8,10 @@ const RentalItemSchema = new Schema<IRentalItem>(
       ref: 'Item',
       required: true,
     },
+    lineId: {
+      type: String,
+      trim: true,
+    },
     // NOVO: Para itens unitários, especificar qual unidade
     unitId: {
       type: String,

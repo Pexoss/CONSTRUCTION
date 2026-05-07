@@ -16,6 +16,22 @@ import { Rental } from "./rental.model";
 import { Customer } from "../customers/customer.model";
 import { Types } from "mongoose";
 
+/** Evita `new Date("YYYY-MM-DD")` em UTC (comparação errada com datas locais). */
+function parseCalendarDateBody(value?: string | Date): Date | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (value instanceof Date) return value;
+  const s = String(value).trim();
+  if (!s) return undefined;
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (iso) {
+    const y = Number(iso[1]);
+    const m = Number(iso[2]);
+    const d = Number(iso[3]);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(s);
+}
+
 export class RentalController {
   /**
    * Create a new rental/reservation
@@ -133,7 +149,7 @@ export class RentalController {
       const rentalId = req.params.id;
       const itemId = req.params.itemId;
       const returnDate = req.body?.returnDate
-        ? new Date(req.body.returnDate)
+        ? parseCalendarDateBody(req.body.returnDate as string | Date)
         : undefined;
       const unitId = req.body?.unitId as string | undefined;
 
@@ -173,7 +189,7 @@ export class RentalController {
         userId,
         {
           returnDate: data.returnDate
-            ? new Date(data.returnDate)
+            ? parseCalendarDateBody(data.returnDate as string | Date)
             : undefined,
           notes: data.notes,
           items: data.items,
@@ -770,7 +786,7 @@ export class RentalController {
         {
           unitId: parsed.unitId,
           effectiveDate: parsed.effectiveDate
-            ? new Date(parsed.effectiveDate)
+            ? parseCalendarDateBody(parsed.effectiveDate as string | Date)
             : undefined,
           notes: parsed.notes,
         },

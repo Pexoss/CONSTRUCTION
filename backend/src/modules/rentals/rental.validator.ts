@@ -163,6 +163,10 @@ export const returnRentalItemsSchema = z.object({
         itemId: z.string().min(1, "Item ID is required"),
         unitId: z.string().optional(),
         returnedQuantity: z.number().int().min(1).optional(),
+        /** Se informado: cobrar só esta devolução com esse tipo de período */
+        billingRentalType: z
+          .enum(["daily", "weekly", "biweekly", "monthly"])
+          .optional(),
       }),
     )
     .min(1, "At least one item must be informed"),

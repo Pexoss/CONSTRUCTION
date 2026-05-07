@@ -2,6 +2,8 @@ import api from "../../config/api";
 import {
   RentalsReport,
   FinancialReport,
+  InvoicesGeneratedReport,
+  RentalItemsPeriodsReport,
   MostRentedItem,
   OccupancyRate,
   TopCustomer,
@@ -21,6 +23,26 @@ export const reportService = {
   getFinancialReport: async (startDate: string, endDate: string) => {
     const response = await api.get<{ success: boolean; data: FinancialReport }>(
       `/reports/financial?startDate=${startDate}&endDate=${endDate}`,
+    );
+    return response.data;
+  },
+
+  getInvoicesGeneratedReport: async (startDate: string, endDate: string) => {
+    const response = await api.get<{
+      success: boolean;
+      data: InvoicesGeneratedReport;
+    }>(
+      `/reports/invoices-generated?startDate=${startDate}&endDate=${endDate}`,
+    );
+    return response.data;
+  },
+
+  getRentalItemsPeriodsReport: async (startDate: string, endDate: string) => {
+    const response = await api.get<{
+      success: boolean;
+      data: RentalItemsPeriodsReport;
+    }>(
+      `/reports/rental-items-periods?startDate=${startDate}&endDate=${endDate}`,
     );
     return response.data;
   },
@@ -117,6 +139,29 @@ export const reportService = {
     );
     return response.data;
   },
+
+  exportInvoicesGeneratedReport: async (startDate: string, endDate: string) => {
+    const response = await api.get(
+      `/reports/invoices-generated/export?startDate=${startDate}&endDate=${endDate}`,
+      {
+        responseType: "blob",
+      },
+    );
+    return response.data;
+  },
+
+  exportRentalItemsPeriodsReport: async (
+    startDate: string,
+    endDate: string,
+  ) => {
+    const response = await api.get(
+      `/reports/rental-items-periods/export?startDate=${startDate}&endDate=${endDate}`,
+      {
+        responseType: "blob",
+      },
+    );
+    return response.data;
+  },
   exportMaintenanceReport: async (startDate: string, endDate: string) => {
     const response = await api.get(
       `/reports/maintenance/export?startDate=${startDate}&endDate=${endDate}`,
@@ -156,6 +201,28 @@ export const reportService = {
   exportFinancialReportPdf: async (startDate: string, endDate: string) => {
     const response = await api.get(
       `/reports/financial/export-pdf?startDate=${startDate}&endDate=${endDate}`,
+      { responseType: "blob" },
+    );
+    return response.data;
+  },
+
+  exportInvoicesGeneratedReportPdf: async (
+    startDate: string,
+    endDate: string,
+  ) => {
+    const response = await api.get(
+      `/reports/invoices-generated/export-pdf?startDate=${startDate}&endDate=${endDate}`,
+      { responseType: "blob" },
+    );
+    return response.data;
+  },
+
+  exportRentalItemsPeriodsReportPdf: async (
+    startDate: string,
+    endDate: string,
+  ) => {
+    const response = await api.get(
+      `/reports/rental-items-periods/export-pdf?startDate=${startDate}&endDate=${endDate}`,
       { responseType: "blob" },
     );
     return response.data;

@@ -108,6 +108,7 @@ export const rentalService = {
         itemId: string;
         unitId?: string;
         returnedQuantity?: number;
+        billingRentalType?: "daily" | "weekly" | "biweekly" | "monthly";
       }>;
     },
   ) => {

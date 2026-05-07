@@ -522,9 +522,10 @@ const CreateInvoicePage: React.FC = () => {
                             {fmtDate(b.periodStart)} — {fmtDate(b.periodEnd)}
                           </td>
                           <td className="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
-                            {b.items && b.items.length > 0 ? (
+                            {(b.items && b.items.length > 0) ||
+                            (b.services && b.services.length > 0) ? (
                               <div className="space-y-1">
-                                {b.items.map((item, idx) => {
+                                {b.items?.map((item, idx) => {
                                   const itemName = typeof item.itemId === "object" && item.itemId?.name
                                     ? item.itemId.name
                                     : typeof item.itemId === "string"
@@ -536,6 +537,12 @@ const CreateInvoicePage: React.FC = () => {
                                     </div>
                                   );
                                 })}
+                                {b.services?.map((service, idx) => (
+                                  <div key={`service-${idx}`} className="text-xs">
+                                    {service.description || "Serviço"} (serviço, qty:{" "}
+                                    {service.quantity || 1})
+                                  </div>
+                                ))}
                               </div>
                             ) : (
                               <span className="text-xs text-gray-400">Sem itens</span>

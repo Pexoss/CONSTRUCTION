@@ -21,6 +21,16 @@ export class ReportController {
     return labels[status] || status;
   }
 
+  private getRentalTypeLabel(rentalType: string): string {
+    const labels: Record<string, string> = {
+      daily: "Diário",
+      weekly: "Semanal",
+      biweekly: "Quinzenal",
+      monthly: "Mensal",
+    };
+    return labels[rentalType] || rentalType;
+  }
+
   /**
    * Get rentals report
    * GET /api/reports/rentals
@@ -81,6 +91,72 @@ export class ReportController {
       }
 
       const report = await reportService.getFinancialReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+
+      res.json({
+        success: true,
+        data: report,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getInvoicesGeneratedReport(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getInvoicesGeneratedReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+
+      res.json({
+        success: true,
+        data: report,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getRentalItemsPeriodsReport(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getRentalItemsPeriodsReport(
         companyId,
         startDate,
         endDate,
@@ -403,6 +479,152 @@ export class ReportController {
     }
   }
 
+  async exportInvoicesGeneratedReport(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getInvoicesGeneratedReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Faturas Geradas");
+
+      worksheet.columns = [
+        { header: "Número", key: "invoiceNumber", width: 20 },
+        { header: "Cliente", key: "customerName", width: 35 },
+        { header: "Contrato", key: "rentalNumber", width: 20 },
+        { header: "Emissão", key: "issueDate", width: 15 },
+        { header: "Vencimento", key: "dueDate", width: 15 },
+        { header: "Pagamento", key: "paidDate", width: 15 },
+        { header: "Status", key: "status", width: 15 },
+        { header: "Valor", key: "total", width: 15 },
+      ];
+
+      report.invoices.forEach((invoice) => {
+        worksheet.addRow({
+          invoiceNumber: invoice.invoiceNumber,
+          customerName: invoice.customerName,
+          rentalNumber: invoice.rentalNumber || "—",
+          issueDate: new Date(invoice.issueDate).toLocaleDateString("pt-BR"),
+          dueDate: new Date(invoice.dueDate).toLocaleDateString("pt-BR"),
+          paidDate: invoice.paidDate
+            ? new Date(invoice.paidDate).toLocaleDateString("pt-BR")
+            : "—",
+          status: this.getStatusLabel(invoice.status),
+          total: invoice.total,
+        });
+      });
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=relatorio-faturas-geradas-${Date.now()}.xlsx`,
+      );
+
+      await workbook.xlsx.write(res);
+      res.end();
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async exportRentalItemsPeriodsReport(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getRentalItemsPeriodsReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Aluguéis por Item");
+
+      worksheet.columns = [
+        { header: "Fechamento", key: "billingNumber", width: 20 },
+        { header: "Contrato", key: "rentalNumber", width: 20 },
+        { header: "Cliente", key: "customerName", width: 35 },
+        { header: "Item", key: "itemName", width: 35 },
+        { header: "Unidade", key: "unitId", width: 15 },
+        { header: "Início", key: "periodStart", width: 15 },
+        { header: "Fim", key: "periodEnd", width: 15 },
+        { header: "Tipo", key: "rentalType", width: 15 },
+        { header: "Quantidade", key: "quantity", width: 15 },
+        { header: "Períodos", key: "periodsCharged", width: 15 },
+        { header: "Valor Unit.", key: "unitPrice", width: 15 },
+        { header: "Subtotal", key: "subtotal", width: 15 },
+        { header: "Status", key: "status", width: 15 },
+      ];
+
+      report.items.forEach((item) => {
+        worksheet.addRow({
+          billingNumber: item.billingNumber,
+          rentalNumber: item.rentalNumber || "—",
+          customerName: item.customerName,
+          itemName: item.itemName,
+          unitId: item.unitId || "—",
+          periodStart: new Date(item.periodStart).toLocaleDateString("pt-BR"),
+          periodEnd: new Date(item.periodEnd).toLocaleDateString("pt-BR"),
+          rentalType: this.getRentalTypeLabel(item.rentalType),
+          quantity: item.quantity,
+          periodsCharged: item.periodsCharged,
+          unitPrice: item.unitPrice,
+          subtotal: item.subtotal,
+          status: this.getStatusLabel(item.status),
+        });
+      });
+
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=relatorio-alugueis-itens-periodos-${Date.now()}.xlsx`,
+      );
+
+      await workbook.xlsx.write(res);
+      res.end();
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async exportInventoryReport(
     req: Request,
     res: Response,
@@ -424,7 +646,6 @@ export class ReportController {
         { header: "Estoque Total", key: "totalStock", width: 15 },
         { header: "Disponível", key: "totalAvailable", width: 15 },
         { header: "Alugados", key: "totalRented", width: 15 },
-        { header: "Reservados", key: "totalReserved", width: 15 },
         { header: "Manutenção", key: "totalMaintenance", width: 15 },
         { header: "Danificados", key: "totalDamaged", width: 15 },
         {
@@ -441,7 +662,6 @@ export class ReportController {
         totalStock: report.totalStock,
         totalAvailable: report.totalAvailable,
         totalRented: report.totalRented,
-        totalReserved: report.totalReserved,
         totalMaintenance: report.totalMaintenance,
         totalDamaged: report.totalDamaged,
       });
@@ -1042,6 +1262,152 @@ export class ReportController {
     }
   }
 
+  async exportInvoicesGeneratedReportPdf(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getInvoicesGeneratedReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+
+      const money = (n: number) =>
+        n.toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+      const pdf = await buildPdfReport({
+        title: "Relatório de faturas geradas",
+        subtitle: `${startDate.toLocaleDateString("pt-BR")} a ${endDate.toLocaleDateString("pt-BR")}`,
+        sections: [
+          {
+            title: "Resumo",
+            headers: ["Qtd", "Valor gerado", "Pago", "Pendente", "Cancelado"],
+            rows: [
+              [
+                String(report.totalInvoices),
+                money(report.totalAmount),
+                money(report.paidAmount),
+                money(report.pendingAmount),
+                money(report.cancelledAmount),
+              ],
+            ],
+          },
+          {
+            title: "Faturas",
+            headers: ["Número", "Cliente", "Emissão", "Vencimento", "Status", "Valor (R$)"],
+            rows: report.invoices.map((invoice) => [
+              invoice.invoiceNumber,
+              invoice.customerName,
+              new Date(invoice.issueDate).toLocaleDateString("pt-BR"),
+              new Date(invoice.dueDate).toLocaleDateString("pt-BR"),
+              this.getStatusLabel(invoice.status),
+              money(invoice.total),
+            ]),
+          },
+        ],
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=relatorio-faturas-geradas-${Date.now()}.pdf`,
+      );
+      res.send(pdf);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async exportRentalItemsPeriodsReportPdf(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const startDate = new Date(req.query.startDate as string);
+      const endDate = new Date(req.query.endDate as string);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid date range",
+        });
+        return;
+      }
+
+      const report = await reportService.getRentalItemsPeriodsReport(
+        companyId,
+        startDate,
+        endDate,
+      );
+
+      const money = (n: number) =>
+        n.toLocaleString("pt-BR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+
+      const pdf = await buildPdfReport({
+        title: "Relatório de aluguéis por itens/períodos",
+        subtitle: `${startDate.toLocaleDateString("pt-BR")} a ${endDate.toLocaleDateString("pt-BR")}`,
+        sections: [
+          {
+            title: "Resumo",
+            headers: ["Linhas", "Quantidade", "Valor total"],
+            rows: [
+              [
+                String(report.totalLines),
+                String(report.totalQuantity),
+                money(report.totalAmount),
+              ],
+            ],
+          },
+          {
+            title: "Itens por período",
+            headers: ["Fech.", "Contrato", "Cliente", "Item", "Período", "Tipo", "Qtd", "Subtotal"],
+            rows: report.items.map((item) => [
+              item.billingNumber,
+              item.rentalNumber || "—",
+              item.customerName,
+              item.itemName,
+              `${new Date(item.periodStart).toLocaleDateString("pt-BR")} a ${new Date(item.periodEnd).toLocaleDateString("pt-BR")}`,
+              this.getRentalTypeLabel(item.rentalType),
+              String(item.quantity),
+              money(item.subtotal),
+            ]),
+          },
+        ],
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=relatorio-alugueis-itens-periodos-${Date.now()}.pdf`,
+      );
+      res.send(pdf);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   /**
    * GET /api/reports/maintenance/export-pdf
    */
@@ -1152,7 +1518,6 @@ export class ReportController {
               "Estoque",
               "Dispon.",
               "Alugados",
-              "Reserv.",
               "Manut.",
               "Danif.",
             ],
@@ -1163,7 +1528,6 @@ export class ReportController {
                 String(report.totalStock),
                 String(report.totalAvailable),
                 String(report.totalRented),
-                String(report.totalReserved),
                 String(report.totalMaintenance),
                 String(report.totalDamaged),
               ],

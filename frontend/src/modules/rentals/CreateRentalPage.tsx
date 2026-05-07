@@ -185,48 +185,33 @@ const CreateRentalPage: React.FC = () => {
     rentalType: RentalTypeAPI,
   ) => {
     const pricing = item.pricing ?? {};
-
     let effectiveEndDate = endDate ? new Date(endDate) : new Date(startDate);
-
     const diffTime = effectiveEndDate.getTime() - startDate.getTime();
-
-    const days =
-      diffTime <= 0 ? 1 : Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    let totalPrice = 0;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const daysPassed = Math.max(1, rentalType === "daily" ? diffDays : diffDays + 1);
     const daily = pricing.dailyRate ?? 0;
+    const periodDays: Record<RentalTypeAPI, number> = {
+      daily: 1,
+      weekly: 7,
+      biweekly: 15,
+      monthly: 30,
+    };
+    const periodRates: Record<RentalTypeAPI, number> = {
+      daily,
+      weekly: pricing.weeklyRate ?? 0,
+      biweekly: pricing.biweeklyRate ?? 0,
+      monthly: pricing.monthlyRate ?? 0,
+    };
 
-    switch (rentalType) {
-      case "daily":
-        totalPrice = daily * days;
-        break;
+    const periodLength = periodDays[rentalType];
+    const periodsCompleted = Math.floor(daysPassed / periodLength);
+    const extraDays = daysPassed % periodLength;
+    const totalPrice =
+      rentalType === "daily"
+        ? daily * Math.max(1, periodsCompleted)
+        : periodRates[rentalType] * periodsCompleted + daily * extraDays;
 
-      case "weekly": {
-        const weekly = pricing.weeklyRate || 0;
-        const fullWeeks = Math.floor(days / 7);
-        const extraDays = days % 7;
-        totalPrice = fullWeeks * weekly + extraDays * daily;
-        break;
-      }
-
-      case "biweekly": {
-        const biweekly = pricing.biweeklyRate || 0;
-        const fullPeriods = Math.floor(days / 15);
-        const extraDays = days % 15;
-        totalPrice = fullPeriods * biweekly + extraDays * daily;
-        break;
-      }
-
-      case "monthly": {
-        const monthly = pricing.monthlyRate || 0;
-        const fullMonths = Math.floor(days / 30);
-        const extraDays = days % 30;
-        totalPrice = fullMonths * monthly + extraDays * daily;
-        break;
-      }
-    }
-
-    return totalPrice * quantity;
+    return Number((totalPrice * quantity).toFixed(2));
   };
 
   const calculateTotals = (): Totals => {
@@ -725,13 +710,13 @@ const CreateRentalPage: React.FC = () => {
         daysToAdd = 1;
         break;
       case "semanal":
-        daysToAdd = 7;
+        daysToAdd = 6;
         break;
       case "quinzenal":
-        daysToAdd = 15;
+        daysToAdd = 14;
         break;
       case "mensal":
-        daysToAdd = 30;
+        daysToAdd = 29;
         break;
       default:
         daysToAdd = 1;
@@ -1013,7 +998,7 @@ const CreateRentalPage: React.FC = () => {
                                   {selectedItem.pickupDate
                                     ? `R$ ${calculatePrice(
                                         selectedItem.item,
-                                        selectedItem.quantity,
+                                        1,
                                         new Date(selectedItem.pickupDate),
                                         selectedItem.returnDate
                                           ? new Date(selectedItem.returnDate)
@@ -1096,14 +1081,14 @@ const CreateRentalPage: React.FC = () => {
                                     }}
                                     className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
                                   >
-                                    <option value="diario">Diário (+1 dia)</option>
+                                    <option value="diario">Diário</option>
                                     <option value="semanal">
-                                      Semanal (+7 dias)
+                                      Semanal (7 dias)
                                     </option>
                                     <option value="quinzenal">
-                                      Quinzenal (+15 dias)
+                                      Quinzenal (15 dias)
                                     </option>
-                                    <option value="mensal">Mensal (+30 dias)</option>
+                                    <option value="mensal">Mensal (30 dias)</option>
                                   </select>
                                 </div>
                                 {/* Retirada */}

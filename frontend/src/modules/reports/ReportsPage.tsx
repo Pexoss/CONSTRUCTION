@@ -20,6 +20,8 @@ const ReportsPage: React.FC = () => {
   type ReportType =
     | "rentals"
     | "financial"
+    | "rental-items"
+    | "invoices"
     | "maintenance"
     | "inventory"
     | "receivables";
@@ -49,6 +51,20 @@ const ReportsPage: React.FC = () => {
     queryKey: ["financial-report", startDate, endDate],
     queryFn: () => reportService.getFinancialReport(startDate, endDate),
     enabled: reportType === "financial",
+  });
+
+  const { data: invoicesGeneratedReport } = useQuery({
+    queryKey: ["invoices-generated-report", startDate, endDate],
+    queryFn: () =>
+      reportService.getInvoicesGeneratedReport(startDate, endDate),
+    enabled: reportType === "invoices",
+  });
+
+  const { data: rentalItemsPeriodsReport } = useQuery({
+    queryKey: ["rental-items-periods-report", startDate, endDate],
+    queryFn: () =>
+      reportService.getRentalItemsPeriodsReport(startDate, endDate),
+    enabled: reportType === "rental-items",
   });
 
   const { data: maintenanceReport } = useQuery({
@@ -92,6 +108,20 @@ const ReportsPage: React.FC = () => {
           blob = await reportService.exportFinancialReport(startDate, endDate);
           break;
 
+        case "rental-items":
+          blob = await reportService.exportRentalItemsPeriodsReport(
+            startDate,
+            endDate,
+          );
+          break;
+
+        case "invoices":
+          blob = await reportService.exportInvoicesGeneratedReport(
+            startDate,
+            endDate,
+          );
+          break;
+
         case "maintenance":
           blob = await reportService.exportMaintenanceReport(
             startDate,
@@ -131,8 +161,19 @@ const ReportsPage: React.FC = () => {
       pending_approval: "Pendente",
       cancelled: "Cancelado",
       draft: "Rascunho",
+      sent: "Enviada",
     };
     return labels[status] || status;
+  };
+
+  const getRentalTypeLabel = (rentalType: string): string => {
+    const labels: Record<string, string> = {
+      daily: "Diário",
+      weekly: "Semanal",
+      biweekly: "Quinzenal",
+      monthly: "Mensal",
+    };
+    return labels[rentalType] || rentalType;
   };
 
   const handleExportPdf = async () => {
@@ -145,6 +186,18 @@ const ReportsPage: React.FC = () => {
           break;
         case "financial":
           blob = await reportService.exportFinancialReportPdf(
+            startDate,
+            endDate,
+          );
+          break;
+        case "rental-items":
+          blob = await reportService.exportRentalItemsPeriodsReportPdf(
+            startDate,
+            endDate,
+          );
+          break;
+        case "invoices":
+          blob = await reportService.exportInvoicesGeneratedReportPdf(
             startDate,
             endDate,
           );
@@ -206,6 +259,10 @@ const ReportsPage: React.FC = () => {
               >
                 <option value="rentals">Aluguéis</option>
                 <option value="financial">Financeiro</option>
+                <option value="rental-items">
+                  Aluguéis por itens/períodos
+                </option>
+                <option value="invoices">Faturas geradas</option>
                 <option value="maintenance">Manutenções</option>
                 <option value="inventory">Inventário</option>
                 <option value="receivables">
@@ -530,7 +587,7 @@ const ReportsPage: React.FC = () => {
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
                   <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
-                    Faturado / Pendente
+                    Fechamentos faturados / pendentes
                   </h3>
                   <p className="text-lg font-semibold text-gray-900 dark:text-white">
                     {formatCurrency(financialReport.data.billedInPeriod)}
@@ -583,6 +640,224 @@ const ReportsPage: React.FC = () => {
                     />
                   </LineChart>
                 </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {reportType === "invoices" && invoicesGeneratedReport?.data && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                  <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
+                    Faturas geradas
+                  </h3>
+                  <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                    {invoicesGeneratedReport.data.totalInvoices}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                  <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
+                    Valor gerado
+                  </h3>
+                  <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                    {formatCurrency(invoicesGeneratedReport.data.totalAmount)}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-green-200 dark:border-green-800 shadow-sm p-6">
+                  <h3 className="text-sm font-medium text-green-700 dark:text-green-300 mb-2">
+                    Pago
+                  </h3>
+                  <p className="text-3xl font-bold text-green-600 dark:text-green-400">
+                    {formatCurrency(invoicesGeneratedReport.data.paidAmount)}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-amber-200 dark:border-amber-800 shadow-sm p-6">
+                  <h3 className="text-sm font-medium text-amber-700 dark:text-amber-300 mb-2">
+                    Pendente
+                  </h3>
+                  <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">
+                    {formatCurrency(invoicesGeneratedReport.data.pendingAmount)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  Faturas emitidas no período
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-900/50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Número
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Cliente
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Emissão
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Vencimento
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Status
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Valor
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {invoicesGeneratedReport.data.invoices.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={6}
+                            className="px-4 py-6 text-sm text-gray-500 text-center"
+                          >
+                            Nenhuma fatura gerada no período selecionado.
+                          </td>
+                        </tr>
+                      ) : (
+                        invoicesGeneratedReport.data.invoices.map((invoice) => (
+                          <tr key={invoice.id}>
+                            <td className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
+                              {invoice.invoiceNumber}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {invoice.customerName}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {new Date(invoice.issueDate).toLocaleDateString("pt-BR")}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {new Date(invoice.dueDate).toLocaleDateString("pt-BR")}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {getBillingStatusLabel(invoice.status)}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-right font-medium text-gray-900 dark:text-white">
+                              {formatCurrency(invoice.total)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {reportType === "rental-items" && rentalItemsPeriodsReport?.data && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                  <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
+                    Linhas detalhadas
+                  </h3>
+                  <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                    {rentalItemsPeriodsReport.data.totalLines}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                  <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
+                    Quantidade
+                  </h3>
+                  <p className="text-3xl font-bold text-gray-900 dark:text-white">
+                    {rentalItemsPeriodsReport.data.totalQuantity}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                  <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">
+                    Valor dos itens
+                  </h3>
+                  <p className="text-3xl font-bold text-green-600 dark:text-green-400">
+                    {formatCurrency(rentalItemsPeriodsReport.data.totalAmount)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  Itens por período
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-900/50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Fechamento
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Contrato
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Cliente
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Item
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Período
+                        </th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Tipo
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Qtd
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Subtotal
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {rentalItemsPeriodsReport.data.items.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={8}
+                            className="px-4 py-6 text-sm text-gray-500 text-center"
+                          >
+                            Nenhum item faturado no período selecionado.
+                          </td>
+                        </tr>
+                      ) : (
+                        rentalItemsPeriodsReport.data.items.map((item, idx) => (
+                          <tr key={`${item.billingId}-${idx}`}>
+                            <td className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
+                              {item.billingNumber}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {item.rentalNumber || "—"}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {item.customerName}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {item.itemName}
+                              {item.unitId ? ` (${item.unitId})` : ""}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {new Date(item.periodStart).toLocaleDateString("pt-BR")}{" "}
+                              a {new Date(item.periodEnd).toLocaleDateString("pt-BR")}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              {getRentalTypeLabel(item.rentalType)}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-right text-gray-700 dark:text-gray-300">
+                              {item.quantity}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-right font-medium text-gray-900 dark:text-white">
+                              {formatCurrency(item.subtotal)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}

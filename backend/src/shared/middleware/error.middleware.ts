@@ -13,23 +13,22 @@ export const errorMiddleware = (
   res: Response,
   next: NextFunction,
 ) => {
+  const statusCode = err.statusCode || 500;
 
-  // 🔎 LOG GERAL DO ERRO
-  console.error("========== ERROR START ==========");
-  console.error("Route:", req.method, req.originalUrl);
-  console.error("Body:", req.body);
-  console.error("Params:", req.params);
-  console.error("Query:", req.query);
-  console.error("Error Name:", err.name);
-  console.error("Error Message:", err.message);
-  console.error("Stack:", err.stack);
-  console.error("=================================");
+  if (statusCode >= 500) {
+    console.error("========== ERROR START ==========");
+    console.error("Route:", req.method, req.originalUrl);
+    console.error("Body:", req.body);
+    console.error("Params:", req.params);
+    console.error("Query:", req.query);
+    console.error("Error Name:", err.name);
+    console.error("Error Message:", err.message);
+    console.error("Stack:", err.stack);
+    console.error("=================================");
+  }
 
   // Zod validation errors
   if (err instanceof ZodError) {
-
-    console.error("ZOD ERROR DETAILS:");
-    console.error(err.errors);
 
     return res.status(400).json({
       success: false,
@@ -43,9 +42,6 @@ export const errorMiddleware = (
 
   // mongoose validation errors
   if (err instanceof mongoose.Error.ValidationError) {
-
-    console.error("MONGOOSE VALIDATION ERROR:");
-    console.error(err.errors);
 
     const errors = Object.values(err.errors).map((e) => ({
       path: e.path,
@@ -62,9 +58,6 @@ export const errorMiddleware = (
   // Mongoose duplicate key error
   if ((err as any).code === 11000) {
 
-    console.error("MONGOOSE DUPLICATE KEY ERROR:");
-    console.error(err);
-
     const field = Object.keys((err as any).keyPattern)[0];
 
     return res.status(400).json({
@@ -76,9 +69,6 @@ export const errorMiddleware = (
   // JWT errors
   if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {
 
-    console.error("JWT ERROR:");
-    console.error(err);
-
     return res.status(401).json({
       success: false,
       message: "Token inválido ou expirado.",
@@ -86,14 +76,14 @@ export const errorMiddleware = (
   }
 
   // Default error
-  const statusCode = err.statusCode || 500;
-
-  console.error("UNHANDLED ERROR:");
-  console.error(err);
+  if (statusCode >= 500) {
+    console.error("UNHANDLED ERROR:");
+    console.error(err);
+  }
 
   return res.status(statusCode).json({
     success: false,
     message: err.message || "Erro interno do servidor.",
-    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
+    ...(process.env.NODE_ENV === "development" && statusCode >= 500 && { stack: err.stack }),
   });
 };

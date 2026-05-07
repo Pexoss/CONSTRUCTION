@@ -69,6 +69,8 @@ export interface IRentalPendingApproval {
 
 export interface IRentalItem {
   itemId: mongoose.Types.ObjectId;
+  /** Segmento lógico no contrato após devolução parcial — chave de fechamento. */
+  lineId?: string;
   // NOVO: Para itens unitários, especificar qual unidade
   unitId?: string; // Ex: "F421" (null se for quantitativo)
   quantity: number; // Para quantitativos (1 se for unitário)

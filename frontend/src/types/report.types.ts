@@ -21,13 +21,55 @@ export interface FinancialReport {
   billedInPeriod?: number;
   receivedInPeriod?: number;
   pendingTotal?: number;
-  invoicedInPeriod?: number;
   byCategory: Array<{ category: string; income: number; expenses: number }>;
   byMonth: Array<{
     month: string;
     income: number;
     expenses: number;
     profit: number;
+  }>;
+}
+
+export interface InvoicesGeneratedReport {
+  totalInvoices: number;
+  totalAmount: number;
+  paidAmount: number;
+  pendingAmount: number;
+  cancelledAmount: number;
+  byStatus: Record<string, number>;
+  invoices: Array<{
+    id: string;
+    invoiceNumber: string;
+    customerName: string;
+    rentalNumber?: string;
+    issueDate: string;
+    dueDate: string;
+    paidDate: string | null;
+    status: string;
+    total: number;
+  }>;
+}
+
+export interface RentalItemsPeriodsReport {
+  totalLines: number;
+  totalAmount: number;
+  totalQuantity: number;
+  byRentalType: Record<string, { quantity: number; amount: number }>;
+  items: Array<{
+    billingId: string;
+    billingNumber: string;
+    rentalNumber?: string;
+    customerName: string;
+    itemName: string;
+    unitId?: string;
+    periodStart: string;
+    periodEnd: string;
+    rentalType: string;
+    quantity: number;
+    unitPrice: number;
+    periodsCharged: number;
+    subtotal: number;
+    status: string;
   }>;
 }
 

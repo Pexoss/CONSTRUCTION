@@ -18,9 +18,17 @@ export interface BillingCalculation {
 export interface BillingItem {
   itemId: string | { _id: string; name?: string };
   unitId?: string;
+  rentalLineKey?: string;
   quantity: number;
   unitPrice: number;
   periodsCharged: number;
+  subtotal: number;
+}
+
+export interface BillingService {
+  description: string;
+  price: number;
+  quantity: number;
   subtotal: number;
 }
 
@@ -35,6 +43,7 @@ export interface Billing {
   rentalType: RentalType;
   calculation: BillingCalculation;
   items?: BillingItem[];
+  services?: BillingService[];
   status: BillingStatus;
   financialStage?: FinancialStage;
   governance?: FinancialGovernance;

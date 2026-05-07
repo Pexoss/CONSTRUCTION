@@ -20,6 +20,7 @@ export type RentalTypeAPI = "daily" | "weekly" | "biweekly" | "monthly";
 
 export interface RentalItem {
   itemId: string | Item;
+  lineId?: string;
   unitId?: string;
   quantity: number;
   unitPrice: number;

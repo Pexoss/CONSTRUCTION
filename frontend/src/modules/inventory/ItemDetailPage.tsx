@@ -37,6 +37,13 @@ const ItemDetailPage: React.FC = () => {
   });
 
   const item = itemData?.data;
+  const unitStatusLabels: Record<string, string> = {
+    available: "Disponível",
+    reserved: "Reservado",
+    rented: "Alugado",
+    maintenance: "Manutenção",
+    damaged: "Danificado",
+  };
 
   useEffect(() => {
     if (!item?._id) return;
@@ -385,7 +392,9 @@ const ItemDetailPage: React.FC = () => {
                               className="border-b border-gray-100 dark:border-gray-700/80 text-gray-900 dark:text-white"
                             >
                               <td className="py-2 pr-4 font-medium">{u.unitId}</td>
-                              <td className="py-2 pr-4 capitalize">{u.status}</td>
+                              <td className="py-2 pr-4">
+                                {unitStatusLabels[u.status] || u.status}
+                              </td>
                               <td className="py-2 pr-4">
                                 {u.location || "—"}
                               </td>
@@ -422,13 +431,7 @@ const ItemDetailPage: React.FC = () => {
                   </h2>
                 </div>
 
-                <div
-                  className={`grid grid-cols-2 gap-4 ${
-                    item.trackingType === "unit"
-                      ? "md:grid-cols-6"
-                      : "md:grid-cols-5"
-                  }`}
-                >
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
                   {[
                     {
                       label: "Total",
@@ -444,17 +447,6 @@ const ItemDetailPage: React.FC = () => {
                       textColor: "text-gray-900 dark:text-white",
                       icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
                     },
-                    ...(item.trackingType === "unit"
-                      ? [
-                          {
-                            label: "Reservado",
-                            value: item.quantity.reserved ?? 0,
-                            bgColor: "bg-gray-50 dark:bg-gray-900/50",
-                            textColor: "text-gray-900 dark:text-white",
-                            icon: "M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z",
-                          },
-                        ]
-                      : []),
                     {
                       label: "Alugada",
                       value: item.quantity.rented,
@@ -529,75 +521,69 @@ const ItemDetailPage: React.FC = () => {
                     Preços e Valores
                   </h2>
                 </div>
-                
-                {/* Quinzenal ta aqui */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
+                  <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div>
+                      <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                        Diário
+                      </p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">
+                        R$ {item.pricing.dailyRate.toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {item.pricing.weeklyRate && (
                     <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
                       <div>
                         <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                          Diário
+                          Semanal
                         </p>
                         <p className="text-lg font-bold text-gray-900 dark:text-white">
-                          R$ {item.pricing.dailyRate.toFixed(2)}
+                          R$ {item.pricing.weeklyRate.toFixed(2)}
                         </p>
                       </div>
                     </div>
+                  )}
 
-                    {item.pricing.biweeklyRate && (
-                      <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                        <div>
-                          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                            Quinzenal
-                          </p>
-                          <p className="text-lg font-bold text-gray-900 dark:text-white">
-                            R$ {item.pricing.biweeklyRate.toFixed(2)}
-                          </p>
-                        </div>
+                  {item.pricing.biweeklyRate && (
+                    <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                          Quinzenal
+                        </p>
+                        <p className="text-lg font-bold text-gray-900 dark:text-white">
+                          R$ {item.pricing.biweeklyRate.toFixed(2)}
+                        </p>
                       </div>
-                    )}
+                    </div>
+                  )}
 
-                    {item.pricing.weeklyRate && (
-                      <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                        <div>
-                          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                            Semanal
-                          </p>
-                          <p className="text-lg font-bold text-gray-900 dark:text-white">
-                            R$ {item.pricing.weeklyRate.toFixed(2)}
-                          </p>
-                        </div>
+                  {item.pricing.monthlyRate && (
+                    <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                          Mensal
+                        </p>
+                        <p className="text-lg font-bold text-gray-900 dark:text-white">
+                          R$ {item.pricing.monthlyRate.toFixed(2)}
+                        </p>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
-                  <div className="space-y-4">
-                    {item.pricing.monthlyRate && (
-                      <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                        <div>
-                          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                            Mensal
-                          </p>
-                          <p className="text-lg font-bold text-gray-900 dark:text-white">
-                            R$ {item.pricing.monthlyRate.toFixed(2)}
-                          </p>
-                        </div>
+                  {item.pricing.depositAmount && (
+                    <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                          Depósito
+                        </p>
+                        <p className="text-lg font-bold text-gray-900 dark:text-white">
+                          R$ {item.pricing.depositAmount.toFixed(2)}
+                        </p>
                       </div>
-                    )}
-
-                    {item.pricing.depositAmount && (
-                      <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                        <div>
-                          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                            Depósito
-                          </p>
-                          <p className="text-lg font-bold text-gray-900 dark:text-white">
-                            R$ {item.pricing.depositAmount.toFixed(2)}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

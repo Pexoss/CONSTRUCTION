@@ -159,7 +159,6 @@ class ReportService {
     billedInPeriod: number;
     receivedInPeriod: number;
     pendingTotal: number;
-    invoicedInPeriod: number;
     byCategory: Array<{ category: string; income: number; expenses: number }>;
     byMonth: Array<{
       month: string;
@@ -169,7 +168,7 @@ class ReportService {
     }>;
   }> {
     const { start, end } = this.normalizeReportRange(startDate, endDate);
-    const [transactions, billings, invoices, pendingBillings, pendingInvoices] = await Promise.all([
+    const [transactions, billings, pendingBillings] = await Promise.all([
       Transaction.find({
         companyId,
         createdAt: { $gte: start, $lte: end },
@@ -179,18 +178,9 @@ class ReportService {
         status: { $ne: "cancelled" },
         billingDate: { $gte: start, $lte: end },
       }).lean(),
-      Invoice.find({
-        companyId,
-        status: { $ne: "cancelled" },
-        issueDate: { $gte: start, $lte: end },
-      }).lean(),
       Billing.find({
         companyId,
         status: { $nin: ["paid", "cancelled"] },
-      }).lean(),
-      Invoice.find({
-        companyId,
-        status: { $in: ["draft", "sent"] },
       }).lean(),
     ]);
 
@@ -240,14 +230,8 @@ class ReportService {
       0,
     );
     const receivedInPeriod = totalIncome || receivedFromBillings;
-    const pendingTotal =
-      pendingBillings.reduce(
-        (sum, billing) => sum + Number(billing.outstandingAmount ?? billing.calculation?.total ?? 0),
-        0,
-      ) +
-      pendingInvoices.reduce((sum, invoice) => sum + Number(invoice.total || 0), 0);
-    const invoicedInPeriod = invoices.reduce(
-      (sum, invoice) => sum + Number(invoice.total || 0),
+    const pendingTotal = pendingBillings.reduce(
+      (sum, billing) => sum + Number(billing.outstandingAmount ?? billing.calculation?.total ?? 0),
       0,
     );
 
@@ -273,9 +257,175 @@ class ReportService {
       billedInPeriod,
       receivedInPeriod,
       pendingTotal,
-      invoicedInPeriod,
       byCategory,
       byMonth,
+    };
+  }
+
+  async getInvoicesGeneratedReport(
+    companyId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<{
+    totalInvoices: number;
+    totalAmount: number;
+    paidAmount: number;
+    pendingAmount: number;
+    cancelledAmount: number;
+    byStatus: Record<string, number>;
+    invoices: Array<{
+      id: string;
+      invoiceNumber: string;
+      customerName: string;
+      rentalNumber?: string;
+      issueDate: string;
+      dueDate: string;
+      paidDate: string | null;
+      status: string;
+      total: number;
+    }>;
+  }> {
+    const { start, end } = this.normalizeReportRange(startDate, endDate);
+    const invoices = await Invoice.find({
+      companyId,
+      issueDate: { $gte: start, $lte: end },
+    })
+      .populate("customerId", "name")
+      .populate("rentalId", "rentalNumber")
+      .sort({ issueDate: 1 })
+      .lean();
+
+    const byStatus: Record<string, number> = {};
+    let totalAmount = 0;
+    let paidAmount = 0;
+    let pendingAmount = 0;
+    let cancelledAmount = 0;
+
+    const rows = invoices.map((invoice: any) => {
+      const total = Number(invoice.total || 0);
+      byStatus[invoice.status] = (byStatus[invoice.status] || 0) + 1;
+
+      if (invoice.status === "cancelled") {
+        cancelledAmount += total;
+      } else {
+        totalAmount += total;
+        if (invoice.status === "paid") {
+          paidAmount += total;
+        } else {
+          pendingAmount += total;
+        }
+      }
+
+      return {
+        id: String(invoice._id),
+        invoiceNumber: invoice.invoiceNumber,
+        customerName: invoice.customerId?.name || "Cliente",
+        rentalNumber: invoice.rentalId?.rentalNumber,
+        issueDate: invoice.issueDate?.toISOString?.() || new Date(invoice.issueDate).toISOString(),
+        dueDate: invoice.dueDate?.toISOString?.() || new Date(invoice.dueDate).toISOString(),
+        paidDate: invoice.paidDate
+          ? invoice.paidDate?.toISOString?.() || new Date(invoice.paidDate).toISOString()
+          : null,
+        status: invoice.status,
+        total,
+      };
+    });
+
+    return {
+      totalInvoices: invoices.length,
+      totalAmount,
+      paidAmount,
+      pendingAmount,
+      cancelledAmount,
+      byStatus,
+      invoices: rows,
+    };
+  }
+
+  async getRentalItemsPeriodsReport(
+    companyId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<{
+    totalLines: number;
+    totalAmount: number;
+    totalQuantity: number;
+    byRentalType: Record<string, { quantity: number; amount: number }>;
+    items: Array<{
+      billingId: string;
+      billingNumber: string;
+      rentalNumber?: string;
+      customerName: string;
+      itemName: string;
+      unitId?: string;
+      periodStart: string;
+      periodEnd: string;
+      rentalType: string;
+      quantity: number;
+      unitPrice: number;
+      periodsCharged: number;
+      subtotal: number;
+      status: string;
+    }>;
+  }> {
+    const { start, end } = this.normalizeReportRange(startDate, endDate);
+    const billings = await Billing.find({
+      companyId,
+      status: { $ne: "cancelled" },
+      periodStart: { $lte: end },
+      periodEnd: { $gte: start },
+      "items.0": { $exists: true },
+    })
+      .populate("customerId", "name")
+      .populate("rentalId", "rentalNumber")
+      .populate("items.itemId", "name")
+      .sort({ periodStart: 1, periodEnd: 1 })
+      .lean();
+
+    const byRentalType: Record<string, { quantity: number; amount: number }> = {};
+    let totalAmount = 0;
+    let totalQuantity = 0;
+
+    const rows = billings.flatMap((billing: any) =>
+      (billing.items || []).map((item: any) => {
+        const itemName = item.itemId?.name || "Item";
+        const rentalType = String(billing.rentalType || "daily");
+        const quantity = Number(item.quantity || 0);
+        const subtotal = Number(item.subtotal || 0);
+
+        if (!byRentalType[rentalType]) {
+          byRentalType[rentalType] = { quantity: 0, amount: 0 };
+        }
+        byRentalType[rentalType].quantity += quantity;
+        byRentalType[rentalType].amount += subtotal;
+        totalQuantity += quantity;
+        totalAmount += subtotal;
+
+        return {
+          billingId: String(billing._id),
+          billingNumber: billing.billingNumber,
+          rentalNumber: billing.rentalId?.rentalNumber,
+          customerName: billing.customerId?.name || "Cliente",
+          itemName,
+          unitId: item.unitId,
+          periodStart: billing.periodStart?.toISOString?.() || new Date(billing.periodStart).toISOString(),
+          periodEnd: billing.periodEnd?.toISOString?.() || new Date(billing.periodEnd).toISOString(),
+          rentalType,
+          quantity,
+          unitPrice: Number(item.unitPrice || 0),
+          periodsCharged: Number(item.periodsCharged || 0),
+          subtotal,
+          status: billing.status,
+        };
+      }),
+    );
+
+    return {
+      totalLines: rows.length,
+      totalAmount,
+      totalQuantity,
+      byRentalType,
+      items: rows,
     };
   }
 

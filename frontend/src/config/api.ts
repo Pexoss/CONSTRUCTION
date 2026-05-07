@@ -33,6 +33,12 @@ let failedQueue: Array<{
   reject: (reason?: any) => void;
 }> = [];
 
+const clearAuthSession = () => {
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
+  localStorage.removeItem('auth-storage');
+};
+
 const processQueue = (error: AxiosError | null, token: string | null = null) => {
   failedQueue.forEach((prom) => {
     if (error) {
@@ -48,9 +54,11 @@ api.interceptors.response.use(
   (response) => response, // se tudo certo, só retorna
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+    const requestUrl = originalRequest?.url || '';
+    const isAuthRoute = requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register');
 
     // 401 = token expirou
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (originalRequest && error.response?.status === 401 && !originalRequest._retry && !isAuthRoute) {
       originalRequest._retry = true;
 
       if (isRefreshing) {
@@ -72,19 +80,15 @@ api.interceptors.response.use(
 
       if (!refreshToken) {
         // sem refresh token, força logout (inclui persist do zustand em auth-storage)
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('auth-storage');
+        clearAuthSession();
         window.location.href = '/login';
         return Promise.reject(error);
       }
 
       try {
-        console.log('[AUTH] Tentando fazer refresh do token...');
         const response = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
         const { accessToken } = response.data.data; // garantindo que vem no data.data
         localStorage.setItem('accessToken', accessToken);
-        console.log('[AUTH] Token refresh bem-sucedido');
 
         // atualiza header da request original
         if (originalRequest.headers) {
@@ -96,14 +100,11 @@ api.interceptors.response.use(
 
         return api(originalRequest); // refaz requisição original
       } catch (refreshError) {
-        console.error('[AUTH] Erro ao fazer refresh:', refreshError);
         processQueue(refreshError as AxiosError, null);
         isRefreshing = false;
 
         // refresh falhou, logout (inclui persist do zustand em auth-storage)
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        localStorage.removeItem('auth-storage');
+        clearAuthSession();
         window.location.href = '/login';
 
         return Promise.reject(refreshError);

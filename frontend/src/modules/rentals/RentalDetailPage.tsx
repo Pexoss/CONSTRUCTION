@@ -48,13 +48,13 @@ const RentalDetailPage: React.FC = () => {
         add = 1;
         break;
       case "semanal":
-        add = 7;
+        add = 6;
         break;
       case "quinzenal":
-        add = 15;
+        add = 14;
         break;
       case "mensal":
-        add = 30;
+        add = 29;
         break;
       default:
         add = 1;
@@ -177,6 +177,9 @@ const RentalDetailPage: React.FC = () => {
   const [closeItemReturnDate, setCloseItemReturnDate] = useState("");
   const [closeItemReturnedQuantity, setCloseItemReturnedQuantity] = useState(1);
   const [closeItemNewRentalType, setCloseItemNewRentalType] = useState<
+    "daily" | "weekly" | "biweekly" | "monthly" | ""
+  >("");
+  const [closeItemBillingRentalType, setCloseItemBillingRentalType] = useState<
     "daily" | "weekly" | "biweekly" | "monthly" | ""
   >("");
   const [closeItemPreview, setCloseItemPreview] = useState<{
@@ -566,6 +569,9 @@ const RentalDetailPage: React.FC = () => {
     return labels[changeType] || changeType;
   };
 
+  const rentalLineHasUnitTracked = (unitId?: string | null) =>
+    Boolean(unitId != null && String(unitId).trim() !== "");
+
   const handleDownloadBillingPDF = async (billingId: string) => {
     try {
       const blob = await billingService.generateBillingPDF(billingId);
@@ -618,6 +624,7 @@ const RentalDetailPage: React.FC = () => {
     setCloseItemReturnDate(todayDateInputValue());
     setCloseItemReturnedQuantity(Number(item.quantity || 1));
     setCloseItemNewRentalType("");
+    setCloseItemBillingRentalType("");
     setCloseItemLoading(true);
     try {
       const preview = await rentalService.getClosePreviewItem(
@@ -769,6 +776,68 @@ const RentalDetailPage: React.FC = () => {
   const allReturned = rental.items.every((item) => item.returnActual);
 
   const billings = (billingsData?.data?.billings || []) as Billing[];
+  const getEntityId = (value: any) =>
+    typeof value === "string"
+      ? value
+      : value?._id?.toString?.() || value?.toString?.() || "";
+  const getRentalTypeApiValue = (value?: string) =>
+    value && value in rentalTypeUiToApi
+      ? rentalTypeUiToApi[value as RentalTypeUI]
+      : value || "daily";
+  const normalizeBillingDateKey = (value?: string | Date | null) => {
+    if (!value) return "na";
+    const text = value instanceof Date ? value.toISOString() : String(value);
+    const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "na" : date.toISOString().slice(0, 10);
+  };
+  const buildRentalLineKeyForDisplay = (item: any) =>
+    [
+      getEntityId(item.itemId),
+      item.unitId ? String(item.unitId) : "no-unit",
+      getRentalTypeApiValue(item.rentalType),
+      normalizeBillingDateKey(item.pickupScheduled),
+      normalizeBillingDateKey(item.returnScheduled),
+    ].join("|");
+  const isSameBillingItemAsRentalItem = (
+    billing: Billing,
+    billingItem: any,
+    rentalItem: any,
+  ) => {
+    if (billingItem.rentalLineKey) {
+      return billingItem.rentalLineKey === buildRentalLineKeyForDisplay(rentalItem);
+    }
+
+    const sameItem = getEntityId(billingItem.itemId) === getEntityId(rentalItem.itemId);
+    const sameUnit =
+      (billingItem.unitId || "") === (rentalItem.unitId || "");
+    const sameType =
+      billing.rentalType === getRentalTypeApiValue(rentalItem.rentalType);
+    return sameItem && sameUnit && sameType;
+  };
+  const getDisplayedRentalItemSubtotal = (item: any) => {
+    if (!item.returnActual) {
+      return Number(item.subtotal || 0);
+    }
+
+    const billedTotal = billings
+      .filter((billing) => billing.status !== "cancelled")
+      .reduce((sum, billing) => {
+        const itemTotal = (billing.items || [])
+          .filter((billingItem) =>
+            isSameBillingItemAsRentalItem(billing, billingItem, item),
+          )
+          .reduce(
+            (billingItemSum, billingItem) =>
+              billingItemSum + Number(billingItem.subtotal || 0),
+            0,
+          );
+        return sum + itemTotal;
+      }, 0);
+
+    return billedTotal > 0 ? billedTotal : Number(item.subtotal || 0);
+  };
   const getBillingItemName = (item: any) => {
     if (item.itemId && typeof item.itemId === "object" && item.itemId.name) {
       return item.itemId.name;
@@ -1983,6 +2052,8 @@ const RentalDetailPage: React.FC = () => {
                 {rental.items.map((item, index) => {
                   const itemData =
                     typeof item.itemId === "object" ? item.itemId : null;
+                  const displayedSubtotal =
+                    getDisplayedRentalItemSubtotal(item);
                   return (
                     <div
                       key={index}
@@ -2022,7 +2093,7 @@ const RentalDetailPage: React.FC = () => {
                         </div>
                         <div className="text-right">
                           <div className="font-semibold text-gray-900 dark:text-white">
-                            R$ {item.subtotal.toFixed(2)}
+                            R$ {displayedSubtotal.toFixed(2)}
                           </div>
                         </div>
                       </div>
@@ -3442,6 +3513,11 @@ const RentalDetailPage: React.FC = () => {
 
               <div className="text-sm text-gray-700 dark:text-gray-300 mb-3">
                 {selectedCloseItem.name}
+                {rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
+                  <span className="block mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Equipamento por unidade identificada — devolução sempre integral nesta linha.
+                  </span>
+                )}
               </div>
 
               {closeItemLoading ? (
@@ -3496,7 +3572,9 @@ const RentalDetailPage: React.FC = () => {
                 onChange={(e) => setCloseItemReturnDate(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm mb-4"
               />
-              {selectedCloseItem && selectedCloseItem.quantity > 1 && (
+              {selectedCloseItem &&
+                !rentalLineHasUnitTracked(selectedCloseItem.unitId) &&
+                selectedCloseItem.quantity > 1 && (
                 <>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Quantidade a devolver
@@ -3521,10 +3599,39 @@ const RentalDetailPage: React.FC = () => {
                   />
                 </>
               )}
-              {selectedCloseItem && (
+              {selectedCloseItem &&
+                !rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
                 <>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Alterar tipo para o saldo remanescente (opcional)
+                    Tipo de cobrança desta devolução (opcional)
+                  </label>
+                  <select
+                    value={closeItemBillingRentalType}
+                    onChange={(e) =>
+                      setCloseItemBillingRentalType(
+                        e.target.value as
+                          | "daily"
+                          | "weekly"
+                          | "biweekly"
+                          | "monthly"
+                          | "",
+                      )
+                    }
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm mb-4"
+                  >
+                    <option value="">Igual ao contrato atual</option>
+                    <option value="daily">Diário</option>
+                    <option value="weekly">Semanal</option>
+                    <option value="biweekly">Quinzenal</option>
+                    <option value="monthly">Mensal</option>
+                  </select>
+                </>
+              )}
+              {selectedCloseItem &&
+                !rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
+                <>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Tipo para quantidade que permanece no aluguel (opcional)
                   </label>
                   <select
                     value={closeItemNewRentalType}
@@ -3561,11 +3668,12 @@ const RentalDetailPage: React.FC = () => {
                     if (!selectedCloseItem || !id) return;
                     try {
                       const returnDateIso = closeItemReturnDate || undefined;
-                      const isPartial =
-                        selectedCloseItem.quantity > 1 &&
-                        closeItemReturnedQuantity < selectedCloseItem.quantity;
+                      const partialFlowAllowed =
+                        !rentalLineHasUnitTracked(selectedCloseItem.unitId);
+                      const useReturnsEndpoint =
+                        selectedCloseItem.quantity > 1 && partialFlowAllowed;
 
-                      if (isPartial) {
+                      if (useReturnsEndpoint) {
                         await rentalService.returnRentalItems(id, {
                           returnDate: returnDateIso,
                           items: [
@@ -3573,6 +3681,12 @@ const RentalDetailPage: React.FC = () => {
                               itemId: selectedCloseItem.itemId,
                               unitId: selectedCloseItem.unitId,
                               returnedQuantity: closeItemReturnedQuantity,
+                              ...(closeItemBillingRentalType
+                                ? {
+                                    billingRentalType:
+                                      closeItemBillingRentalType,
+                                  }
+                                : {}),
                             },
                           ],
                         });
@@ -3587,7 +3701,10 @@ const RentalDetailPage: React.FC = () => {
                         );
                       }
 
-                      if (closeItemNewRentalType) {
+                      if (
+                        partialFlowAllowed &&
+                        closeItemNewRentalType
+                      ) {
                         await rentalService.changeRentalTypeForItem(
                           id,
                           selectedCloseItem.itemId,
@@ -3608,8 +3725,12 @@ const RentalDetailPage: React.FC = () => {
                         queryKey: ["rental-billings", id],
                       });
                       toast.success("Devolução processada com sucesso.");
-                    } catch {
-                      toast.error("Erro ao processar devolução do item.");
+                    } catch (err: unknown) {
+                      const message =
+                        (err as { response?: { data?: { message?: string } } })
+                          ?.response?.data?.message ??
+                        "Erro ao processar devolução do item.";
+                      toast.error(message);
                     }
                   }}
                   className="px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"

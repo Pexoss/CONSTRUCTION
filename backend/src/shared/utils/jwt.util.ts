@@ -8,6 +8,14 @@ export interface TokenPayload {
   role?: RoleType;
 }
 
+type HttpError = Error & { statusCode?: number };
+
+const createUnauthorizedError = (message: string): HttpError => {
+  const error = new Error(message) as HttpError;
+  error.statusCode = 401;
+  return error;
+};
+
 /**
  * Generates an access token (short-lived)
  */
@@ -42,7 +50,7 @@ export const verifyAccessToken = (token: string): TokenPayload => {
   try {
     return jwt.verify(token, env.JWT_SECRET) as TokenPayload;
   } catch (error) {
-    throw new Error('Invalid or expired access token');
+    throw createUnauthorizedError('Invalid or expired access token');
   }
 };
 
@@ -53,10 +61,10 @@ export const verifyRefreshToken = (token: string): TokenPayload => {
   try {
     const payload = jwt.verify(token, env.JWT_REFRESH_SECRET) as TokenPayload & { type?: string };
     if (payload.type !== 'refresh') {
-      throw new Error('Invalid token type');
+      throw createUnauthorizedError('Invalid token type');
     }
     return payload;
   } catch (error) {
-    throw new Error('Invalid or expired refresh token');
+    throw createUnauthorizedError('Invalid or expired refresh token');
   }
 };
