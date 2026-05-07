@@ -2390,14 +2390,6 @@ const RentalDetailPage: React.FC = () => {
                       R$ {rental.pricing.subtotal.toFixed(2)}
                     </span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                      Caução:
-                    </span>
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">
-                      R$ {rental.pricing.deposit.toFixed(2)}
-                    </span>
-                  </div>
                   {rental.pricing.lateFee > 0 && (
                     <div className="flex justify-between">
                       <span className="text-sm text-gray-600 dark:text-gray-400">

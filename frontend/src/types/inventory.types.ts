@@ -40,7 +40,6 @@ export interface Item {
     weeklyRate?: number;
     biweeklyRate?: number;
     monthlyRate?: number;
-    depositAmount?: number;
   };
   location?: string;
   depreciation?: {
@@ -138,7 +137,6 @@ export interface CreateItemData {
     weeklyRate?: number; // opcional, se não tiver, cai no dailyRate
     biweeklyRate?: number;
     monthlyRate?: number; // opcional, se não tiver, cai no dailyRate
-    depositAmount?: number; // opcional
   };
   location?: string;
   depreciation?: {
@@ -189,7 +187,6 @@ export interface EditItemData {
     weeklyRate?: number;
     biweeklyRate?: number;
     monthlyRate?: number;
-    depositAmount?: number;
   };
 
   depreciation?: {

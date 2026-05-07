@@ -460,8 +460,8 @@ const ReportsPage: React.FC = () => {
                     {formatCurrency(rentalsReport.data.billedRevenue ?? rentalsReport.data.totalRevenue)}
                   </p>
                   <p className="text-xs text-gray-500 mt-2">
-                    Contratado: {formatCurrency(rentalsReport.data.contractedRevenue)} | Caução:{" "}
-                    {formatCurrency(rentalsReport.data.depositTotal)}
+                    Contratado:{" "}
+                    {formatCurrency(rentalsReport.data.contractedRevenue)}
                   </p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">

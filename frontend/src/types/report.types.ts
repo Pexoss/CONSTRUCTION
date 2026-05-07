@@ -4,7 +4,6 @@ export interface RentalsReport {
   contractedRevenue?: number;
   billedRevenue?: number;
   pendingRevenue?: number;
-  depositTotal?: number;
   byStatus: Record<string, number>;
   byMonth: Array<{
     month: string;

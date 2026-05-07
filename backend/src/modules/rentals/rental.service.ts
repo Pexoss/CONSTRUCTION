@@ -703,7 +703,6 @@ class RentalService {
     // 💰 Cálculo de preços
     const itemsWithPricing: IRentalItem[] = [];
     let equipmentSubtotal = 0;
-    let totalDeposit = 0;
 
     const pickupDates: Date[] = [];
     const returnDates: Date[] = [];
@@ -749,8 +748,6 @@ class RentalService {
       );
 
       const subtotal = unitPrice * item.quantity;
-      const deposit =
-        (inventoryItem.pricing.depositAmount || 0) * item.quantity;
 
       itemsWithPricing.push({
         itemId: item.itemId,
@@ -766,7 +763,6 @@ class RentalService {
       });
 
       equipmentSubtotal += subtotal;
-      totalDeposit += deposit;
     }
 
     // Serviços
@@ -810,7 +806,6 @@ class RentalService {
       usedDays: 0,
       servicesSubtotal,
       subtotal: totalSubtotal,
-      deposit: totalDeposit,
       discount,
       discountReason: data.pricing?.discountReason,
       discountApprovedBy: data.pricing?.discountApprovedBy
@@ -915,7 +910,6 @@ class RentalService {
     const usedDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
 
     let equipmentSubtotal = 0;
-    let totalDeposit = 0;
 
     //Calcular por item
     for (const item of rental.items) {
@@ -933,15 +927,12 @@ class RentalService {
       ).amount;
 
       const subtotal = unitPrice * item.quantity;
-      const deposit =
-        (inventoryItem.pricing.depositAmount || 0) * item.quantity;
 
       //Atualiza item
       item.unitPrice = unitPrice;
       item.subtotal = subtotal;
 
       equipmentSubtotal += subtotal;
-      totalDeposit += deposit;
     }
 
     //Serviços
@@ -959,7 +950,6 @@ class RentalService {
     rental.pricing.originalEquipmentSubtotal = equipmentSubtotal;
     rental.pricing.servicesSubtotal = servicesSubtotal;
     rental.pricing.subtotal = equipmentSubtotal + servicesSubtotal;
-    rental.pricing.deposit = totalDeposit;
     rental.pricing.total = total;
     rental.pricing.usedDays = usedDays;
     rental.pricing.lateFee = lateFee;
@@ -1101,7 +1091,6 @@ class RentalService {
       }
     }
 
-    // Caução é garantia separada e não compõe receita da locação.
     const servicesSubtotal =
       rental.services?.reduce((acc, s) => acc + s.subtotal, 0) || 0;
     rentalTotalAfterClose +=
@@ -2744,7 +2733,6 @@ class RentalService {
         ) ?? 0;
       const subtotalTable = sumItems + sumServices;
       const discount = Number(rental.pricing?.discount ?? 0);
-      const deposit = Number(rental.pricing?.deposit ?? 0);
       const contractTotal =
         rental.pricing?.total != null
           ? Number(rental.pricing.total)
@@ -2773,15 +2761,6 @@ class RentalService {
         align: "right",
       });
       y += rowH + 6;
-      if (deposit > 0) {
-        doc.font("Helvetica").fontSize(8);
-        doc.text("Caução (garantia):", col.tot - 120, y, { width: 100, align: "right" });
-        doc.text(fmtMoney(deposit), col.tot, y, {
-          width: right - col.tot,
-          align: "right",
-        });
-        y += rowH + 4;
-      }
       if (y > 520) {
         doc.addPage();
         y = 32;
@@ -2896,7 +2875,6 @@ class RentalService {
     companyId: string,
   ): Promise<void> {
     let equipmentSubtotal = 0;
-    let totalDeposit = 0;
 
     for (const item of rental.items) {
       const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
@@ -2926,15 +2904,12 @@ class RentalService {
       item.subtotal = subtotal;
 
       equipmentSubtotal += subtotal;
-      totalDeposit +=
-        (inventoryItem.pricing.depositAmount || 0) * item.quantity;
     }
 
     rental.pricing.equipmentSubtotal = Number(equipmentSubtotal.toFixed(2));
     rental.pricing.originalEquipmentSubtotal = Number(
       equipmentSubtotal.toFixed(2),
     );
-    rental.pricing.deposit = Number(totalDeposit.toFixed(2));
     rental.pricing.subtotal = Number(
       (equipmentSubtotal + rental.pricing.servicesSubtotal).toFixed(2),
     );

@@ -44,7 +44,6 @@ interface Totals {
   equipmentSubtotal: number;
   servicesSubtotal: number;
   subtotal: number;
-  deposit: number;
   total: number;
   rentalPeriod: { start: string; end: string };
 }
@@ -220,7 +219,6 @@ const CreateRentalPage: React.FC = () => {
         equipmentSubtotal: 0,
         servicesSubtotal: 0,
         subtotal: 0,
-        deposit: 0,
         total: 0,
         rentalPeriod: { start: "", end: "" },
       };
@@ -228,7 +226,6 @@ const CreateRentalPage: React.FC = () => {
 
     let equipmentSubtotal = 0;
     let servicesSubtotal = 0;
-    let deposit = 0;
 
     let minPickup: Date | null = null;
     let maxReturn: Date | null = null;
@@ -264,8 +261,6 @@ const CreateRentalPage: React.FC = () => {
 
         equipmentSubtotal += price;
       }
-
-      deposit += (item.item.pricing?.depositAmount ?? 0) * item.quantity;
     });
 
     services.forEach((service) => {
@@ -296,7 +291,6 @@ const CreateRentalPage: React.FC = () => {
       equipmentSubtotal,
       servicesSubtotal,
       subtotal,
-      deposit,
       total: Math.max(0, total),
       rentalPeriod,
     };
@@ -1804,15 +1798,6 @@ const CreateRentalPage: React.FC = () => {
                       </span>
                       <span className="font-medium text-gray-900 dark:text-white">
                         R$ {totalsWithRentalType.subtotal.toFixed(2)}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600 dark:text-gray-400">
-                        Caução:
-                      </span>
-                      <span className="font-medium text-gray-900 dark:text-white">
-                        R$ {totalsWithRentalType.deposit.toFixed(2)}
                       </span>
                     </div>
 

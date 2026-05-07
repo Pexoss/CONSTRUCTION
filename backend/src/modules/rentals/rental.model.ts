@@ -253,12 +253,6 @@ const RentalPricingSchema = new Schema<IRentalPricing>(
       min: 0,
       default: 0,
     },
-    deposit: {
-      type: Number,
-      required: true,
-      min: 0,
-      default: 0,
-    },
     discount: {
       type: Number,
       required: true,

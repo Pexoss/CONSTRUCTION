@@ -572,18 +572,6 @@ const ItemDetailPage: React.FC = () => {
                     </div>
                   )}
 
-                  {item.pricing.depositAmount && (
-                    <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                      <div>
-                        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                          Depósito
-                        </p>
-                        <p className="text-lg font-bold text-gray-900 dark:text-white">
-                          R$ {item.pricing.depositAmount.toFixed(2)}
-                        </p>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
 

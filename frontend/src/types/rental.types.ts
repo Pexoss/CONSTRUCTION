@@ -48,7 +48,6 @@ export interface RentalPricing {
   equipmentSubtotal: number;
   servicesSubtotal: number;
   subtotal: number;
-  deposit: number;
   discount: number;
   discountReason?: string;
   discountApprovedBy?: string;

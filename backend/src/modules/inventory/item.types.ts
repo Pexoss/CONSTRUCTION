@@ -58,7 +58,6 @@ export interface IItem extends Document {
     weeklyRate?: number;
     biweeklyRate?: number; // NOVO: quinzenal
     monthlyRate?: number;
-    depositAmount?: number;
   };
   
   photos: string[];

@@ -147,10 +147,6 @@ const ItemSchema = new Schema<IItem>(
         type: Number,
         min: [0, 'Monthly rate cannot be negative'],
       },
-      depositAmount: {
-        type: Number,
-        min: [0, 'Deposit amount cannot be negative'],
-      },
     },
     location: {
       type: String,

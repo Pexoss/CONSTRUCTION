@@ -64,7 +64,6 @@ class ReportService {
     contractedRevenue: number;
     billedRevenue: number;
     pendingRevenue: number;
-    depositTotal: number;
     byStatus: Record<string, number>;
     byMonth: Array<{ month: string; count: number; revenue: number; contractedRevenue: number }>;
   }> {
@@ -83,7 +82,6 @@ class ReportService {
 
     const totalRentals = rentals.length;
     const contractedRevenue = rentals.reduce((sum, r) => sum + Number(r.pricing.total || 0), 0);
-    const depositTotal = rentals.reduce((sum, r) => sum + Number(r.pricing.deposit || 0), 0);
     const billedRevenue = billings.reduce(
       (sum, b) => sum + Number(b.calculation?.total || 0),
       0,
@@ -139,7 +137,6 @@ class ReportService {
       contractedRevenue,
       billedRevenue,
       pendingRevenue,
-      depositTotal,
       byStatus,
       byMonth,
     };

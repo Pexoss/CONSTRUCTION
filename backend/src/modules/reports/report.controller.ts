@@ -360,7 +360,6 @@ export class ReportController {
         { header: "Data Devolução", key: "returnDate", width: 15 },
         { header: "Status", key: "status", width: 15 },
         { header: "Total Locação", key: "total", width: 15 },
-        { header: "Caução", key: "deposit", width: 15 },
       ];
 
       rentals.forEach((rental) => {
@@ -386,7 +385,6 @@ export class ReportController {
           ),
           status: rental.status,
           total: rental.pricing.total,
-          deposit: rental.pricing.deposit || 0,
         });
       });
 
@@ -1129,14 +1127,13 @@ export class ReportController {
         sections: [
           {
             title: "Resumo",
-            headers: ["Total de aluguéis", "Contratado (R$)", "Faturado (R$)", "Pendente (R$)", "Caução (R$)"],
+            headers: ["Total de aluguéis", "Contratado (R$)", "Faturado (R$)", "Pendente (R$)"],
             rows: [
               [
                 String(report.totalRentals),
                 money(report.contractedRevenue || 0),
                 money(report.billedRevenue || report.totalRevenue || 0),
                 money(report.pendingRevenue || 0),
-                money(report.depositTotal || 0),
               ],
             ],
           },
@@ -1150,7 +1147,6 @@ export class ReportController {
               "Devolução",
               "Status",
               "Locação (R$)",
-              "Caução (R$)",
             ],
             rows: rentals.map((r) => {
               const c = r.customerId as { name?: string } | undefined;
@@ -1162,7 +1158,6 @@ export class ReportController {
                 new Date(r.dates.returnScheduled).toLocaleDateString("pt-BR"),
                 r.status,
                 money(r.pricing?.total ?? 0),
-                money(r.pricing?.deposit ?? 0),
               ];
             }),
           },

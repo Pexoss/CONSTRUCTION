@@ -310,9 +310,9 @@ const auditRentals = async () => {
       },
     },
     { $limit: sampleLimit },
-    { $project: { _id: 1, rentalNumber: 1, "pricing.total": 1, "pricing.deposit": 1, expectedRentalTotal: 1 } },
+    { $project: { _id: 1, rentalNumber: 1, "pricing.total": 1, expectedRentalTotal: 1 } },
   ]);
-  console.log(`Total de aluguel divergente da formula sem caucao: ${totalFormulaMismatch.length}`);
+  console.log(`Total de aluguel divergente da formula esperada (equip+servicos+multa-desconto): ${totalFormulaMismatch.length}`);
   if (totalFormulaMismatch.length) {
     console.log(`  exemplos: ${ids(totalFormulaMismatch).join(", ")}`);
   }

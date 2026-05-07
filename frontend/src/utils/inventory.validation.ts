@@ -53,7 +53,6 @@ const itemSchemaBase = z.object({
     weeklyRate: z.number().min(0).optional(),
     biweeklyRate: z.number().min(0).optional(),
     monthlyRate: z.number().min(0).optional(),
-    depositAmount: z.number().min(0).optional(),
   }),
 
   location: z.string().optional(),

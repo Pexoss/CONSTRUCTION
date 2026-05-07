@@ -106,7 +106,6 @@ export interface IRentalPricing {
   servicesSubtotal: number;
   contractedDays: number;
   subtotal: number;
-  deposit: number;
   discount: number;
   discountReason?: string;
   discountApprovedBy?: mongoose.Types.ObjectId;
