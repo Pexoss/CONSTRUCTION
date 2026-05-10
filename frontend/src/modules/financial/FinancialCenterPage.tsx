@@ -20,6 +20,12 @@ import {
   getBillingOutstandingAmount,
   toDateInputValue,
 } from "../../utils/formatters";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
 
 const stageLabel: Record<string, string> = {
   pending: "Pendentes",
@@ -59,6 +65,15 @@ const isBillingEligibleForInvoice = (billing: any): boolean =>
   !billing?.invoiceId &&
   getBillingOutstanding(billing) > 0.01;
 
+type FinBillSortKey =
+  | "customer"
+  | "period"
+  | "type"
+  | "items"
+  | "work"
+  | "stage"
+  | "outstanding";
+
 const FinancialCenterPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -66,6 +81,10 @@ const FinancialCenterPage: React.FC = () => {
   const [selectedChargeId, setSelectedChargeId] = useState<string>("");
   const [activeTab, setActiveTab] = useState<"billings" | "charges" | "invoices">("billings");
   const [billingsSubView, setBillingsSubView] = useState<"lista" | "quadro">("lista");
+  const [finBillSort, setFinBillSort] = useState<ColumnSort<FinBillSortKey> | null>({
+    key: "period",
+    dir: "desc",
+  });
   const [deliveryModalRentalId, setDeliveryModalRentalId] = useState<string | null>(null);
   const [paymentValue, setPaymentValue] = useState<string>("");
   const [paymentDiscountValue, setPaymentDiscountValue] = useState<string>("");
@@ -348,17 +367,38 @@ const FinancialCenterPage: React.FC = () => {
     return groupBillingsByFinancialStage(filteredBillings);
   }, [billings, filterParams]);
 
+  const handleFinBillSort = (key: FinBillSortKey) =>
+    setFinBillSort((prev) => toggleColumnSort(prev, key));
+
+  const billingsFilteredForTable = useMemo(
+    () =>
+      billings.filter((b: any) => billingMatchesBoardFilters(b, filterParams)),
+    [billings, filterParams],
+  );
+
   const tableBillings = useMemo(() => {
-    return billings
-      .filter((b: any) => billingMatchesBoardFilters(b, filterParams))
-      .sort((a: any, b: any) => {
-        const c = String(a.customerId?.name || "").localeCompare(String(b.customerId?.name || ""), "pt-BR");
-        if (c !== 0) return c;
-        const da = a.periodStart ? new Date(a.periodStart).getTime() : 0;
-        const db = b.periodStart ? new Date(b.periodStart).getTime() : 0;
-        return db - da;
-      });
-  }, [billings, filterParams]);
+    return sortedTableRows(billingsFilteredForTable, finBillSort, {
+      customer: (b: any) => String(b.customerId?.name || "").toLowerCase(),
+      period: (b: any) => (b.periodStart ? new Date(b.periodStart).getTime() : 0),
+      type: (b: any) =>
+        String(
+          rentalTypeLabel[String(b.rentalType || "")] || b.rentalType || "",
+        ).toLowerCase(),
+      items: (b: any) =>
+        (b.items || [])
+          .map((item: any) => item?.itemId?.name || "")
+          .filter(Boolean)
+          .join(", ")
+          .toLowerCase(),
+      work: (b: any) =>
+        String(b.rentalId?.workAddress?.workName || "").toLowerCase(),
+      stage: (b: any) =>
+        String(
+          stageLabel[String(b.financialStage)] || b.financialStage || "",
+        ).toLowerCase(),
+      outstanding: (b: any) => getBillingOutstanding(b),
+    });
+  }, [billingsFilteredForTable, finBillSort]);
 
   const billingMatchesGlobalFilter = useCallback(
     (billing: any) => billingMatchesBoardFilters(billing, filterParams),
@@ -737,14 +777,59 @@ const FinancialCenterPage: React.FC = () => {
                     <thead className="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200">
                       <tr>
                         <th className="px-2 py-2 w-10 text-center">Sel.</th>
-                        <th className="px-2 py-2">Cliente</th>
-                        <th className="px-2 py-2">Período</th>
-                        <th className="px-2 py-2">Tipo</th>
-                        <th className="px-2 py-2 min-w-[140px]">Itens</th>
-                        <th className="px-2 py-2 min-w-[120px]">Obra</th>
-                        <th className="px-2 py-2">Etapa</th>
-                        <th className="px-2 py-2 text-right">Em aberto</th>
-                        <th className="px-2 py-2 min-w-[200px]">Ações</th>
+                        <SortableTh<FinBillSortKey>
+                          columnKey="customer"
+                          label="Cliente"
+                          sort={finBillSort}
+                          onSort={handleFinBillSort}
+                          thClassName="px-2 py-2 text-sm font-medium text-gray-700 dark:text-gray-200"
+                        />
+                        <SortableTh<FinBillSortKey>
+                          columnKey="period"
+                          label="Período"
+                          sort={finBillSort}
+                          onSort={handleFinBillSort}
+                          thClassName="px-2 py-2 text-sm font-medium text-gray-700 dark:text-gray-200"
+                        />
+                        <SortableTh<FinBillSortKey>
+                          columnKey="type"
+                          label="Tipo"
+                          sort={finBillSort}
+                          onSort={handleFinBillSort}
+                          thClassName="px-2 py-2 text-sm font-medium text-gray-700 dark:text-gray-200"
+                        />
+                        <SortableTh<FinBillSortKey>
+                          columnKey="items"
+                          label="Itens"
+                          sort={finBillSort}
+                          onSort={handleFinBillSort}
+                          thClassName="px-2 py-2 min-w-[140px] text-sm font-medium text-gray-700 dark:text-gray-200"
+                        />
+                        <SortableTh<FinBillSortKey>
+                          columnKey="work"
+                          label="Obra"
+                          sort={finBillSort}
+                          onSort={handleFinBillSort}
+                          thClassName="px-2 py-2 min-w-[120px] text-sm font-medium text-gray-700 dark:text-gray-200"
+                        />
+                        <SortableTh<FinBillSortKey>
+                          columnKey="stage"
+                          label="Etapa"
+                          sort={finBillSort}
+                          onSort={handleFinBillSort}
+                          thClassName="px-2 py-2 text-sm font-medium text-gray-700 dark:text-gray-200"
+                        />
+                        <SortableTh<FinBillSortKey>
+                          columnKey="outstanding"
+                          label="Em aberto"
+                          align="right"
+                          sort={finBillSort}
+                          onSort={handleFinBillSort}
+                          thClassName="px-2 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 whitespace-nowrap"
+                        />
+                        <th className="px-2 py-2 min-w-[200px] text-sm font-medium text-gray-700 dark:text-gray-200">
+                          Ações
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">

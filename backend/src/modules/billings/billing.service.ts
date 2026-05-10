@@ -10,6 +10,33 @@ import { Charge } from '../charges/charge.model';
 import { asIdString, buildRentalLineKey } from '../../shared/utils/rental-line-key.util';
 
 /**
+ * Alinha com RentalService.getEffectivePricingForRentalLines:
+ * período mensal/semanal/quinzenal derivado da diária quando o cadastro não tem o período específico.
+ */
+function effectivePricingPeriods(pricing?: {
+  dailyRate?: number;
+  weeklyRate?: number;
+  biweeklyRate?: number;
+  monthlyRate?: number;
+}): {
+  dailyRate: number;
+  weeklyRate: number;
+  biweeklyRate: number;
+  monthlyRate: number;
+} {
+  const dailyRate = Math.max(0, Number(pricing?.dailyRate ?? 0));
+  let weeklyRate = Math.max(0, Number(pricing?.weeklyRate ?? 0));
+  let biweeklyRate = Math.max(0, Number(pricing?.biweeklyRate ?? 0));
+  let monthlyRate = Math.max(0, Number(pricing?.monthlyRate ?? 0));
+  if (dailyRate > 0) {
+    if (weeklyRate <= 0) weeklyRate = Number((dailyRate * 7).toFixed(2));
+    if (biweeklyRate <= 0) biweeklyRate = Number((dailyRate * 15).toFixed(2));
+    if (monthlyRate <= 0) monthlyRate = Number((dailyRate * 30).toFixed(2));
+  }
+  return { dailyRate, weeklyRate, biweeklyRate, monthlyRate };
+}
+
+/**
  * Calcula os períodos de aluguel baseado nas datas
  * @param pickupDate Data de retirada
  * @param returnDate Data de devolução
@@ -69,12 +96,13 @@ export function calculateRentalLineAmount(
     extraDays: number;
   },
 ): { amount: number; periodRate: number; dailyRate: number } {
-  const dailyRate = Math.max(0, Number(pricing?.dailyRate ?? 0));
+  const p = effectivePricingPeriods(pricing);
+  const dailyRate = Math.max(0, Number(p.dailyRate ?? 0));
   const periodRates: Record<RentalType, number> = {
     daily: dailyRate,
-    weekly: Math.max(0, Number(pricing?.weeklyRate ?? 0)),
-    biweekly: Math.max(0, Number(pricing?.biweeklyRate ?? 0)),
-    monthly: Math.max(0, Number(pricing?.monthlyRate ?? 0)),
+    weekly: Math.max(0, Number(p.weeklyRate ?? 0)),
+    biweekly: Math.max(0, Number(p.biweeklyRate ?? 0)),
+    monthly: Math.max(0, Number(p.monthlyRate ?? 0)),
   };
   const periodRate = periodRates[rentalType];
   const periodsCompleted = Math.max(0, Number(period.periodsCompleted || 0));
@@ -114,31 +142,27 @@ function addPeriod(date: Date, rentalType: RentalType): Date {
 
 /**
  * Valor unitário de cobrança por período conforme o tipo selecionado.
- * Não deriva valores de outro tipo: o contrato só pode ser faturado quando
- * o preço do ciclo escolhido estiver cadastrado no produto.
+ * Mantém valores cadastrados; se há diária e falta o valor do período,
+ * usa o período proporcional já adotado no aluguel (7 / 15 / 30 dias).
  */
 export function periodRateFromInventory(
   pricing: { dailyRate?: number; weeklyRate?: number; biweeklyRate?: number; monthlyRate?: number } | undefined,
   rentalType: RentalType
 ): { rate: number; message?: string } {
-  const d = Math.max(0, Number(pricing?.dailyRate ?? 0));
-  const w = Math.max(0, Number(pricing?.weeklyRate ?? 0));
-  const b = Math.max(0, Number(pricing?.biweeklyRate ?? 0));
-  const m = Math.max(0, Number(pricing?.monthlyRate ?? 0));
-
+  const eff = effectivePricingPeriods(pricing);
   switch (rentalType) {
     case 'daily':
-      if (d > 0) return { rate: d };
+      if (eff.dailyRate > 0) return { rate: eff.dailyRate };
       return { rate: 0, message: 'Cadastre a diária do equipamento.' };
     case 'weekly':
-      if (w > 0) return { rate: w };
-      return { rate: 0, message: 'Cadastre o valor semanal do equipamento.' };
+      if (eff.weeklyRate > 0) return { rate: eff.weeklyRate };
+      return { rate: 0, message: 'Cadastre o valor semanal do equipamento (ou a diária para derivar).' };
     case 'biweekly':
-      if (b > 0) return { rate: b };
-      return { rate: 0, message: 'Cadastre o valor quinzenal do equipamento.' };
+      if (eff.biweeklyRate > 0) return { rate: eff.biweeklyRate };
+      return { rate: 0, message: 'Cadastre o valor quinzenal do equipamento (ou a diária para derivar).' };
     case 'monthly':
-      if (m > 0) return { rate: m };
-      return { rate: 0, message: 'Cadastre o valor mensal do equipamento.' };
+      if (eff.monthlyRate > 0) return { rate: eff.monthlyRate };
+      return { rate: 0, message: 'Cadastre o valor mensal do equipamento (ou a diária para derivar).' };
     default:
       return { rate: 0, message: 'Tipo de cobrança inválido.' };
   }

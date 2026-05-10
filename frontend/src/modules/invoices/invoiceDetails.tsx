@@ -1,9 +1,23 @@
+import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoiceService } from "./invoice.service";
 import Layout from "../../components/Layout";
 import { toast } from "react-toastify";
 import { formatPhoneForDisplay } from "../../utils/formatters";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
+
+type InvoiceItemSortKey =
+  | "description"
+  | "period"
+  | "quantity"
+  | "unitPrice"
+  | "total";
 
 const InvoiceDetails = () => {
   const { id } = useParams();
@@ -45,6 +59,9 @@ const InvoiceDetails = () => {
       toast.error("Erro ao atualizar status");
     },
   });
+
+  const [invoiceItemSort, setInvoiceItemSort] =
+    useState<ColumnSort<InvoiceItemSortKey> | null>(null);
 
   // Utilitários de formatação
   const formatCurrency = (value: number) => {
@@ -117,6 +134,22 @@ const InvoiceDetails = () => {
     cleaned = cleaned.replace(/\s*-\s*Locação\s*$/, "");
     return cleaned.trim();
   };
+
+  const sortedInvoiceItems = useMemo(() => {
+    const raw = invoice?.items ?? [];
+    return sortedTableRows(raw, invoiceItemSort, {
+      description: (it: { description?: string }) =>
+        cleanDescription(it.description || "Item"),
+      period: (it: { description?: string }) =>
+        extractPeriod(it.description || ""),
+      quantity: (it: { quantity?: number }) => Number(it.quantity ?? 1),
+      unitPrice: (it: { unitPrice?: number }) => Number(it.unitPrice ?? 0),
+      total: (it: { total?: number }) => Number(it.total ?? 0),
+    });
+  }, [invoice?.items, invoiceItemSort]);
+
+  const handleInvoiceItemSort = (key: InvoiceItemSortKey) =>
+    setInvoiceItemSort((prev) => toggleColumnSort(prev, key));
 
   if (isLoading) {
     return (
@@ -364,25 +397,49 @@ const InvoiceDetails = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
-                    <th className="text-left py-3 font-semibold text-gray-700 dark:text-gray-300">
-                      Descrição
-                    </th>
-                    <th className="text-center py-3 font-semibold text-gray-700 dark:text-gray-300">
-                      Período
-                    </th>
-                    <th className="text-right py-3 font-semibold text-gray-700 dark:text-gray-300">
-                      Quantidade
-                    </th>
-                    <th className="text-right py-3 font-semibold text-gray-700 dark:text-gray-300">
-                      Valor Unit.
-                    </th>
-                    <th className="text-right py-3 font-semibold text-gray-700 dark:text-gray-300">
-                      Total
-                    </th>
+                    <SortableTh<InvoiceItemSortKey>
+                      columnKey="description"
+                      label="Descrição"
+                      sort={invoiceItemSort}
+                      onSort={handleInvoiceItemSort}
+                      thClassName="py-3 font-semibold text-gray-700 dark:text-gray-300"
+                    />
+                    <SortableTh<InvoiceItemSortKey>
+                      columnKey="period"
+                      label="Período"
+                      sort={invoiceItemSort}
+                      onSort={handleInvoiceItemSort}
+                      align="center"
+                      thClassName="py-3 font-semibold text-gray-700 dark:text-gray-300"
+                    />
+                    <SortableTh<InvoiceItemSortKey>
+                      columnKey="quantity"
+                      label="Quantidade"
+                      sort={invoiceItemSort}
+                      onSort={handleInvoiceItemSort}
+                      align="right"
+                      thClassName="py-3 font-semibold text-gray-700 dark:text-gray-300"
+                    />
+                    <SortableTh<InvoiceItemSortKey>
+                      columnKey="unitPrice"
+                      label="Valor Unit."
+                      sort={invoiceItemSort}
+                      onSort={handleInvoiceItemSort}
+                      align="right"
+                      thClassName="py-3 font-semibold text-gray-700 dark:text-gray-300"
+                    />
+                    <SortableTh<InvoiceItemSortKey>
+                      columnKey="total"
+                      label="Total"
+                      sort={invoiceItemSort}
+                      onSort={handleInvoiceItemSort}
+                      align="right"
+                      thClassName="py-3 font-semibold text-gray-700 dark:text-gray-300"
+                    />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {invoice.items.map((item: any, index: number) => (
+                  {sortedInvoiceItems.map((item: any, index: number) => (
                     <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                       <td className="py-3 text-gray-900 dark:text-white">
                         {cleanDescription(item.description || "Item")}

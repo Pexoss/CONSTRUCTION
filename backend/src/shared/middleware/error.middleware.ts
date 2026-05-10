@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import mongoose from "mongoose";
 
+/** Use `statusCode` (4xx/5xx) nos serviços via `badRequest` / `notFound` em `http-error.util.ts`. */
 export interface AppError extends Error {
   statusCode?: number;
   code?: number;
@@ -13,7 +14,10 @@ export const errorMiddleware = (
   res: Response,
   next: NextFunction,
 ) => {
-  const statusCode = err.statusCode || 500;
+  const statusCode =
+    typeof err.statusCode === "number" && err.statusCode >= 400
+      ? err.statusCode
+      : 500;
 
   if (statusCode >= 500) {
     console.error("========== ERROR START ==========");

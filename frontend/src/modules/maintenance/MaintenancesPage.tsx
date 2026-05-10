@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { maintenanceService } from "./maintenance.service";
@@ -8,11 +8,33 @@ import {
   MaintenanceStatus,
 } from "../../types/maintenance.types";
 import Layout from "../../components/Layout";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
+
+type MaintenanceSortKey =
+  | "item"
+  | "unit"
+  | "type"
+  | "description"
+  | "scheduled"
+  | "cost"
+  | "status";
 
 const MaintenancesPage: React.FC = () => {
   const [filters, setFilters] = useState<MaintenanceFilters>({
     page: 1,
     limit: 20,
+  });
+
+  const [maintSort, setMaintSort] = useState<
+    ColumnSort<MaintenanceSortKey> | null
+  >({
+    key: "scheduled",
+    dir: "desc",
   });
 
   const queryClient = useQueryClient();
@@ -55,6 +77,31 @@ const MaintenancesPage: React.FC = () => {
     return type === "preventive" ? "Preventiva" : "Corretiva";
   };
 
+  const maintenances = data?.data || [];
+
+  const sortedMaintenances = useMemo(
+    () =>
+      sortedTableRows(maintenances, maintSort, {
+        item: (m: any) => {
+          const itemObj =
+            typeof m.itemId === "object" && m.itemId ? m.itemId : null;
+          return String(itemObj?.name || "").toLowerCase();
+        },
+        unit: (m: any) => String(m.unitId || "").toLowerCase(),
+        type: (m: any) =>
+          String(m.type === "preventive" ? "preventiva" : "corretiva"),
+        description: (m: any) => String(m.description || "").toLowerCase(),
+        scheduled: (m: any) =>
+          m.scheduledDate ? new Date(m.scheduledDate).getTime() : 0,
+        cost: (m: any) => Number(m.cost ?? 0),
+        status: (m: any) => String(getStatusLabel(m.status) || ""),
+      }),
+    [maintenances, maintSort],
+  );
+
+  const handleMaintSort = (k: MaintenanceSortKey) =>
+    setMaintSort((prev) => toggleColumnSort(prev, k));
+
   if (isLoading) {
     return (
       <Layout title="Manutenções" backTo="/dashboard">
@@ -77,7 +124,6 @@ const MaintenancesPage: React.FC = () => {
     );
   }
 
-  const maintenances = data?.data || [];
   const pagination = data?.pagination;
 
   return (
@@ -283,34 +329,62 @@ const MaintenancesPage: React.FC = () => {
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead className="bg-gray-50 dark:bg-gray-900/50">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                          Item
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                          Unidade
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                          Tipo
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                          Descrição
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                          Data Agendada
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                          Custo
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                          Status
-                        </th>
+                        <SortableTh<MaintenanceSortKey>
+                          columnKey="item"
+                          label="Item"
+                          sort={maintSort}
+                          onSort={handleMaintSort}
+                          thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                        />
+                        <SortableTh<MaintenanceSortKey>
+                          columnKey="unit"
+                          label="Unidade"
+                          sort={maintSort}
+                          onSort={handleMaintSort}
+                          thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                        />
+                        <SortableTh<MaintenanceSortKey>
+                          columnKey="type"
+                          label="Tipo"
+                          sort={maintSort}
+                          onSort={handleMaintSort}
+                          thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                        />
+                        <SortableTh<MaintenanceSortKey>
+                          columnKey="description"
+                          label="Descrição"
+                          sort={maintSort}
+                          onSort={handleMaintSort}
+                          thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                        />
+                        <SortableTh<MaintenanceSortKey>
+                          columnKey="scheduled"
+                          label="Data Agendada"
+                          sort={maintSort}
+                          onSort={handleMaintSort}
+                          thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                        />
+                        <SortableTh<MaintenanceSortKey>
+                          columnKey="cost"
+                          label="Custo"
+                          sort={maintSort}
+                          onSort={handleMaintSort}
+                          thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                        />
+                        <SortableTh<MaintenanceSortKey>
+                          columnKey="status"
+                          label="Status"
+                          sort={maintSort}
+                          onSort={handleMaintSort}
+                          thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                        />
                         <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                           Ações
                         </th>
                       </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                      {maintenances.map((maintenance) => {
+                      {sortedMaintenances.map((maintenance) => {
                         const item =
                           typeof maintenance.itemId === "object"
                             ? maintenance.itemId

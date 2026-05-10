@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
@@ -27,6 +27,14 @@ import {
   todayDateInputValue,
 } from "../../utils/formatters";
 import { features } from "../../config/features";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
+
+type RentalDetailBillingSortKey = "period" | "status" | "total";
 const RentalDetailPage: React.FC = () => {
   const rentalTypeApiToUi: Record<string, RentalTypeUI> = {
     daily: "diario",
@@ -246,6 +254,9 @@ const RentalDetailPage: React.FC = () => {
   });
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [addItemSearch, setAddItemSearch] = useState("");
+  const [rentalBillingSort, setRentalBillingSort] = useState<
+    ColumnSort<RentalDetailBillingSortKey> | null
+  >({ key: "period", dir: "desc" });
   const [saveWorkAddress, setSaveWorkAddress] = useState(false);
   const [selectedWorkAddressId, setSelectedWorkAddressId] =
     useState<string>("");
@@ -334,6 +345,22 @@ const RentalDetailPage: React.FC = () => {
     queryFn: () => billingService.getBillings({ rentalId: id!, limit: 200 }),
     enabled: !!id,
   });
+
+  const billings = (billingsData?.data?.billings || []) as Billing[];
+
+  const sortedBillingsForTable = useMemo(
+    () =>
+      sortedTableRows(billings, rentalBillingSort, {
+        period: (b) =>
+          b.periodStart ? new Date(b.periodStart).getTime() : 0,
+        status: (b) => String(b.status || ""),
+        total: (b) => Number(b.calculation?.total ?? 0),
+      }),
+    [billings, rentalBillingSort],
+  );
+
+  const handleRentalBillingSort = (key: RentalDetailBillingSortKey) =>
+    setRentalBillingSort((prev) => toggleColumnSort(prev, key));
 
   const updateStatusMutation = useMutation({
     mutationFn: (data: { status: RentalStatus; adjustments?: any }) =>
@@ -472,10 +499,18 @@ const RentalDetailPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["rental", id] });
       queryClient.invalidateQueries({ queryKey: ["rentals"] });
     },
-    onError: (err: any) => {
-      const message =
-        err.response?.data?.message || "Erro ao atualizar aluguel";
+    onError: (err: unknown) => {
+      const data = (
+        err as {
+          response?: { data?: { message?: string; error?: string } };
+        }
+      )?.response?.data;
+      const serverMsg =
+        (typeof data?.message === "string" && data.message.trim()) ||
+        (typeof data?.error === "string" && data.error.trim());
+      const message = serverMsg || "Erro ao atualizar aluguel";
       setServerError(message);
+      toast.error(message);
     },
   });
 
@@ -553,20 +588,6 @@ const RentalDetailPage: React.FC = () => {
       return `${day}/${month}/${year}`;
     }
     return formatDateNoTimezoneShift(value) || value;
-  };
-
-  const getChangeTypeLabel = (changeType: string): string => {
-    const labels: Record<string, string> = {
-      status_change: "Mudança de Status",
-      rental_update: "Atualização do Aluguel",
-      discount: "Alteração de Desconto",
-      rental_type_change: "Mudança de Tipo",
-      date_extended: "Prorrogação de Datas",
-      "discount_request": "Solicitação de Desconto",
-      "extension_request": "Solicitação de Prorrogação",
-      "status_change_request": "Solicitação de Mudança de Status",
-    };
-    return labels[changeType] || changeType;
   };
 
   const rentalLineHasUnitTracked = (unitId?: string | null) =>
@@ -775,7 +796,6 @@ const RentalDetailPage: React.FC = () => {
 
   const allReturned = rental.items.every((item) => item.returnActual);
 
-  const billings = (billingsData?.data?.billings || []) as Billing[];
   const getEntityId = (value: any) =>
     typeof value === "string"
       ? value
@@ -864,7 +884,6 @@ const RentalDetailPage: React.FC = () => {
     rental.pendingApprovals?.filter(
       (approval) => approval.status === "pending",
     ) || [];
-  const changeHistory = rental.changeHistory || [];
 
   if (showEditModal) {
     return (
@@ -2153,135 +2172,6 @@ const RentalDetailPage: React.FC = () => {
                     </div>
                   </div>
                 )}
-                <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-                  <div className="flex items-center mb-4">
-                    <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
-                      <svg
-                        className="w-5 h-5 text-gray-700 dark:text-gray-300"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M12 6v6l4 2M6 6h.01M6 12h.01M6 18h.01M18 6h.01M18 12h.01M18 18h.01"
-                        />
-                      </svg>
-                    </div>
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                      Fechamentos e cobranças
-                    </h2>
-                    <div className="ml-auto flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        disabled={processBillingMutation.isPending}
-                        onClick={() => void handleAtualizarFechamentos()}
-                        className="text-xs px-3 py-1.5 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {processBillingMutation.isPending
-                          ? "Atualizando…"
-                          : "Atualizar fechamentos"}
-                      </button>
-                      {features.financialUnifiedModule && (
-                        <button
-                          type="button"
-                          onClick={() => navigate("/finance")}
-                          className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                        >
-                          Gerenciar no financeiro
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400 mb-4">
-                    <span>
-                      Períodos cobrados:{" "}
-                      <strong className="text-gray-900 dark:text-white">
-                        {billings.length}
-                      </strong>
-                    </span>
-                    <span>
-                      Pago:{" "}
-                      <strong className="text-gray-900 dark:text-white">
-                        {formatCurrency(totalPaid)}
-                      </strong>
-                    </span>
-                    <span>
-                      Em aberto:{" "}
-                      <strong className="text-gray-900 dark:text-white">
-                        {formatCurrency(totalOpen)}
-                      </strong>
-                    </span>
-                  </div>
-                  {billingsLoading ? (
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                      Carregando fechamentos...
-                    </div>
-                  ) : billings.length === 0 ? (
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                      Nenhum fechamento registrado.
-                    </div>
-                  ) : (
-                    <div className="space-y-3 text-sm">
-                      {billings.map((billing) => (
-                        <div
-                          key={billing._id}
-                          className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-900/50"
-                        >
-                          <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                            <span>
-                              {formatBillingPeriodDate(billing.periodStart)} →{" "}
-                              {formatBillingPeriodDate(billing.periodEnd)}
-                            </span>
-                            <span>
-                              {billing.status === "paid"
-                                ? "Pago"
-                                : billing.status === "approved"
-                                  ? "A receber"
-                                  : billing.status === "pending_approval"
-                                    ? "Pendente"
-                                    : billing.status === "cancelled"
-                                      ? "Cancelado"
-                                      : "Fechamento previsto"}
-                            </span>
-                          </div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-white mt-1">
-                            {formatCurrency(billing.calculation?.total)}
-                          </div>
-                          <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-                            {billing.items && billing.items.length > 0 ? (
-                              billing.items.map((item, idx) => {
-                                return (
-                                  <div key={`${billing._id}-${idx}`}>
-                                    • {getBillingItemName(item)} — Qtd:{" "}
-                                    {item.quantity} — Períodos:{" "}
-                                    {item.periodsCharged} — Subtotal:{" "}
-                                    {formatCurrency(item.subtotal)}
-                                  </div>
-                                );
-                              })
-                            ) : (
-                              <div>Sem itens associados a este fechamento.</div>
-                            )}
-                          </div>
-                          <div className="mt-2 flex justify-end">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleDownloadBillingPDF(billing._id)
-                              }
-                              className="text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
-                            >
-                              Baixar PDF
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
 
@@ -2525,51 +2415,167 @@ const RentalDetailPage: React.FC = () => {
                   </p>
                 </div>
               )}
-              {changeHistory.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
-                  <div className="flex items-center mb-4">
-                    <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
-                      <svg
-                        className="w-5 h-5 text-gray-700 dark:text-gray-300"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M12 6v6l4 2"
+            </div>
+
+            <div className="lg:col-span-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+              <div className="flex items-center mb-4">
+                <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
+                  <svg
+                    className="w-5 h-5 text-gray-700 dark:text-gray-300"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 6v6l4 2M6 6h.01M6 12h.01M6 18h.01M18 6h.01M18 12h.01M18 18h.01"
+                    />
+                  </svg>
+                </div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Fechamentos e cobranças
+                </h2>
+                <div className="ml-auto flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={processBillingMutation.isPending}
+                    onClick={() => void handleAtualizarFechamentos()}
+                    className="text-xs px-3 py-1.5 bg-gray-900 dark:bg-gray-700 text-white rounded-lg hover:bg-gray-800 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {processBillingMutation.isPending
+                      ? "Atualizando…"
+                      : "Atualizar fechamentos"}
+                  </button>
+                  {features.financialUnifiedModule && (
+                    <button
+                      type="button"
+                      onClick={() => navigate("/finance")}
+                      className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      Gerenciar no financeiro
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-3 text-xs text-gray-600 dark:text-gray-400 mb-4">
+                <span>
+                  Períodos cobrados:{" "}
+                  <strong className="text-gray-900 dark:text-white">
+                    {billings.length}
+                  </strong>
+                </span>
+                <span>
+                  Pago:{" "}
+                  <strong className="text-gray-900 dark:text-white">
+                    {formatCurrency(totalPaid)}
+                  </strong>
+                </span>
+                <span>
+                  Em aberto:{" "}
+                  <strong className="text-gray-900 dark:text-white">
+                    {formatCurrency(totalOpen)}
+                  </strong>
+                </span>
+              </div>
+              {billingsLoading ? (
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  Carregando fechamentos...
+                </div>
+              ) : billings.length === 0 ? (
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  Nenhum fechamento registrado.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-md border border-gray-200 dark:border-gray-700">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                    <thead className="bg-gray-50 dark:bg-gray-900/50">
+                      <tr>
+                        <SortableTh<RentalDetailBillingSortKey>
+                          columnKey="period"
+                          label="Período"
+                          sort={rentalBillingSort}
+                          onSort={handleRentalBillingSort}
+                          thClassName="px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap"
                         />
-                      </svg>
-                    </div>
-                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                      Histórico de alterações
-                    </h2>
-                  </div>
-                  <div className="space-y-3 text-sm">
-                    {changeHistory.map((history, index) => (
-                      <div
-                        key={`${history.date}-${index}`}
-                        className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-gray-50 dark:bg-gray-900/50"
-                      >
-                        <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {formatDateTimeForDisplay(history.date)}
-                        </div>
-                        <div className="text-sm font-medium text-gray-900 dark:text-white">
-                          {getChangeTypeLabel(history.changeType)}
-                        </div>
-                        <div className="text-xs text-gray-600 dark:text-gray-400">
-                          {history.previousValue} → {history.newValue}
-                        </div>
-                        {history.reason && (
-                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {history.reason}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
+                        <SortableTh<RentalDetailBillingSortKey>
+                          columnKey="status"
+                          label="Situação"
+                          sort={rentalBillingSort}
+                          onSort={handleRentalBillingSort}
+                          thClassName="px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap"
+                        />
+                        <SortableTh<RentalDetailBillingSortKey>
+                          columnKey="total"
+                          label="Total"
+                          sort={rentalBillingSort}
+                          onSort={handleRentalBillingSort}
+                          thClassName="px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap"
+                        />
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 min-w-[220px]">
+                          Itens
+                        </th>
+                        <th className="px-3 py-2 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                          Ações
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900/40">
+                      {sortedBillingsForTable.map((billing) => (
+                        <tr
+                          key={billing._id}
+                          className="align-top hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                        >
+                          <td className="px-3 py-2 text-gray-800 dark:text-gray-200 whitespace-nowrap">
+                            {formatBillingPeriodDate(billing.periodStart)} →{" "}
+                            {formatBillingPeriodDate(billing.periodEnd)}
+                          </td>
+                          <td className="px-3 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                            {billing.status === "paid"
+                              ? "Pago"
+                              : billing.status === "approved"
+                                ? "A receber"
+                                : billing.status === "pending_approval"
+                                  ? "Pendente"
+                                  : billing.status === "cancelled"
+                                    ? "Cancelado"
+                                    : "Fechamento previsto"}
+                          </td>
+                          <td className="px-3 py-2 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                            {formatCurrency(billing.calculation?.total)}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
+                            {billing.items && billing.items.length > 0 ? (
+                              <div className="space-y-0.5 max-h-24 overflow-y-auto pr-1">
+                                {billing.items.map((item, idx) => (
+                                  <div key={`${billing._id}-${idx}`}>
+                                    • {getBillingItemName(item)} — Qtd:{" "}
+                                    {item.quantity} — Períodos:{" "}
+                                    {item.periodsCharged} — Subtotal:{" "}
+                                    {formatCurrency(item.subtotal)}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-gray-400">Sem itens</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDownloadBillingPDF(billing._id)
+                              }
+                              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                            >
+                              Baixar PDF
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

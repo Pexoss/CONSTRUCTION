@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   useItem,
@@ -10,6 +10,14 @@ import {
 import { adjustQuantitySchema } from "../../utils/inventory.validation";
 import { inventoryService } from "./inventory.service";
 import Layout from "../../components/Layout";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
+
+type UnitRowSortKey = "unitId" | "status" | "location";
 
 const ItemDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -36,6 +44,10 @@ const ItemDetailPage: React.FC = () => {
     notes: "",
   });
 
+  const [unitSort, setUnitSort] = useState<ColumnSort<UnitRowSortKey> | null>(
+    { key: "unitId", dir: "asc" },
+  );
+
   const item = itemData?.data;
   const unitStatusLabels: Record<string, string> = {
     available: "Disponível",
@@ -44,6 +56,19 @@ const ItemDetailPage: React.FC = () => {
     maintenance: "Manutenção",
     damaged: "Danificado",
   };
+
+  const sortedUnits = useMemo(() => {
+    const rows = item?.units ?? [];
+    return sortedTableRows(rows, unitSort, {
+      unitId: (u) => String(u.unitId || "").toLowerCase(),
+      status: (u) =>
+        String(unitStatusLabels[u.status] || u.status || "").toLowerCase(),
+      location: (u) => String(u.location || "").toLowerCase(),
+    });
+  }, [item?.units, unitSort]);
+
+  const handleUnitSort = (k: UnitRowSortKey) =>
+    setUnitSort((prev) => toggleColumnSort(prev, k));
 
   useEffect(() => {
     if (!item?._id) return;
@@ -380,13 +405,31 @@ const ItemDetailPage: React.FC = () => {
                       <table className="min-w-full text-sm">
                         <thead>
                           <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-gray-500 dark:text-gray-400">
-                            <th className="py-2 pr-4">ID</th>
-                            <th className="py-2 pr-4">Status</th>
-                            <th className="py-2 pr-4">Local</th>
+                            <SortableTh<UnitRowSortKey>
+                              columnKey="unitId"
+                              label="ID"
+                              sort={unitSort}
+                              onSort={handleUnitSort}
+                              thClassName="py-2 pr-4"
+                            />
+                            <SortableTh<UnitRowSortKey>
+                              columnKey="status"
+                              label="Status"
+                              sort={unitSort}
+                              onSort={handleUnitSort}
+                              thClassName="py-2 pr-4"
+                            />
+                            <SortableTh<UnitRowSortKey>
+                              columnKey="location"
+                              label="Local"
+                              sort={unitSort}
+                              onSort={handleUnitSort}
+                              thClassName="py-2 pr-4"
+                            />
                           </tr>
                         </thead>
                         <tbody>
-                          {item.units.map((u, idx) => (
+                          {sortedUnits.map((u, idx) => (
                             <tr
                               key={`${u.unitId}-${idx}`}
                               className="border-b border-gray-100 dark:border-gray-700/80 text-gray-900 dark:text-white"

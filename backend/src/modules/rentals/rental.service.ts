@@ -18,7 +18,13 @@ import mongoose, { Error } from "mongoose";
 import { randomUUID } from "crypto";
 import { ICustomer } from "../customers/customer.types";
 import { Customer } from "../customers/customer.model";
-import { RoleType } from "@/shared/constants/roles";
+import { RoleType } from "../../shared/constants/roles";
+import {
+  badRequest,
+  conflict,
+  forbidden,
+  notFound,
+} from "../../shared/utils/http-error.util";
 import {
   canApplyDiscount,
   canUpdateRentalStatus,
@@ -530,14 +536,69 @@ class RentalService {
     return Math.max(0, rates[rentalType] || 0);
   }
 
+  /**
+   * Preços efetivos para linhas do aluguel: mantém valores cadastrados e,
+   * quando há diária mas falta valor do período solicitado (ex.: só diária no
+   * cadastro e contrato quinzenal), deriva período proporcional aos padrões
+   * já usados no domínio (7 / 15 / 30 dias).
+   */
+  private getEffectivePricingForRentalLines(inventoryItem: any): {
+    dailyRate: number;
+    weeklyRate: number;
+    biweeklyRate: number;
+    monthlyRate: number;
+  } {
+    const p = inventoryItem?.pricing || {};
+    const dailyRate = Math.max(0, Number(p.dailyRate ?? 0));
+    let weeklyRate = Math.max(0, Number(p.weeklyRate ?? 0));
+    let biweeklyRate = Math.max(0, Number(p.biweeklyRate ?? 0));
+    let monthlyRate = Math.max(0, Number(p.monthlyRate ?? 0));
+    if (dailyRate > 0) {
+      if (weeklyRate <= 0) {
+        weeklyRate = Number((dailyRate * 7).toFixed(2));
+      }
+      if (biweeklyRate <= 0) {
+        biweeklyRate = Number((dailyRate * 15).toFixed(2));
+      }
+      if (monthlyRate <= 0) {
+        monthlyRate = Number((dailyRate * 30).toFixed(2));
+      }
+    }
+    return { dailyRate, weeklyRate, biweeklyRate, monthlyRate };
+  }
+
   private assertConfiguredRateForRentalType(
     inventoryItem: any,
     rentalType: RentalType,
   ): void {
-    const rate = this.getConfiguredRateForRentalType(inventoryItem, rentalType);
+    const eff = this.getEffectivePricingForRentalLines(inventoryItem);
+    const rate =
+      rentalType === "daily"
+        ? eff.dailyRate
+        : rentalType === "weekly"
+          ? eff.weeklyRate
+          : rentalType === "biweekly"
+            ? eff.biweeklyRate
+            : eff.monthlyRate;
+
+    const raw = Math.max(
+      0,
+      rentalType === "daily"
+        ? Number(inventoryItem.pricing?.dailyRate ?? 0)
+        : rentalType === "weekly"
+          ? Number(inventoryItem.pricing?.weeklyRate ?? 0)
+          : rentalType === "biweekly"
+            ? Number(inventoryItem.pricing?.biweeklyRate ?? 0)
+            : Number(inventoryItem.pricing?.monthlyRate ?? 0),
+    );
+
     if (rate <= 0) {
-      throw new Error(
-        `Cadastre o valor ${this.rentalTypeLabelForError(rentalType)} do item "${inventoryItem.name}" antes de concluir o aluguel.`,
+      const label =
+        rentalType !== "daily" && raw <= 0 && eff.dailyRate <= 0
+          ? `${this.rentalTypeLabelForError(rentalType)} ou a diária`
+          : `${this.rentalTypeLabelForError(rentalType)}`;
+      throw badRequest(
+        `Cadastre o valor ${label} do item "${inventoryItem.name}" antes de concluir o aluguel.`,
       );
     }
   }
@@ -555,7 +616,7 @@ class RentalService {
     rentalType?: RentalType,
   ): number {
     if (!rentalType) {
-      throw new Error("RentalType é obrigatório para cálculo do aluguel");
+      throw badRequest("RentalType é obrigatório para cálculo do aluguel");
     }
 
     const period = calculateBillingPeriod(startDate, endDate, rentalType);
@@ -605,18 +666,18 @@ class RentalService {
   ): Promise<IRental> {
     const rentalNumber = await this.generateRentalNumber(companyId);
     const user = await User.findById(userId);
-    if (!user) throw new Error("Usuário não encontrado");
+    if (!user) throw notFound("Usuário não encontrado");
 
     if (data.pricing?.discount && !canApplyDiscount(user.role as RoleType)) {
-      throw new Error("Somente o admin pode aplicar desconto");
+      throw forbidden("Somente o admin pode aplicar desconto");
     }
 
     const customer = await Customer.findOne({ _id: data.customerId, companyId });
-    if (!customer) throw new Error("Cliente não encontrado");
+    if (!customer) throw notFound("Cliente não encontrado");
 
     const customerCpf = this.normalizeCpf(data.customerCpf || customer.cpfCnpj);
     if (!this.isValidCpf(customerCpf)) {
-      throw new Error("Informe um CPF/CNPJ válido para o cliente");
+      throw badRequest("Informe um CPF/CNPJ válido para o cliente");
     }
 
     const duplicateCpfCustomer = await Customer.findOne({
@@ -625,7 +686,7 @@ class RentalService {
       cpfCnpj: customerCpf,
     });
     if (duplicateCpfCustomer) {
-      throw new Error("CPF/CNPJ já cadastrado para outro cliente");
+      throw conflict("CPF/CNPJ já cadastrado para outro cliente");
     }
 
     if (this.normalizeCpf(customer.cpfCnpj) !== customerCpf) {
@@ -665,7 +726,7 @@ class RentalService {
     // Validar disponibilidade e preço do tipo escolhido
     for (const item of data.items) {
       const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
-      if (!inventoryItem) throw new Error(`Item ${item.itemId} não encontrado`);
+      if (!inventoryItem) throw notFound(`Item ${item.itemId} não encontrado`);
 
       const rentalType: RentalType =
         item.rentalType &&
@@ -676,7 +737,7 @@ class RentalService {
 
       if (inventoryItem.trackingType === "unit") {
         if (!item.unitId)
-          throw new Error(`Item ${inventoryItem.name} precisa de unitId`);
+          throw badRequest(`Item ${inventoryItem.name} precisa de unitId`);
 
         const unit = inventoryItem.units?.find((u) => u.unitId === item.unitId);
         if (!unit || unit.status !== "available") {
@@ -686,14 +747,14 @@ class RentalService {
               .map((u) => u.unitId)
               .join(", ") || "nenhuma";
           const currentStatus = unit?.status || "não encontrada";
-          throw new Error(
+          throw badRequest(
             `Unidade ${item.unitId} do item "${inventoryItem.name}" indisponível (status: ${currentStatus}). Unidades disponíveis: ${availableUnits}.`,
           );
         }
       } else {
         const available = inventoryItem.quantity.available || 0;
         if (available < item.quantity) {
-          throw new Error(
+          throw badRequest(
             `Estoque insuficiente para "${inventoryItem.name}". Disponível: ${available}. Solicitado: ${item.quantity}.`,
           );
         }
@@ -734,14 +795,15 @@ class RentalService {
         }
       }
 
+      const eff = this.getEffectivePricingForRentalLines(inventoryItem);
       pickupDates.push(pickupScheduled);
       returnDates.push(returnScheduled);
 
       const unitPrice = calculateRentalPriceCorrect(
-        inventoryItem.pricing.dailyRate,
-        inventoryItem.pricing.weeklyRate,
-        inventoryItem.pricing.biweeklyRate,
-        inventoryItem.pricing.monthlyRate,
+        eff.dailyRate,
+        eff.weeklyRate,
+        eff.biweeklyRate,
+        eff.monthlyRate,
         pickupScheduled,
         returnScheduled,
         rentalType,
@@ -890,11 +952,11 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
-      throw new Error("Aluguel não encontrado");
+      throw notFound("Aluguel não encontrado");
     }
 
     if (rental.status === "completed") {
-      throw new Error("Aluguel já finalizado");
+      throw badRequest("Aluguel já finalizado");
     }
 
     //Datas reais
@@ -974,7 +1036,7 @@ class RentalService {
     }).lean();
 
     if (!rental) {
-      throw new Error("Aluguel não encontrado");
+      throw notFound("Aluguel não encontrado");
     }
 
     const startDate = rental.dates.pickupActual ?? rental.dates.pickupScheduled;
@@ -1040,13 +1102,13 @@ class RentalService {
     }).lean();
 
     if (!rental) {
-      throw new Error("Aluguel não encontrado");
+      throw notFound("Aluguel não encontrado");
     }
 
     const targetItem = this.findOpenRentalItem(rental.items, itemId, unitId);
 
     if (!targetItem) {
-      throw new Error("Item não encontrado no aluguel");
+      throw badRequest(`Item não encontrado no aluguel`);
     }
 
     const startDate =
@@ -1068,7 +1130,7 @@ class RentalService {
 
     const inventoryItem = await Item.findOne({ _id: targetItem.itemId, companyId }).lean();
     if (!inventoryItem) {
-      throw new Error("Item do inventário não encontrado");
+      throw notFound("Item do inventário não encontrado");
     }
     const period = calculateBillingPeriod(startDate, endDate, rentalType);
     const { amount } = calculateRentalLineAmount(
@@ -1120,17 +1182,17 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
-      throw new Error("Aluguel não encontrado");
+      throw notFound("Aluguel não encontrado");
     }
 
     const targetItem = this.findOpenRentalItem(rental.items, itemId, unitId);
 
     if (!targetItem) {
-      throw new Error("Item não encontrado no aluguel");
+      throw badRequest(`Item não encontrado no aluguel`);
     }
 
     if (targetItem.returnActual) {
-      throw new Error("Item já finalizado");
+      throw badRequest("Item já finalizado");
     }
 
     // =========================
@@ -1142,8 +1204,8 @@ class RentalService {
     });
 
     if (!inventoryItem) {
-      throw new Error(
-        `Sistema de aluguel: Item com ID ${targetItem.itemId} não foi encontrado no inventário. O item pode ter sido removido do sistema. Por favor, contate o administrador para verificar a consistência dos dados.`
+      throw notFound(
+        `Sistema de aluguel: Item com ID ${targetItem.itemId} não foi encontrado no inventário. O item pode ter sido removido do sistema. Por favor, contate o administrador para verificar a consistência dos dados.`,
       );
     }
 
@@ -1174,13 +1236,13 @@ class RentalService {
 
         // Verificar se está em "reserved" ao invés de "rented"
         if (inventoryItem.quantity.reserved >= targetItem.quantity) {
-          throw new Error(
-            `Item "${inventoryItem.name}" não foi ativado: O item ainda está reservado e não foi confirmado como retirado. Por favor, cancele a reserva ou ative o aluguel antes de fechar o item. Contate o administrador se este erro persistir.`
+          throw badRequest(
+            `Item "${inventoryItem.name}" não foi ativado: O item ainda está reservado e não foi confirmado como retirado. Por favor, cancele a reserva ou ative o aluguel antes de fechar o item. Contate o administrador se este erro persistir.`,
           );
         }
 
-        throw new Error(
-          `Quantidade inconsistente para "${inventoryItem.name}": O sistema registra apenas ${inventoryItem.quantity.rented} unidades alugadas, mas o contrato indica ${targetItem.quantity}. Isto pode indicar uma inconsistência nos dados ou que o item já foi devolvido anteriormente. Por favor, contate o administrador.`
+        throw badRequest(
+          `Quantidade inconsistente para "${inventoryItem.name}": O sistema registra apenas ${inventoryItem.quantity.rented} unidades alugadas, mas o contrato indica ${targetItem.quantity}. Isto pode indicar uma inconsistência nos dados ou que o item já foi devolvido anteriormente. Por favor, contate o administrador.`,
         );
       }
     }
@@ -1362,10 +1424,10 @@ class RentalService {
   ): Promise<IRental> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
     if (!rental) {
-      throw new Error("Aluguel não encontrado");
+      throw notFound("Aluguel não encontrado");
     }
     if (rental.status === "completed" || rental.status === "cancelled") {
-      throw new Error("Não é possível devolver itens de aluguel finalizado/cancelado");
+      throw badRequest("Não é possível devolver itens de aluguel finalizado/cancelado");
     }
 
     const finalReturnDateNorm = payload.returnDate
@@ -1379,7 +1441,7 @@ class RentalService {
         reqItem.unitId,
       );
       if (idx === -1) {
-        throw new Error(
+        throw badRequest(
           `Item ${reqItem.itemId} não encontrado no aluguel em aberto (ou já foi devolvido)`,
         );
       }
@@ -1414,7 +1476,7 @@ class RentalService {
       }
 
       if (periodEndNorm.getTime() <= periodStartRaw.getTime()) {
-        throw new Error(
+        throw badRequest(
           "Data de devolução deve ser posterior ao início do período de cobrança",
         );
       }
@@ -1434,7 +1496,7 @@ class RentalService {
         companyId,
       });
       if (!invForLine) {
-        throw new Error("Item do inventário não encontrado");
+        throw notFound("Item do inventário não encontrado");
       }
       if (reqItem.billingRentalType) {
         this.assertConfiguredRateForRentalType(
@@ -1557,7 +1619,7 @@ class RentalService {
         const { rate: remainderRate, message: remainderMsg } =
           periodRateFromInventory(invForLine.pricing, remainderType);
         if (remainderRate <= 0) {
-          throw new Error(
+          throw badRequest(
             remainderMsg ||
               "Cadastre no equipamento o valor da cobrança do saldo (tipo do contrato restante).",
           );
@@ -1615,11 +1677,11 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
-      throw new Error("Aluguel não encontrado");
+      throw notFound("Aluguel não encontrado");
     }
 
     if (rental.status !== "ready_to_close") {
-      throw new Error(
+      throw badRequest(
         `Apenas aluguéis em status "Pronto para fechar" podem ser finalizados. Status atual: ${rental.status}`,
       );
     }
@@ -1627,7 +1689,7 @@ class RentalService {
     // Verifica se todos os itens foram realmente devolvidos
     const notReturned = rental.items.filter((item) => !item.returnActual);
     if (notReturned.length > 0) {
-      throw new Error(
+      throw badRequest(
         `Não é possível finalizar: ${notReturned.length} item(ns) ainda não foi/foram devolvido(s)`,
       );
     }
@@ -1770,7 +1832,7 @@ class RentalService {
   }> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
     if (!rental) {
-      throw new Error("Aluguel não encontrado");
+      throw notFound("Aluguel não encontrado");
     }
     if (rental.status === "completed" || rental.status === "cancelled") {
       return { created: 0, draftsCreated: 0, refreshed: 0 };
@@ -1886,7 +1948,7 @@ class RentalService {
   }> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
     if (!rental) {
-      throw new Error("Aluguel não encontrado");
+      throw notFound("Aluguel não encontrado");
     }
 
     if (rental.status !== "active" && rental.status !== "overdue") {
@@ -2193,7 +2255,7 @@ class RentalService {
       .populate("createdBy", "name");
 
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
 
     const company = rental.companyId as any;
@@ -2879,7 +2941,7 @@ class RentalService {
     for (const item of rental.items) {
       const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
       if (!inventoryItem) {
-        throw new Error(`Item ${item.itemId} not found`);
+        throw notFound(`Item ${item.itemId} not found`);
       }
 
       const pickupScheduled =
@@ -2889,11 +2951,12 @@ class RentalService {
         returnScheduled ||
         this.getPricingEndDate(pickupScheduled, item.rentalType);
 
+      const eff = this.getEffectivePricingForRentalLines(inventoryItem);
       const price = this.calculateRentalPrice(
-        inventoryItem.pricing.dailyRate,
-        inventoryItem.pricing.weeklyRate,
-        inventoryItem.pricing.biweeklyRate,
-        inventoryItem.pricing.monthlyRate,
+        eff.dailyRate,
+        eff.weeklyRate,
+        eff.biweeklyRate,
+        eff.monthlyRate,
         pickupScheduled,
         pricingEndDate,
         item.rentalType,
@@ -3354,18 +3417,18 @@ class RentalService {
   ): Promise<UpdateRentalStatusResponse> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      throw new Error("Usuário não encontrado");
+      throw notFound("Usuário não encontrado");
     }
 
     const isAdmin = canUpdateRentalStatus(user.role as RoleType);
 
     if (adjustments && status !== "completed") {
-      throw new Error("Ajustes só podem ser enviados no fechamento do aluguel");
+      throw badRequest("Ajustes só podem ser enviados no fechamento do aluguel");
     }
 
     // funcionário → cria solicitação
@@ -3499,11 +3562,11 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
 
     if (rental.status !== "active" && rental.status !== "reserved") {
-      throw new Error("Can only extend active or reserved rentals");
+      throw badRequest("Can only extend active or reserved rentals");
     }
 
     const oldReturnDate = rental.dates.returnScheduled;
@@ -3514,11 +3577,12 @@ class RentalService {
     for (const item of rental.items) {
       const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
       if (inventoryItem) {
+        const eff = this.getEffectivePricingForRentalLines(inventoryItem);
         const price = this.calculateRentalPrice(
-          inventoryItem.pricing.dailyRate,
-          inventoryItem.pricing.weeklyRate,
-          inventoryItem.pricing.biweeklyRate,
-          inventoryItem.pricing.monthlyRate,
+          eff.dailyRate,
+          eff.weeklyRate,
+          eff.biweeklyRate,
+          eff.monthlyRate,
           rental.dates.pickupScheduled,
           rental.dates.returnScheduled,
           item.rentalType,
@@ -3551,7 +3615,7 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
 
     rental.checklistPickup = {
@@ -3576,7 +3640,7 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
 
     rental.checklistReturn = {
@@ -3601,12 +3665,12 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      throw new Error("Usuário não encontrado");
+      throw notFound("Usuário não encontrado");
     }
 
     const changes: Record<string, any> = {};
@@ -3744,12 +3808,12 @@ class RentalService {
           companyId,
         });
         if (!inventoryItem) {
-          throw new Error(`Item ${itemUpdate.itemId} not found`);
+          throw notFound(`Item ${itemUpdate.itemId} not found`);
         }
 
         const isUnit = inventoryItem.trackingType === "unit";
         if (isUnit && !itemUpdate.unitId) {
-          throw new Error(
+          throw badRequest(
             `Item ${inventoryItem.name} is unit-based. Please specify unitId.`,
           );
         }
@@ -3800,7 +3864,7 @@ class RentalService {
           if (!isUnit) {
             const available = inventoryItem.quantity.available || 0;
             if (available < quantity) {
-              throw new Error(
+              throw badRequest(
                 `Insufficient quantity for item ${inventoryItem.name}. Available: ${available}, Requested: ${quantity}`,
               );
             }
@@ -3809,7 +3873,7 @@ class RentalService {
               (u) => u.unitId === itemUpdate.unitId,
             );
             if (!unit || unit.status !== "available") {
-              throw new Error(
+              throw badRequest(
                 `Unit ${itemUpdate.unitId} is not available for rental`,
               );
             }
@@ -3842,11 +3906,12 @@ class RentalService {
             }
           }
 
+          const eff = this.getEffectivePricingForRentalLines(inventoryItem);
           const price = this.calculateRentalPrice(
-            inventoryItem.pricing.dailyRate,
-            inventoryItem.pricing.weeklyRate,
-            inventoryItem.pricing.biweeklyRate,
-            inventoryItem.pricing.monthlyRate,
+            eff.dailyRate,
+            eff.weeklyRate,
+            eff.biweeklyRate,
+            eff.monthlyRate,
             pickupScheduled,
             pricingEndDate,
             rentalType,
@@ -3865,19 +3930,13 @@ class RentalService {
             subtotal: price * quantity,
           } as any);
 
-          const action =
-            rental.status === "active" || rental.status === "overdue"
-              ? "activate"
-              : "reserve";
-          await this.updateItemQuantityForRental(
+          await this.reserveThenActivateNewRentalLine(
             companyId,
+            rental,
             itemUpdate.itemId,
             quantity,
-            action,
-            userId,
-            rental._id,
             itemUpdate.unitId,
-            rental.customerId.toString(),
+            userId,
           );
         }
 
@@ -4089,6 +4148,58 @@ class RentalService {
     };
   }
 
+  /** Nova linha em aluguel já em campo: mesmo fluxo da criação (reserva → ativa). */
+  private async reserveThenActivateNewRentalLine(
+    companyId: string,
+    rental: {
+      _id: mongoose.Types.ObjectId;
+      status: string;
+      customerId: mongoose.Types.ObjectId;
+    },
+    itemId: mongoose.Types.ObjectId,
+    quantity: number,
+    unitId: string | undefined,
+    userId: string,
+  ): Promise<void> {
+    const customerIdStr = rental.customerId.toString();
+    const onField =
+      rental.status === "active" || rental.status === "overdue";
+
+    if (onField) {
+      await this.updateItemQuantityForRental(
+        companyId,
+        itemId,
+        quantity,
+        "reserve",
+        userId,
+        rental._id,
+        unitId,
+        customerIdStr,
+      );
+      await this.updateItemQuantityForRental(
+        companyId,
+        itemId,
+        quantity,
+        "activate",
+        userId,
+        rental._id,
+        unitId,
+        customerIdStr,
+      );
+    } else {
+      await this.updateItemQuantityForRental(
+        companyId,
+        itemId,
+        quantity,
+        "reserve",
+        userId,
+        rental._id,
+        unitId,
+        customerIdStr,
+      );
+    }
+  }
+
   private async updateItemQuantityForRental(
     companyId: string,
     itemId: mongoose.Types.ObjectId,
@@ -4102,7 +4213,7 @@ class RentalService {
     const item = await Item.findOne({ _id: itemId, companyId });
 
     if (!item) {
-      throw new Error("Item not found");
+      throw notFound("Item not found");
     }
 
     // =========================
@@ -4116,7 +4227,7 @@ class RentalService {
 
       const unit = item.units?.find((u) => u.unitId === unitId);
       if (!unit) {
-        throw new Error("Unidade não encontrada");
+        throw notFound("Unidade não encontrada");
       }
 
       switch (action) {
@@ -4124,7 +4235,7 @@ class RentalService {
           if (unit.status === "reserved") return; // idempotente
 
           if (unit.status !== "available") {
-            throw new Error(`Unidade ${unit.unitId} não está disponível`);
+            throw badRequest(`Unidade ${unit.unitId} não está disponível`);
           }
 
           unit.status = "reserved";
@@ -4138,7 +4249,7 @@ class RentalService {
           if (unit.status === "rented") return; // idempotente
 
           if (unit.status !== "reserved") {
-            throw new Error(`Unidade ${unit.unitId} não está reservada`);
+            throw badRequest(`Unidade ${unit.unitId} não está reservada`);
           }
 
           unit.status = "rented";
@@ -4156,7 +4267,7 @@ class RentalService {
           }
 
           if (unit.status !== "rented") {
-            throw new Error(`Unidade ${unit.unitId} não está alugada`);
+            throw badRequest(`Unidade ${unit.unitId} não está alugada`);
           }
 
           unit.status = "available";
@@ -4258,8 +4369,8 @@ class RentalService {
         rentalId,
       });
 
-      throw new Error(
-        `Operação inválida de quantidade para "${item.name}": Após ${action} de ${quantity} unidades, a quantidade dis${action === "return" ? "ponível" : "reservada"} ficaria negativa. ${action === "return" ? "Isto pode indicar que o item já foi devolvido ou há inconsistência nos dados." : "Verifique a disponibilidade do item."}. Por favor, contate o administrador.`
+      throw badRequest(
+        `Operação inválida de quantidade para "${item.name}": Após ${action} de ${quantity} unidades, a quantidade dis${action === "return" ? "ponível" : "reservada"} ficaria negativa. ${action === "return" ? "Isto pode indicar que o item já foi devolvido ou há inconsistência nos dados." : "Verifique a disponibilidade do item."}. Por favor, contate o administrador.`,
       );
     }
 
@@ -4291,7 +4402,7 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
 
     if (!rental.pendingApprovals) {
@@ -4326,22 +4437,22 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
 
     if (!rental.pendingApprovals || rental.pendingApprovals.length === 0) {
-      throw new Error("Approval request not found");
+      throw notFound("Approval request not found");
     }
 
     const approval = rental.pendingApprovals.find(
       (item) => item._id?.toString() === approvalId,
     );
     if (!approval) {
-      throw new Error("Approval request not found");
+      throw notFound("Approval request not found");
     }
 
     if (approval.status !== "pending") {
-      throw new Error("Approval request is not pending");
+      throw conflict("Approval request is not pending");
     }
 
     // Aplicar a alteração baseada no tipo de solicitação
@@ -4380,22 +4491,22 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
 
     if (!rental.pendingApprovals || rental.pendingApprovals.length === 0) {
-      throw new Error("Approval request not found");
+      throw notFound("Approval request not found");
     }
 
     const approval = rental.pendingApprovals.find(
       (item) => item._id?.toString() === approvalId,
     );
     if (!approval) {
-      throw new Error("Approval request not found");
+      throw notFound("Approval request not found");
     }
 
     if (approval.status !== "pending") {
-      throw new Error("Approval request is not pending");
+      throw conflict("Approval request is not pending");
     }
 
     approval.status = "rejected";
@@ -4593,12 +4704,12 @@ class RentalService {
               companyId: rental.companyId,
             });
             if (!inventoryItem) {
-              throw new Error(`Item ${itemChange.itemId} not found`);
+              throw notFound(`Item ${itemChange.itemId} not found`);
             }
 
             const isUnit = inventoryItem.trackingType === "unit";
             if (isUnit && !itemChange.unitId) {
-              throw new Error(
+              throw badRequest(
                 `Item ${inventoryItem.name} is unit-based. Please specify unitId.`,
               );
             }
@@ -4630,7 +4741,7 @@ class RentalService {
               if (!isUnit) {
                 const available = inventoryItem.quantity.available || 0;
                 if (available < quantity) {
-                  throw new Error(
+                  throw badRequest(
                     `Insufficient quantity for item ${inventoryItem.name}. Available: ${available}, Requested: ${quantity}`,
                   );
                 }
@@ -4639,7 +4750,7 @@ class RentalService {
                   (u) => u.unitId === itemChange.unitId,
                 );
                 if (!unit || unit.status !== "available") {
-                  throw new Error(
+                  throw badRequest(
                     `Unit ${itemChange.unitId} is not available for rental`,
                   );
                 }
@@ -4657,11 +4768,12 @@ class RentalService {
                 returnScheduled ||
                 this.getPricingEndDate(pickupScheduled, rentalType);
 
+              const eff = this.getEffectivePricingForRentalLines(inventoryItem);
               const price = this.calculateRentalPrice(
-                inventoryItem.pricing.dailyRate,
-                inventoryItem.pricing.weeklyRate,
-                inventoryItem.pricing.biweeklyRate,
-                inventoryItem.pricing.monthlyRate,
+                eff.dailyRate,
+                eff.weeklyRate,
+                eff.biweeklyRate,
+                eff.monthlyRate,
                 pickupScheduled,
                 pricingEndDate,
                 rentalType,
@@ -4678,19 +4790,13 @@ class RentalService {
                 subtotal: price * quantity,
               } as any);
 
-              const action =
-                rental.status === "active" || rental.status === "overdue"
-                  ? "activate"
-                  : "reserve";
-              await this.updateItemQuantityForRental(
+              await this.reserveThenActivateNewRentalLine(
                 rental.companyId.toString(),
+                rental,
                 itemChange.itemId,
                 quantity,
-                action,
-                userId,
-                rental._id,
                 itemChange.unitId,
-                rental.customerId.toString(),
+                userId,
               );
             }
 
@@ -4800,7 +4906,7 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
 
     const subtotal = rental.pricing.subtotal;
@@ -4859,12 +4965,12 @@ class RentalService {
   ): Promise<IRental | null> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
 
     const item = this.findOpenRentalItem(rental.items, itemId, options?.unitId);
     if (!item) {
-      throw new Error("Item not found in rental");
+      throw notFound("Item not found in rental");
     }
 
     const previousRentalType = item.rentalType || "daily";
@@ -4877,7 +4983,7 @@ class RentalService {
       companyId,
     });
     if (!inventoryItem) {
-      throw new Error("Item not found");
+      throw notFound("Item not found");
     }
     this.assertConfiguredRateForRentalType(inventoryItem, newRentalType);
 
@@ -4941,10 +5047,10 @@ class RentalService {
   ): Promise<IRental | null> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
     if (!rental) {
-      throw new Error("Rental not found");
+      throw notFound("Rental not found");
     }
     if (itemIndex < 0 || itemIndex >= rental.items.length) {
-      throw new Error("Item index out of range");
+      throw badRequest("Item index out of range");
     }
 
     const item = rental.items[itemIndex];

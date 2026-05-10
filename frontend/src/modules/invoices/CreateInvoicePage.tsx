@@ -9,7 +9,20 @@ import { toast } from "react-toastify";
 import { ArrowLeft, FilePlus2 } from "lucide-react";
 import type { CustomerAddress } from "../../types/customer.types";
 import { formatDocumentForDisplay } from "../../utils/formatters";
+import { billingStatusLabel } from "../../utils/statusLabels";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
 
+type CreateInvoiceBillingSortKey =
+  | "closure"
+  | "period"
+  | "items"
+  | "status"
+  | "total";
 const CreateInvoicePage: React.FC = () => {
   const navigate = useNavigate();
   const [customerId, setCustomerId] = useState("");
@@ -32,6 +45,12 @@ const CreateInvoicePage: React.FC = () => {
   const [notes, setNotes] = useState("");
   const [tax, setTax] = useState("");
   const [discount, setDiscount] = useState("");
+  const [createInvBillingSort, setCreateInvBillingSort] = useState<
+    ColumnSort<CreateInvoiceBillingSortKey> | null
+  >({
+    key: "period",
+    dir: "desc",
+  });
 
   const { data: customersRes, isLoading: loadingCustomers } = useQuery({
     queryKey: ["customers-invoice-create"],
@@ -81,6 +100,36 @@ const CreateInvoicePage: React.FC = () => {
   const customerDetail = customerDetailRes?.data;
   const customerAddresses = customerDetail?.addresses ?? [];
   const billings = billingsRes?.data?.billings ?? [];
+
+  const sortedBillingsForCreateInv = useMemo(
+    () =>
+      sortedTableRows(billings, createInvBillingSort, {
+        closure: (b) => String(b.billingNumber ?? "").toLowerCase(),
+        period: (b) =>
+          b.periodStart ? new Date(b.periodStart).getTime() : 0,
+        items: (b: any) => {
+          const names = [
+            ...(b.items || []).map((it: any) =>
+              typeof it.itemId === "object" && it.itemId?.name
+                ? it.itemId.name
+                : "",
+            ),
+            ...(b.services || []).map((s: any) => s.description || "servico"),
+          ]
+            .filter(Boolean)
+            .join(", ")
+            .toLowerCase();
+          return names;
+        },
+        status: (b: any) =>
+          String(billingStatusLabel[b.status as keyof typeof billingStatusLabel] || b.status || ""),
+        total: (b) => Number(b.calculation?.total ?? 0),
+      }),
+    [billings, createInvBillingSort],
+  );
+
+  const handleCreateInvBillingSort = (k: CreateInvoiceBillingSortKey) =>
+    setCreateInvBillingSort((prev) => toggleColumnSort(prev, k));
 
   const selectedBillings = useMemo(
     () => billings.filter((b) => selectedIds.has(b._id)),
@@ -472,28 +521,49 @@ const CreateInvoicePage: React.FC = () => {
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                  <thead className="bg-gray-50 dark:bg-gray-900/50">
+                    <thead className="bg-gray-50 dark:bg-gray-900/50">
                     <tr>
                       <th className="w-10 px-3 py-2" />
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
-                        Fechamento
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
-                        Período
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
-                        Itens
-                      </th>
-                      <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">
-                        Status
-                      </th>
-                      <th className="px-3 py-2 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">
-                        Total
-                      </th>
+                      <SortableTh<CreateInvoiceBillingSortKey>
+                        columnKey="closure"
+                        label="Fechamento"
+                        sort={createInvBillingSort}
+                        onSort={handleCreateInvBillingSort}
+                        thClassName="px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300"
+                      />
+                      <SortableTh<CreateInvoiceBillingSortKey>
+                        columnKey="period"
+                        label="Período"
+                        sort={createInvBillingSort}
+                        onSort={handleCreateInvBillingSort}
+                        thClassName="px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300"
+                      />
+                      <SortableTh<CreateInvoiceBillingSortKey>
+                        columnKey="items"
+                        label="Itens"
+                        sort={createInvBillingSort}
+                        onSort={handleCreateInvBillingSort}
+                        thClassName="px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300"
+                      />
+                      <SortableTh<CreateInvoiceBillingSortKey>
+                        columnKey="status"
+                        label="Status"
+                        sort={createInvBillingSort}
+                        onSort={handleCreateInvBillingSort}
+                        thClassName="px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300"
+                      />
+                      <SortableTh<CreateInvoiceBillingSortKey>
+                        columnKey="total"
+                        label="Total"
+                        align="right"
+                        sort={createInvBillingSort}
+                        onSort={handleCreateInvBillingSort}
+                        thClassName="px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300"
+                      />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {billings.map((b) => {
+                    {sortedBillingsForCreateInv.map((b) => {
                       const total = b.calculation?.total ?? 0;
                       const rentalNo =
                         typeof b.rentalId === "object" && b.rentalId?.rentalNumber

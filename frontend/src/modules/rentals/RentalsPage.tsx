@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
@@ -7,6 +7,20 @@ import { CheckCircle } from "lucide-react";
 import Layout from "../../components/Layout";
 import { rentalStatusLabel } from "../../utils/statusLabels";
 import { formatDateNoTimezoneShift } from "../../utils/formatters";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
+
+type RentalSortKey =
+  | "number"
+  | "customer"
+  | "itemsCount"
+  | "period"
+  | "value"
+  | "status";
 const RentalsPage: React.FC = () => {
   const location = useLocation();
   const [filters, setFilters] = useState<RentalFilters>({
@@ -17,6 +31,10 @@ const RentalsPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showModal, setShowModal] = useState(false);
   const [newRentalId, setNewRentalId] = useState<string | null>(null);
+  const [rentalSort, setRentalSort] = useState<ColumnSort<RentalSortKey> | null>({
+    key: "period",
+    dir: "desc",
+  });
 
   useEffect(() => {
     if (location.state?.showSuccessModal) {
@@ -83,6 +101,35 @@ const RentalsPage: React.FC = () => {
     },
   });
 
+  const rentals = data?.data || [];
+  const pagination = data?.pagination;
+
+  const sortedRentalsList = useMemo(
+    () =>
+      sortedTableRows(rentals, rentalSort, {
+        number: (r) =>
+          typeof r.rentalNumber === "number"
+            ? r.rentalNumber
+            : String(r.rentalNumber ?? ""),
+        customer: (r) =>
+          (typeof r.customerId === "object" && r.customerId?.name
+            ? r.customerId.name
+            : ""
+          ).toLowerCase(),
+        itemsCount: (r) => r.items?.length ?? 0,
+        period: (r) =>
+          r.dates?.pickupScheduled
+            ? new Date(r.dates.pickupScheduled).getTime()
+            : 0,
+        value: (r) => Number(r.pricing?.total ?? 0),
+        status: (r) => rentalStatusLabel[r.status] || r.status,
+      }),
+    [rentals, rentalSort],
+  );
+
+  const handleRentalSort = (k: RentalSortKey) =>
+    setRentalSort((prev) => toggleColumnSort(prev, k));
+
   if (isLoading) {
     return (
       <Layout title="Aluguéis e Reservas" backTo="/dashboard">
@@ -104,9 +151,6 @@ const RentalsPage: React.FC = () => {
       </Layout>
     );
   }
-
-  const rentals = data?.data || [];
-  const pagination = data?.pagination;
 
   // Simple calendar view
   const renderCalendarView = () => {
@@ -310,31 +354,55 @@ const RentalsPage: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                   <thead className="bg-gray-50 dark:bg-gray-700">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                        Número
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                        Cliente
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                        Itens
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                        Período
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                        Valor
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                        Status
-                      </th>
+                      <SortableTh<RentalSortKey>
+                        columnKey="number"
+                        label="Número"
+                        sort={rentalSort}
+                        onSort={handleRentalSort}
+                        thClassName="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                      />
+                      <SortableTh<RentalSortKey>
+                        columnKey="customer"
+                        label="Cliente"
+                        sort={rentalSort}
+                        onSort={handleRentalSort}
+                        thClassName="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                      />
+                      <SortableTh<RentalSortKey>
+                        columnKey="itemsCount"
+                        label="Itens"
+                        sort={rentalSort}
+                        onSort={handleRentalSort}
+                        thClassName="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                      />
+                      <SortableTh<RentalSortKey>
+                        columnKey="period"
+                        label="Período"
+                        sort={rentalSort}
+                        onSort={handleRentalSort}
+                        thClassName="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                      />
+                      <SortableTh<RentalSortKey>
+                        columnKey="value"
+                        label="Valor"
+                        sort={rentalSort}
+                        onSort={handleRentalSort}
+                        thClassName="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                      />
+                      <SortableTh<RentalSortKey>
+                        columnKey="status"
+                        label="Status"
+                        sort={rentalSort}
+                        onSort={handleRentalSort}
+                        thClassName="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                      />
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap">
                         Ações
                       </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                    {rentals.length === 0 ? (
+                    {sortedRentalsList.length === 0 ? (
                       <tr>
                         <td
                           colSpan={7}
@@ -344,7 +412,7 @@ const RentalsPage: React.FC = () => {
                         </td>
                       </tr>
                     ) : (
-                      rentals.map((rental) => {
+                      sortedRentalsList.map((rental) => {
                         const customer =
                           typeof rental.customerId === "object"
                             ? rental.customerId

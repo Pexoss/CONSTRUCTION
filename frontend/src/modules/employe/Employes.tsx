@@ -1,14 +1,41 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { employeeService } from "./employe.service";
 import Layout from "../../components/Layout";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
+
+type EmployeeSortKey = "name" | "email" | "role";
 
 const EmployeesPage: React.FC = () => {
+  const [empSort, setEmpSort] = useState<ColumnSort<EmployeeSortKey> | null>({
+    key: "name",
+    dir: "asc",
+  });
   const { data, isLoading, error } = useQuery({
     queryKey: ["employees"],
     queryFn: employeeService.getEmployees,
   });
+
+  const employees = data?.data || [];
+
+  const sortedEmployees = useMemo(
+    () =>
+      sortedTableRows(employees, empSort, {
+        name: (e: any) => String(e.name || "").toLowerCase(),
+        email: (e: any) => String(e.email || "").toLowerCase(),
+        role: (e: any) => String(e.role || "").toLowerCase(),
+      }),
+    [employees, empSort],
+  );
+
+  const handleEmpSort = (k: EmployeeSortKey) =>
+    setEmpSort((prev) => toggleColumnSort(prev, k));
 
   if (isLoading) {
     return (
@@ -31,8 +58,6 @@ const EmployeesPage: React.FC = () => {
       </Layout>
     );
   }
-
-  const employees = data?.data || [];
 
   return (
     <Layout title="Equipe" backTo="/dashboard">
@@ -93,20 +118,29 @@ const EmployeesPage: React.FC = () => {
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                  <thead className="bg-gray-50 dark:bg-gray-900/50">
+                    <thead className="bg-gray-50 dark:bg-gray-900/50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                        Nome
-                      </th>
-
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                        Email
-                      </th>
-
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                        Cargo
-                      </th>
-
+                      <SortableTh<EmployeeSortKey>
+                        columnKey="name"
+                        label="Nome"
+                        sort={empSort}
+                        onSort={handleEmpSort}
+                        thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                      />
+                      <SortableTh<EmployeeSortKey>
+                        columnKey="email"
+                        label="Email"
+                        sort={empSort}
+                        onSort={handleEmpSort}
+                        thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                      />
+                      <SortableTh<EmployeeSortKey>
+                        columnKey="role"
+                        label="Cargo"
+                        sort={empSort}
+                        onSort={handleEmpSort}
+                        thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                      />
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
                         Ações
                       </th>
@@ -114,7 +148,7 @@ const EmployeesPage: React.FC = () => {
                   </thead>
 
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {employees.map((employee: any) => (
+                    {sortedEmployees.map((employee: any) => (
                       <tr
                         key={employee._id}
                         className="hover:bg-gray-50 dark:hover:bg-gray-700/50"

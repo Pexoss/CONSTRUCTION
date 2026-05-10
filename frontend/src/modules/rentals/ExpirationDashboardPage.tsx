@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { rentalService } from "./rental.service";
@@ -6,12 +6,31 @@ import Layout from "../../components/Layout";
 import Skeleton from "../../components/Skeleton";
 import { Rental } from "../../types/rental.types";
 import { formatDateNoTimezoneShift } from "../../utils/formatters";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
+
+type ExpirationSortKey =
+  | "contract"
+  | "customer"
+  | "due"
+  | "status"
+  | "value";
 
 const ExpirationDashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<
     "all" | "expired" | "expiringSoon" | "expiringToday"
   >("all");
+  const [expSort, setExpSort] = useState<ColumnSort<ExpirationSortKey> | null>(
+    {
+      key: "due",
+      dir: "asc",
+    },
+  );
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["expiration-dashboard"],
@@ -68,9 +87,8 @@ const ExpirationDashboardPage: React.FC = () => {
     return "Ativo";
   };
 
-  const getFilteredRentals = (): Rental[] => {
+  const expirationRowsBase = useMemo((): Rental[] => {
     if (!data?.data) return [];
-
     switch (filter) {
       case "expired":
         return data.data.expired;
@@ -85,7 +103,29 @@ const ExpirationDashboardPage: React.FC = () => {
           ...data.data.expiringSoon,
         ];
     }
-  };
+  }, [data, filter]);
+
+  const sortedExpirationRows = useMemo(
+    () =>
+      sortedTableRows(expirationRowsBase, expSort, {
+        contract: (r) =>
+          String(r.rentalNumber ?? r._id ?? "").toLowerCase(),
+        customer: (r) => {
+          const c = typeof r.customerId === "object" ? r.customerId : null;
+          return String(c?.name || "").toLowerCase();
+        },
+        due: (r) =>
+          r.dates?.returnScheduled
+            ? new Date(r.dates.returnScheduled).getTime()
+            : 0,
+        status: (r) => getStatusLabel(r),
+        value: (r) => Number(r.pricing?.total ?? 0),
+      }),
+    [expirationRowsBase, expSort],
+  );
+
+  const handleExpSort = (k: ExpirationSortKey) =>
+    setExpSort((prev) => toggleColumnSort(prev, k));
 
   if (isLoading) {
     return (
@@ -112,7 +152,6 @@ const ExpirationDashboardPage: React.FC = () => {
   }
 
   const dashboard = data?.data;
-  const filteredRentals = getFilteredRentals();
 
   return (
     <Layout title="Dashboard de Vencimentos" backTo="/dashboard">
@@ -185,28 +224,48 @@ const ExpirationDashboardPage: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-900/50">
                   <tr>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                      Contrato
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                      Cliente
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                      Vencimento
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                      Valor
-                    </th>
+                    <SortableTh<ExpirationSortKey>
+                      columnKey="contract"
+                      label="Contrato"
+                      sort={expSort}
+                      onSort={handleExpSort}
+                      thClassName="px-6 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                    />
+                    <SortableTh<ExpirationSortKey>
+                      columnKey="customer"
+                      label="Cliente"
+                      sort={expSort}
+                      onSort={handleExpSort}
+                      thClassName="px-6 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                    />
+                    <SortableTh<ExpirationSortKey>
+                      columnKey="due"
+                      label="Vencimento"
+                      sort={expSort}
+                      onSort={handleExpSort}
+                      thClassName="px-6 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                    />
+                    <SortableTh<ExpirationSortKey>
+                      columnKey="status"
+                      label="Status"
+                      sort={expSort}
+                      onSort={handleExpSort}
+                      thClassName="px-6 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                    />
+                    <SortableTh<ExpirationSortKey>
+                      columnKey="value"
+                      label="Valor"
+                      sort={expSort}
+                      onSort={handleExpSort}
+                      thClassName="px-6 py-4 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                    />
                     <th className="px-6 py-4 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                       Ações
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredRentals.length === 0 ? (
+                  {sortedExpirationRows.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-6 py-12 text-center">
                         <svg
@@ -228,7 +287,7 @@ const ExpirationDashboardPage: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    filteredRentals.map((rental) => {
+                    sortedExpirationRows.map((rental) => {
                       const customer =
                         typeof rental.customerId === "object"
                           ? rental.customerId

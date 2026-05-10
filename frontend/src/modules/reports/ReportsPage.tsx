@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { reportService } from "./report.service";
 import {
@@ -14,7 +14,56 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import Layout from "../../components/Layout";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
 import { todayDateInputValue } from "../../utils/formatters";
+
+type InventoryMostUsedSortKey = "itemName" | "quantity" | "totalValue";
+
+type MostRentedSortKey = "itemName" | "rentalCount" | "totalRevenue";
+
+type InvoicesGeneratedSortKey =
+  | "invoiceNumber"
+  | "customerName"
+  | "issueDate"
+  | "dueDate"
+  | "status"
+  | "total";
+
+type RentalItemsPeriodSortKey =
+  | "billingNumber"
+  | "rentalNumber"
+  | "customerName"
+  | "itemLine"
+  | "periodStart"
+  | "rentalType"
+  | "quantity"
+  | "subtotal";
+
+type ReceivablesPaidSortKey =
+  | "kind"
+  | "documentNumber"
+  | "customerName"
+  | "amount"
+  | "paymentDate"
+  | "paymentMethod";
+
+type ReceivablesPendingSortKey =
+  | "kind"
+  | "documentNumber"
+  | "customerName"
+  | "amount"
+  | "dueDate"
+  | "status";
+
+type TopCustomersSortKey =
+  | "customerName"
+  | "rentalCount"
+  | "totalSpent";
 
 const ReportsPage: React.FC = () => {
   type ReportType =
@@ -38,6 +87,29 @@ const ReportsPage: React.FC = () => {
     })(),
   );
   const [endDate, setEndDate] = useState(todayDateInputValue());
+
+  const [inventoryMostUsedSort, setInventoryMostUsedSort] = useState<
+    ColumnSort<InventoryMostUsedSortKey> | null
+  >(null);
+  const [mostRentedSort, setMostRentedSort] = useState<
+    ColumnSort<MostRentedSortKey> | null
+  >(null);
+  const [invoicesGeneratedSort, setInvoicesGeneratedSort] = useState<
+    ColumnSort<InvoicesGeneratedSortKey> | null
+  >(null);
+  const [rentalItemsPeriodSort, setRentalItemsPeriodSort] = useState<
+    ColumnSort<RentalItemsPeriodSortKey> | null
+  >(null);
+  const [receivablesPaidSort, setReceivablesPaidSort] = useState<
+    ColumnSort<ReceivablesPaidSortKey> | null
+  >(null);
+  const [receivablesPendingSort, setReceivablesPendingSort] = useState<
+    ColumnSort<ReceivablesPendingSortKey> | null
+  >(null);
+  const [topCustomersSort, setTopCustomersSort] = useState<
+    ColumnSort<TopCustomersSortKey> | null
+  >(null);
+
   const formatCurrency = (value?: number | null) =>
     `R$ ${Number(value || 0).toFixed(2)}`;
 
@@ -175,6 +247,91 @@ const ReportsPage: React.FC = () => {
     };
     return labels[rentalType] || rentalType;
   };
+
+  const sortedInventoryMostUsed = useMemo(() => {
+    const rows = inventoryReport?.data?.mostUsedItems ?? [];
+    return sortedTableRows(rows, inventoryMostUsedSort, {
+      itemName: (r) => String(r.itemName || "").toLowerCase(),
+      quantity: (r) => Number(r.quantity ?? 0),
+      totalValue: (r) => Number(r.totalValue ?? 0),
+    });
+  }, [inventoryReport?.data?.mostUsedItems, inventoryMostUsedSort]);
+
+  const sortedMostRented = useMemo(() => {
+    const rows = mostRentedItems?.data ?? [];
+    return sortedTableRows(rows, mostRentedSort, {
+      itemName: (r) => String(r.itemName || "").toLowerCase(),
+      rentalCount: (r) => Number(r.rentalCount ?? 0),
+      totalRevenue: (r) => Number(r.totalRevenue ?? 0),
+    });
+  }, [mostRentedItems?.data, mostRentedSort]);
+
+  const sortedInvoicesGenerated = useMemo(() => {
+    const rows = invoicesGeneratedReport?.data?.invoices ?? [];
+    return sortedTableRows(rows, invoicesGeneratedSort, {
+      invoiceNumber: (r) => String(r.invoiceNumber || "").toLowerCase(),
+      customerName: (r) => String(r.customerName || "").toLowerCase(),
+      issueDate: (r) =>
+        r.issueDate ? new Date(r.issueDate).getTime() : 0,
+      dueDate: (r) =>
+        r.dueDate ? new Date(r.dueDate).getTime() : 0,
+      status: (r) => getBillingStatusLabel(r.status).toLowerCase(),
+      total: (r) => Number(r.total ?? 0),
+    });
+  }, [invoicesGeneratedReport?.data?.invoices, invoicesGeneratedSort]);
+
+  const sortedRentalItemsPeriod = useMemo(() => {
+    const rows = rentalItemsPeriodsReport?.data?.items ?? [];
+    return sortedTableRows(rows, rentalItemsPeriodSort, {
+      billingNumber: (r) => String(r.billingNumber || "").toLowerCase(),
+      rentalNumber: (r) => String(r.rentalNumber || "").toLowerCase(),
+      customerName: (r) => String(r.customerName || "").toLowerCase(),
+      itemLine: (r) =>
+        `${r.itemName}${r.unitId ? ` (${r.unitId})` : ""}`.toLowerCase(),
+      periodStart: (r) =>
+        r.periodStart ? new Date(r.periodStart).getTime() : 0,
+      rentalType: (r) =>
+        getRentalTypeLabel(r.rentalType).toLowerCase(),
+      quantity: (r) => Number(r.quantity ?? 0),
+      subtotal: (r) => Number(r.subtotal ?? 0),
+    });
+  }, [rentalItemsPeriodsReport?.data?.items, rentalItemsPeriodSort]);
+
+  const sortedReceivablesPaid = useMemo(() => {
+    const rows = receivablesReport?.data?.paidInPeriod ?? [];
+    return sortedTableRows(rows, receivablesPaidSort, {
+      kind: (r) => (r.kind === "fechamento" ? "Fechamento" : "Fatura"),
+      documentNumber: (r) => String(r.documentNumber || "").toLowerCase(),
+      customerName: (r) => String(r.customerName || "").toLowerCase(),
+      amount: (r) => Number(r.amount ?? 0),
+      paymentDate: (r) =>
+        r.paymentDate ? new Date(r.paymentDate).getTime() : 0,
+      paymentMethod: (r) => String(r.paymentMethod || "").toLowerCase(),
+    });
+  }, [receivablesReport?.data?.paidInPeriod, receivablesPaidSort]);
+
+  const sortedReceivablesPending = useMemo(() => {
+    const rows = receivablesReport?.data?.pending ?? [];
+    return sortedTableRows(rows, receivablesPendingSort, {
+      kind: (r) =>
+        r.kind === "fechamento" ? "Fechamento" : "Fatura",
+      documentNumber: (r) => String(r.documentNumber || "").toLowerCase(),
+      customerName: (r) => String(r.customerName || "").toLowerCase(),
+      amount: (r) => Number(r.amount ?? 0),
+      dueDate: (r) =>
+        r.dueDate ? new Date(r.dueDate).getTime() : 0,
+      status: (r) => getBillingStatusLabel(r.status).toLowerCase(),
+    });
+  }, [receivablesReport?.data?.pending, receivablesPendingSort]);
+
+  const sortedTopCustomers = useMemo(() => {
+    const rows = topCustomers?.data ?? [];
+    return sortedTableRows(rows, topCustomersSort, {
+      customerName: (r) => String(r.customerName || "").toLowerCase(),
+      rentalCount: (r) => Number(r.rentalCount ?? 0),
+      totalSpent: (r) => Number(r.totalSpent ?? 0),
+    });
+  }, [topCustomers?.data, topCustomersSort]);
 
   const handleExportPdf = async () => {
     try {
@@ -404,19 +561,55 @@ const ReportsPage: React.FC = () => {
                       <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-900/50">
                           <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                              Item
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                              Quantidade
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                              Valor Total
-                            </th>
+                            <SortableTh<
+                              | "itemName"
+                              | "quantity"
+                              | "totalValue"
+                            >
+                              columnKey="itemName"
+                              label="Item"
+                              sort={inventoryMostUsedSort}
+                              onSort={(k) =>
+                                setInventoryMostUsedSort((p) =>
+                                  toggleColumnSort(p, k),
+                                )
+                              }
+                              thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                            />
+                            <SortableTh<
+                              | "itemName"
+                              | "quantity"
+                              | "totalValue"
+                            >
+                              columnKey="quantity"
+                              label="Quantidade"
+                              sort={inventoryMostUsedSort}
+                              onSort={(k) =>
+                                setInventoryMostUsedSort((p) =>
+                                  toggleColumnSort(p, k),
+                                )
+                              }
+                              thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                            />
+                            <SortableTh<
+                              | "itemName"
+                              | "quantity"
+                              | "totalValue"
+                            >
+                              columnKey="totalValue"
+                              label="Valor Total"
+                              sort={inventoryMostUsedSort}
+                              onSort={(k) =>
+                                setInventoryMostUsedSort((p) =>
+                                  toggleColumnSort(p, k),
+                                )
+                              }
+                              thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                            />
                           </tr>
                         </thead>
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                          {inventoryReport.data.mostUsedItems.map((item) => (
+                          {sortedInventoryMostUsed.map((item) => (
                             <tr
                               key={item.itemId}
                               className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
@@ -512,19 +705,49 @@ const ReportsPage: React.FC = () => {
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                       <thead className="bg-gray-50 dark:bg-gray-900/50">
                         <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                            Item
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                            Aluguéis
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                            Receita
-                          </th>
+                          <SortableTh<
+                            | "itemName"
+                            | "rentalCount"
+                            | "totalRevenue"
+                          >
+                            columnKey="itemName"
+                            label="Item"
+                            sort={mostRentedSort}
+                            onSort={(k) =>
+                              setMostRentedSort((p) => toggleColumnSort(p, k))
+                            }
+                            thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                          />
+                          <SortableTh<
+                            | "itemName"
+                            | "rentalCount"
+                            | "totalRevenue"
+                          >
+                            columnKey="rentalCount"
+                            label="Aluguéis"
+                            sort={mostRentedSort}
+                            onSort={(k) =>
+                              setMostRentedSort((p) => toggleColumnSort(p, k))
+                            }
+                            thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                          />
+                          <SortableTh<
+                            | "itemName"
+                            | "rentalCount"
+                            | "totalRevenue"
+                          >
+                            columnKey="totalRevenue"
+                            label="Receita"
+                            sort={mostRentedSort}
+                            onSort={(k) =>
+                              setMostRentedSort((p) => toggleColumnSort(p, k))
+                            }
+                            thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                          />
                         </tr>
                       </thead>
                       <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                        {mostRentedItems.data.map((item) => (
+                        {sortedMostRented.map((item) => (
                           <tr
                             key={item.itemId}
                             className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
@@ -689,24 +912,115 @@ const ReportsPage: React.FC = () => {
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead className="bg-gray-50 dark:bg-gray-900/50">
                       <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Número
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Cliente
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Emissão
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Vencimento
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Status
-                        </th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Valor
-                        </th>
+                        <SortableTh<
+                          | "invoiceNumber"
+                          | "customerName"
+                          | "issueDate"
+                          | "dueDate"
+                          | "status"
+                          | "total"
+                        >
+                          columnKey="invoiceNumber"
+                          label="Número"
+                          sort={invoicesGeneratedSort}
+                          onSort={(k) =>
+                            setInvoicesGeneratedSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<
+                          | "invoiceNumber"
+                          | "customerName"
+                          | "issueDate"
+                          | "dueDate"
+                          | "status"
+                          | "total"
+                        >
+                          columnKey="customerName"
+                          label="Cliente"
+                          sort={invoicesGeneratedSort}
+                          onSort={(k) =>
+                            setInvoicesGeneratedSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<
+                          | "invoiceNumber"
+                          | "customerName"
+                          | "issueDate"
+                          | "dueDate"
+                          | "status"
+                          | "total"
+                        >
+                          columnKey="issueDate"
+                          label="Emissão"
+                          sort={invoicesGeneratedSort}
+                          onSort={(k) =>
+                            setInvoicesGeneratedSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<
+                          | "invoiceNumber"
+                          | "customerName"
+                          | "issueDate"
+                          | "dueDate"
+                          | "status"
+                          | "total"
+                        >
+                          columnKey="dueDate"
+                          label="Vencimento"
+                          sort={invoicesGeneratedSort}
+                          onSort={(k) =>
+                            setInvoicesGeneratedSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<
+                          | "invoiceNumber"
+                          | "customerName"
+                          | "issueDate"
+                          | "dueDate"
+                          | "status"
+                          | "total"
+                        >
+                          columnKey="status"
+                          label="Status"
+                          sort={invoicesGeneratedSort}
+                          onSort={(k) =>
+                            setInvoicesGeneratedSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<
+                          | "invoiceNumber"
+                          | "customerName"
+                          | "issueDate"
+                          | "dueDate"
+                          | "status"
+                          | "total"
+                        >
+                          columnKey="total"
+                          label="Valor"
+                          sort={invoicesGeneratedSort}
+                          onSort={(k) =>
+                            setInvoicesGeneratedSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          align="right"
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -720,7 +1034,7 @@ const ReportsPage: React.FC = () => {
                           </td>
                         </tr>
                       ) : (
-                        invoicesGeneratedReport.data.invoices.map((invoice) => (
+                        sortedInvoicesGenerated.map((invoice) => (
                           <tr key={invoice.id}>
                             <td className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
                               {invoice.invoiceNumber}
@@ -787,30 +1101,96 @@ const ReportsPage: React.FC = () => {
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead className="bg-gray-50 dark:bg-gray-900/50">
                       <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Fechamento
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Contrato
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Cliente
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Item
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Período
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Tipo
-                        </th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Qtd
-                        </th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Subtotal
-                        </th>
+                        <SortableTh<RentalItemsPeriodSortKey>
+                          columnKey="billingNumber"
+                          label="Fechamento"
+                          sort={rentalItemsPeriodSort}
+                          onSort={(k) =>
+                            setRentalItemsPeriodSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<RentalItemsPeriodSortKey>
+                          columnKey="rentalNumber"
+                          label="Contrato"
+                          sort={rentalItemsPeriodSort}
+                          onSort={(k) =>
+                            setRentalItemsPeriodSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<RentalItemsPeriodSortKey>
+                          columnKey="customerName"
+                          label="Cliente"
+                          sort={rentalItemsPeriodSort}
+                          onSort={(k) =>
+                            setRentalItemsPeriodSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<RentalItemsPeriodSortKey>
+                          columnKey="itemLine"
+                          label="Item"
+                          sort={rentalItemsPeriodSort}
+                          onSort={(k) =>
+                            setRentalItemsPeriodSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<RentalItemsPeriodSortKey>
+                          columnKey="periodStart"
+                          label="Período"
+                          sort={rentalItemsPeriodSort}
+                          onSort={(k) =>
+                            setRentalItemsPeriodSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<RentalItemsPeriodSortKey>
+                          columnKey="rentalType"
+                          label="Tipo"
+                          sort={rentalItemsPeriodSort}
+                          onSort={(k) =>
+                            setRentalItemsPeriodSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<RentalItemsPeriodSortKey>
+                          columnKey="quantity"
+                          label="Qtd"
+                          sort={rentalItemsPeriodSort}
+                          onSort={(k) =>
+                            setRentalItemsPeriodSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          align="right"
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<RentalItemsPeriodSortKey>
+                          columnKey="subtotal"
+                          label="Subtotal"
+                          sort={rentalItemsPeriodSort}
+                          onSort={(k) =>
+                            setRentalItemsPeriodSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          align="right"
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -824,7 +1204,7 @@ const ReportsPage: React.FC = () => {
                           </td>
                         </tr>
                       ) : (
-                        rentalItemsPeriodsReport.data.items.map((item, idx) => (
+                        sortedRentalItemsPeriod.map((item, idx) => (
                           <tr key={`${item.billingId}-${idx}`}>
                             <td className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
                               {item.billingNumber}
@@ -1066,24 +1446,73 @@ const ReportsPage: React.FC = () => {
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead className="bg-gray-50 dark:bg-gray-900/50">
                       <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Tipo
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Documento
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Cliente
-                        </th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Valor
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Pagamento
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Forma
-                        </th>
+                        <SortableTh<ReceivablesPaidSortKey>
+                          columnKey="kind"
+                          label="Tipo"
+                          sort={receivablesPaidSort}
+                          onSort={(k) =>
+                            setReceivablesPaidSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<ReceivablesPaidSortKey>
+                          columnKey="documentNumber"
+                          label="Documento"
+                          sort={receivablesPaidSort}
+                          onSort={(k) =>
+                            setReceivablesPaidSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<ReceivablesPaidSortKey>
+                          columnKey="customerName"
+                          label="Cliente"
+                          sort={receivablesPaidSort}
+                          onSort={(k) =>
+                            setReceivablesPaidSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<ReceivablesPaidSortKey>
+                          columnKey="amount"
+                          label="Valor"
+                          sort={receivablesPaidSort}
+                          onSort={(k) =>
+                            setReceivablesPaidSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          align="right"
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<ReceivablesPaidSortKey>
+                          columnKey="paymentDate"
+                          label="Pagamento"
+                          sort={receivablesPaidSort}
+                          onSort={(k) =>
+                            setReceivablesPaidSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<ReceivablesPaidSortKey>
+                          columnKey="paymentMethod"
+                          label="Forma"
+                          sort={receivablesPaidSort}
+                          onSort={(k) =>
+                            setReceivablesPaidSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -1097,7 +1526,7 @@ const ReportsPage: React.FC = () => {
                           </td>
                         </tr>
                       ) : (
-                        receivablesReport.data.paidInPeriod.map((row) => (
+                        sortedReceivablesPaid.map((row) => (
                           <tr key={`${row.kind}-${row.id}`}>
                             <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap">
                               {row.kind === "fechamento"
@@ -1143,24 +1572,73 @@ const ReportsPage: React.FC = () => {
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead className="bg-gray-50 dark:bg-gray-900/50">
                       <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Tipo
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Documento
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Cliente
-                        </th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Valor
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Vencimento
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                          Status
-                        </th>
+                        <SortableTh<ReceivablesPendingSortKey>
+                          columnKey="kind"
+                          label="Tipo"
+                          sort={receivablesPendingSort}
+                          onSort={(k) =>
+                            setReceivablesPendingSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<ReceivablesPendingSortKey>
+                          columnKey="documentNumber"
+                          label="Documento"
+                          sort={receivablesPendingSort}
+                          onSort={(k) =>
+                            setReceivablesPendingSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<ReceivablesPendingSortKey>
+                          columnKey="customerName"
+                          label="Cliente"
+                          sort={receivablesPendingSort}
+                          onSort={(k) =>
+                            setReceivablesPendingSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<ReceivablesPendingSortKey>
+                          columnKey="amount"
+                          label="Valor"
+                          sort={receivablesPendingSort}
+                          onSort={(k) =>
+                            setReceivablesPendingSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          align="right"
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<ReceivablesPendingSortKey>
+                          columnKey="dueDate"
+                          label="Vencimento"
+                          sort={receivablesPendingSort}
+                          onSort={(k) =>
+                            setReceivablesPendingSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<ReceivablesPendingSortKey>
+                          columnKey="status"
+                          label="Status"
+                          sort={receivablesPendingSort}
+                          onSort={(k) =>
+                            setReceivablesPendingSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -1174,7 +1652,7 @@ const ReportsPage: React.FC = () => {
                           </td>
                         </tr>
                       ) : (
-                        receivablesReport.data.pending.map((row) => (
+                        sortedReceivablesPending.map((row) => (
                           <tr key={`${row.kind}-p-${row.id}`}>
                             <td className="px-4 py-3 text-sm text-gray-900 dark:text-white whitespace-nowrap">
                               {row.kind === "fechamento"
@@ -1224,19 +1702,37 @@ const ReportsPage: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                   <thead className="bg-gray-50 dark:bg-gray-900/50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Cliente
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Aluguéis
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Total Gasto
-                      </th>
+                      <SortableTh<TopCustomersSortKey>
+                        columnKey="customerName"
+                        label="Cliente"
+                        sort={topCustomersSort}
+                        onSort={(k) =>
+                          setTopCustomersSort((p) => toggleColumnSort(p, k))
+                        }
+                        thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                      />
+                      <SortableTh<TopCustomersSortKey>
+                        columnKey="rentalCount"
+                        label="Aluguéis"
+                        sort={topCustomersSort}
+                        onSort={(k) =>
+                          setTopCustomersSort((p) => toggleColumnSort(p, k))
+                        }
+                        thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                      />
+                      <SortableTh<TopCustomersSortKey>
+                        columnKey="totalSpent"
+                        label="Total Gasto"
+                        sort={topCustomersSort}
+                        onSort={(k) =>
+                          setTopCustomersSort((p) => toggleColumnSort(p, k))
+                        }
+                        thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                      />
                     </tr>
                   </thead>
                   <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                    {topCustomers.data.map((customer) => (
+                    {sortedTopCustomers.map((customer) => (
                       <tr
                         key={customer.customerId}
                         className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"

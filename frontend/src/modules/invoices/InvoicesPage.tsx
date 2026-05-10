@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { invoiceService } from "./invoice.service";
@@ -16,7 +16,20 @@ import {
   PlusCircle,
 } from "lucide-react";
 import { invoiceStatusLabel } from "../../utils/statusLabels";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
 
+type InvoiceSortKey =
+  | "number"
+  | "customer"
+  | "issue"
+  | "due"
+  | "total"
+  | "status";
 const InvoicesPage: React.FC = () => {
   const [filters, setFilters] = useState<InvoiceFilters>({
     page: 1,
@@ -24,6 +37,10 @@ const InvoicesPage: React.FC = () => {
   });
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "">("");
+  const [invSort, setInvSort] = useState<ColumnSort<InvoiceSortKey> | null>({
+    key: "issue",
+    dir: "desc",
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ["invoices", filters, statusFilter],
@@ -104,20 +121,58 @@ const InvoicesPage: React.FC = () => {
   };
 
   // Calcular totalizadores
-  const calculateTotals = (invoices: any[]) => {
+  const calculateTotals = (invoiceList: any[]) => {
     return {
-      total: invoices.reduce((sum, inv) => sum + (inv.total || 0), 0),
-      paid: invoices
+      total: invoiceList.reduce((sum, inv) => sum + (inv.total || 0), 0),
+      paid: invoiceList
         .filter((inv) => inv.status === "paid")
         .reduce((sum, inv) => sum + (inv.total || 0), 0),
-      pending: invoices
+      pending: invoiceList
         .filter((inv) => inv.status !== "paid" && inv.status !== "cancelled")
         .reduce((sum, inv) => sum + (inv.total || 0), 0),
-      canceled: invoices
+      canceled: invoiceList
         .filter((inv) => inv.status === "cancelled")
         .reduce((sum, inv) => sum + (inv.total || 0), 0),
     };
   };
+
+  const invoices = data?.data || [];
+  const pagination = data?.pagination;
+  const totals = calculateTotals(invoices);
+
+  const filteredInvoices = useMemo(() => {
+    const searchLower = searchTerm.toLowerCase();
+    return invoices.filter((invoice: any) => {
+      return (
+        invoice.invoiceNumber?.toLowerCase().includes(searchLower) ||
+        (typeof invoice.customerId === "object" &&
+          invoice.customerId?.name?.toLowerCase().includes(searchLower))
+      );
+    });
+  }, [invoices, searchTerm]);
+
+  const sortedInvoiceRows = useMemo(
+    () =>
+      sortedTableRows(filteredInvoices, invSort, {
+        number: (i: any) => String(i.invoiceNumber ?? "").toLowerCase(),
+        customer: (i: any) =>
+          String(
+            typeof i.customerId === "object"
+              ? i.customerId?.name || ""
+              : "",
+          ).toLowerCase(),
+        issue: (i: any) =>
+          i.issueDate ? new Date(i.issueDate).getTime() : 0,
+        due: (i: any) => (i.dueDate ? new Date(i.dueDate).getTime() : 0),
+        total: (i: any) => Number(i.total ?? 0),
+        status: (i: any) =>
+          String(invoiceStatusLabel[i.status] || i.status || ""),
+      }),
+    [filteredInvoices, invSort],
+  );
+
+  const handleInvoiceSort = (key: InvoiceSortKey) =>
+    setInvSort((prev) => toggleColumnSort(prev, key));
 
   if (isLoading) {
     return (
@@ -130,20 +185,6 @@ const InvoicesPage: React.FC = () => {
       </Layout>
     );
   }
-
-  const invoices = data?.data || [];
-  const pagination = data?.pagination;
-  const totals = calculateTotals(invoices);
-
-  // Filtrar por termo de busca
-  const filteredInvoices = invoices.filter((invoice: any) => {
-    const searchLower = searchTerm.toLowerCase();
-    return (
-      invoice.invoiceNumber?.toLowerCase().includes(searchLower) ||
-      (typeof invoice.customerId === "object" &&
-        invoice.customerId?.name?.toLowerCase().includes(searchLower))
-    );
-  });
 
   return (
     <Layout title="Faturas" backTo="/dashboard">
@@ -296,24 +337,48 @@ const InvoicesPage: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                   <thead className="bg-gray-50 dark:bg-gray-900/50">
                     <tr>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Número
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Cliente
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Emissão
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Vencimento
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Valor
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Status
-                      </th>
+                      <SortableTh<InvoiceSortKey>
+                        columnKey="number"
+                        label="Número"
+                        sort={invSort}
+                        onSort={handleInvoiceSort}
+                        thClassName="px-6 py-4 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                      />
+                      <SortableTh<InvoiceSortKey>
+                        columnKey="customer"
+                        label="Cliente"
+                        sort={invSort}
+                        onSort={handleInvoiceSort}
+                        thClassName="px-6 py-4 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                      />
+                      <SortableTh<InvoiceSortKey>
+                        columnKey="issue"
+                        label="Emissão"
+                        sort={invSort}
+                        onSort={handleInvoiceSort}
+                        thClassName="px-6 py-4 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                      />
+                      <SortableTh<InvoiceSortKey>
+                        columnKey="due"
+                        label="Vencimento"
+                        sort={invSort}
+                        onSort={handleInvoiceSort}
+                        thClassName="px-6 py-4 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                      />
+                      <SortableTh<InvoiceSortKey>
+                        columnKey="total"
+                        label="Valor"
+                        sort={invSort}
+                        onSort={handleInvoiceSort}
+                        thClassName="px-6 py-4 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                      />
+                      <SortableTh<InvoiceSortKey>
+                        columnKey="status"
+                        label="Status"
+                        sort={invSort}
+                        onSort={handleInvoiceSort}
+                        thClassName="px-6 py-4 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                      />
                       <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                         Ações
                       </th>
@@ -321,7 +386,7 @@ const InvoicesPage: React.FC = () => {
                   </thead>
 
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {filteredInvoices.map((invoice: any) => {
+                    {sortedInvoiceRows.map((invoice: any) => {
                       const customer =
                         typeof invoice.customerId === "object"
                           ? invoice.customerId

@@ -1,4 +1,4 @@
-import { Company } from "@/modules/companies/company.model";
+import { Company } from "../../modules/companies/company.model";
 
 function generateCompanyCode(name: string): string {
     const words = name

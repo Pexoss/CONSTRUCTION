@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   useQuery,
@@ -13,6 +13,14 @@ import {
   formatDocumentForDisplay,
   formatPhoneForDisplay,
 } from "../../utils/formatters";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
+
+type CustomerSortKey = "name" | "document" | "contact" | "status";
 
 const CustomersPage: React.FC = () => {
   const [filters, setFilters] = useState<CustomerFilters>({
@@ -20,6 +28,10 @@ const CustomersPage: React.FC = () => {
     limit: 20,
   });
   const [searchTerm, setSearchTerm] = useState("");
+  const [customerSort, setCustomerSort] = useState<ColumnSort<CustomerSortKey> | null>({
+    key: "name",
+    dir: "asc",
+  });
 
   const queryClient = useQueryClient();
 
@@ -53,6 +65,24 @@ const CustomersPage: React.FC = () => {
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
   };
 
+  const customers = data?.data || [];
+  const pagination = data?.pagination;
+
+  const sortedCustomers = useMemo(
+    () =>
+      sortedTableRows(customers, customerSort, {
+        name: (c) => String(c.name || "").toLowerCase(),
+        document: (c) => String(c.cpfCnpj || "").replace(/\D/g, ""),
+        contact: (c) =>
+          `${String(c.email || "").toLowerCase()}|${String(c.phone || "")}`,
+        status: (c) => (c.isBlocked ? 1 : 0),
+      }),
+    [customers, customerSort],
+  );
+
+  const handleCustomerSort = (k: CustomerSortKey) =>
+    setCustomerSort((prev) => toggleColumnSort(prev, k));
+
   if (isPending && !data) {
     return (
       <Layout title="Clientes" backTo="/dashboard">
@@ -74,9 +104,6 @@ const CustomersPage: React.FC = () => {
       </Layout>
     );
   }
-
-  const customers = data?.data || [];
-  const pagination = data?.pagination;
 
   return (
     <Layout title="Clientes" backTo="/dashboard">
@@ -283,25 +310,41 @@ const CustomersPage: React.FC = () => {
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead className="bg-gray-50 dark:bg-gray-900/50">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                          Nome
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                          CPF/CNPJ
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                          Contato
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                          Status
-                        </th>
+                        <SortableTh<CustomerSortKey>
+                          columnKey="name"
+                          label="Nome"
+                          sort={customerSort}
+                          onSort={handleCustomerSort}
+                          thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                        />
+                        <SortableTh<CustomerSortKey>
+                          columnKey="document"
+                          label="CPF/CNPJ"
+                          sort={customerSort}
+                          onSort={handleCustomerSort}
+                          thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                        />
+                        <SortableTh<CustomerSortKey>
+                          columnKey="contact"
+                          label="Contato"
+                          sort={customerSort}
+                          onSort={handleCustomerSort}
+                          thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                        />
+                        <SortableTh<CustomerSortKey>
+                          columnKey="status"
+                          label="Status"
+                          sort={customerSort}
+                          onSort={handleCustomerSort}
+                          thClassName="px-6 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                        />
                         <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                           Ações
                         </th>
                       </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                      {customers.map((customer) => (
+                      {sortedCustomers.map((customer) => (
                         <tr
                           key={customer._id}
                           className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${customer.isBlocked ? "bg-red-50/50 dark:bg-red-900/10" : ""}`}
@@ -451,7 +494,7 @@ const CustomersPage: React.FC = () => {
 
                 {/* Mobile Cards (visible only on mobile) */}
                 <div className="sm:hidden divide-y divide-gray-200 dark:divide-gray-700">
-                  {customers.map((customer) => (
+                  {sortedCustomers.map((customer) => (
                     <div
                       key={customer._id}
                       className={`p-4 ${customer.isBlocked ? "bg-red-50/50 dark:bg-red-900/10" : ""}`}

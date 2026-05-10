@@ -9,6 +9,21 @@ import { useAuth } from "../../hooks/useAuth";
 import { toast } from "react-toastify";
 import { billingStatusLabel } from "../../utils/statusLabels";
 import { formatDateNoTimezoneShift } from "../../utils/formatters";
+import SortableTh from "../../components/SortableTh";
+import {
+  ColumnSort,
+  sortedTableRows,
+  toggleColumnSort,
+} from "../../utils/tableSort";
+
+type BillSortKey =
+  | "equipment"
+  | "customer"
+  | "period"
+  | "billingDate"
+  | "statusLabel"
+  | "total"
+  | "open";
 
 const BillingsPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -30,6 +45,10 @@ const BillingsPage: React.FC = () => {
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDiscount, setPaymentDiscount] = useState("");
   const [paymentDiscountReason, setPaymentDiscountReason] = useState("");
+  const [tableSort, setTableSort] = useState<ColumnSort<BillSortKey> | null>({
+    key: "period",
+    dir: "desc",
+  });
 
   const { data: customersData } = useQuery({
     queryKey: ["customers", "billing-list"],
@@ -148,6 +167,36 @@ const BillingsPage: React.FC = () => {
     if (outstanding < total) return "Parcial";
     return "A receber";
   };
+
+  const sortedBillings = useMemo(
+    () =>
+      sortedTableRows(billings, tableSort, {
+        equipment: (b) =>
+          b.items?.length
+            ? b.items
+                .map((item) =>
+                  typeof item.itemId === "object" ? item.itemId?.name || "" : "",
+                )
+                .join(", ")
+                .toLowerCase()
+            : "",
+        customer: (b) =>
+          (typeof b.customerId === "object" ? b.customerId?.name || "" : "")
+            .toLowerCase(),
+        period: (b) => (b.periodStart ? new Date(b.periodStart).getTime() : 0),
+        billingDate: (b) =>
+          b.billingDate ? new Date(b.billingDate).getTime() : 0,
+        statusLabel: (b) =>
+          `${billingStatusLabel[b.status] || ""}|${collectionBadge(b)}`,
+        total: (b) => Number(b.calculation?.total ?? 0),
+        open: (b) =>
+          Number(b.outstandingAmount ?? b.calculation?.total ?? 0),
+      }),
+    [billings, tableSort],
+  );
+
+  const handleBillingSort = (k: BillSortKey) =>
+    setTableSort((prev) => toggleColumnSort(prev, k));
 
   const handleDownloadPDF = async (billingId: string) => {
     const blob = await billingService.generateBillingPDF(billingId);
@@ -291,34 +340,55 @@ const BillingsPage: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                   <thead className="bg-gray-50 dark:bg-gray-900/50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                        Equipamentos
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                        Cliente
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                        Período
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                        Cobrança
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                        Status
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                        Total
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
-                        Saldo em aberto
-                      </th>
+                      <SortableTh<BillSortKey>
+                        columnKey="equipment"
+                        label="Equipamentos"
+                        sort={tableSort}
+                        onSort={handleBillingSort}
+                      />
+                      <SortableTh<BillSortKey>
+                        columnKey="customer"
+                        label="Cliente"
+                        sort={tableSort}
+                        onSort={handleBillingSort}
+                      />
+                      <SortableTh<BillSortKey>
+                        columnKey="period"
+                        label="Período"
+                        sort={tableSort}
+                        onSort={handleBillingSort}
+                      />
+                      <SortableTh<BillSortKey>
+                        columnKey="billingDate"
+                        label="Cobrança"
+                        sort={tableSort}
+                        onSort={handleBillingSort}
+                      />
+                      <SortableTh<BillSortKey>
+                        columnKey="statusLabel"
+                        label="Status"
+                        sort={tableSort}
+                        onSort={handleBillingSort}
+                      />
+                      <SortableTh<BillSortKey>
+                        columnKey="total"
+                        label="Total"
+                        sort={tableSort}
+                        onSort={handleBillingSort}
+                      />
+                      <SortableTh<BillSortKey>
+                        columnKey="open"
+                        label="Saldo em aberto"
+                        sort={tableSort}
+                        onSort={handleBillingSort}
+                      />
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
                         Ações
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {billings.length === 0 ? (
+                    {sortedBillings.length === 0 ? (
                       <tr>
                         <td
                           className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400"
@@ -328,7 +398,7 @@ const BillingsPage: React.FC = () => {
                         </td>
                       </tr>
                     ) : (
-                      billings.map((billing) => (
+                      sortedBillings.map((billing) => (
                         <tr key={billing._id}>
                           <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-200">
                             {billing.items && billing.items.length > 0
