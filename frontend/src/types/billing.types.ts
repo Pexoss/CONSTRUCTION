@@ -41,6 +41,7 @@ export interface Billing {
   periodStart: string;
   periodEnd: string;
   rentalType: RentalType;
+  intervalChargeMode?: 'floored' | 'proportional';
   calculation: BillingCalculation;
   items?: BillingItem[];
   services?: BillingService[];

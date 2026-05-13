@@ -39,7 +39,15 @@ export const RentalDeliveryQuickModal: React.FC<Props> = ({ rentalId, onClose })
   const rental = rentalQuery.data?.data;
 
   const closeItemMutation = useMutation({
-    mutationFn: async ({ itemId, unitId }: { itemId: string; unitId?: string }) => {
+    mutationFn: async ({
+      itemId,
+      unitId,
+      lineId,
+    }: {
+      itemId: string;
+      unitId?: string;
+      lineId?: string;
+    }) => {
       const input = window.prompt(
         "Data da devolução (AAAA-MM-DD), ou deixe em branco para usar hoje:",
         new Date().toISOString().slice(0, 10),
@@ -51,6 +59,7 @@ export const RentalDeliveryQuickModal: React.FC<Props> = ({ rentalId, onClose })
       return rentalService.closeRentalItem(rentalId!, itemId, {
         ...(trimmed ? { returnDate: trimmed } : {}),
         ...(unitId ? { unitId } : {}),
+        ...(lineId ? { lineId } : {}),
       });
     },
     onSuccess: () => {
@@ -147,7 +156,17 @@ export const RentalDeliveryQuickModal: React.FC<Props> = ({ rentalId, onClose })
                         <button
                           type="button"
                           disabled={closeItemMutation.isPending}
-                          onClick={() => closeItemMutation.mutate({ itemId, unitId: line.unitId })}
+                          onClick={() =>
+                            closeItemMutation.mutate({
+                              itemId,
+                              unitId: line.unitId,
+                              lineId:
+                                typeof line.lineId === "string" &&
+                                line.lineId.trim()
+                                  ? line.lineId.trim()
+                                  : undefined,
+                            })
+                          }
                           className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-xs disabled:opacity-50"
                         >
                           Registrar devolução

@@ -86,6 +86,7 @@ export const updateRentalSchema = z.object({
         returnScheduled: dateOnlyOrDateTime.optional(),
         historicalDelivery: z.boolean().optional(),
         recalculateScheduledReturn: z.boolean().optional(),
+        lineId: z.string().optional(),
       })
     )
     .optional(),
@@ -162,6 +163,7 @@ export const returnRentalItemsSchema = z.object({
       z.object({
         itemId: z.string().min(1, "Item ID is required"),
         unitId: z.string().optional(),
+        lineId: z.string().optional(),
         returnedQuantity: z.number().int().min(1).optional(),
         /** Se informado: cobrar só esta devolução com esse tipo de período */
         billingRentalType: z
@@ -175,6 +177,7 @@ export const returnRentalItemsSchema = z.object({
 export const changeRentalTypeEventSchema = z.object({
   itemId: z.string().min(1, "Item ID is required"),
   unitId: z.string().optional(),
+  lineId: z.string().optional(),
   newRentalType: z.enum(["daily", "weekly", "biweekly", "monthly"]),
   effectiveDate: dateOnlyOrDateTime.optional(),
   notes: z.string().optional(),

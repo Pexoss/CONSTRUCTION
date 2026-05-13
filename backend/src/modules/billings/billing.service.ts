@@ -1,3 +1,7 @@
+import {
+  addBillingDays,
+  getPeriodLengthDays,
+} from '../../shared/utils/rental-period.util';
 import { Billing } from './billing.model';
 import { Rental } from '../rentals/rental.model';
 import { Item } from '../inventory/item.model';
@@ -13,7 +17,7 @@ import { asIdString, buildRentalLineKey } from '../../shared/utils/rental-line-k
  * Alinha com RentalService.getEffectivePricingForRentalLines:
  * período mensal/semanal/quinzenal derivado da diária quando o cadastro não tem o período específico.
  */
-function effectivePricingPeriods(pricing?: {
+export function effectivePricingPeriods(pricing?: {
   dailyRate?: number;
   weeklyRate?: number;
   biweeklyRate?: number;
@@ -33,7 +37,82 @@ function effectivePricingPeriods(pricing?: {
     if (biweeklyRate <= 0) biweeklyRate = Number((dailyRate * 15).toFixed(2));
     if (monthlyRate <= 0) monthlyRate = Number((dailyRate * 30).toFixed(2));
   }
+  if (dailyRate <= 0) {
+    if (weeklyRate > 0 && biweeklyRate <= 0) {
+      biweeklyRate = Number(((weeklyRate * 15) / 7).toFixed(2));
+    }
+    if (biweeklyRate > 0 && weeklyRate <= 0) {
+      weeklyRate = Number(((biweeklyRate * 7) / 15).toFixed(2));
+    }
+    if (weeklyRate > 0 && monthlyRate <= 0) {
+      monthlyRate = Number(((weeklyRate * 30) / 7).toFixed(2));
+    }
+    if (monthlyRate > 0 && weeklyRate <= 0) {
+      weeklyRate = Number(((monthlyRate * 7) / 30).toFixed(2));
+    }
+    if (monthlyRate > 0 && biweeklyRate <= 0) {
+      biweeklyRate = Number(((monthlyRate * 15) / 30).toFixed(2));
+    }
+    if (biweeklyRate > 0 && monthlyRate <= 0) {
+      monthlyRate = Number(((biweeklyRate * 30) / 15).toFixed(2));
+    }
+  }
   return { dailyRate, weeklyRate, biweeklyRate, monthlyRate };
+}
+
+/**
+ * Valor unitário de cobrança por período conforme o tipo selecionado.
+ * Prioriza o valor cadastrado explícito no período solicitado (ex.: quinzenal no SKU);
+ * só usa effectivePricingPeriods para derivar quando esse campo está vazio/zero no cadastro.
+ */
+export function periodRateFromInventory(
+  pricing:
+    | {
+        dailyRate?: number;
+        weeklyRate?: number;
+        biweeklyRate?: number;
+        monthlyRate?: number;
+      }
+    | undefined,
+  rentalType: RentalType,
+): { rate: number; message?: string } {
+  const rawDaily = Math.max(0, Number(pricing?.dailyRate ?? 0));
+  const rawWeekly = Math.max(0, Number(pricing?.weeklyRate ?? 0));
+  const rawBiweekly = Math.max(0, Number(pricing?.biweeklyRate ?? 0));
+  const rawMonthly = Math.max(0, Number(pricing?.monthlyRate ?? 0));
+  const eff = effectivePricingPeriods(pricing);
+  switch (rentalType) {
+    case "daily":
+      if (rawDaily > 0) return { rate: rawDaily };
+      if (eff.dailyRate > 0) return { rate: eff.dailyRate };
+      return { rate: 0, message: "Cadastre a diária do equipamento." };
+    case "weekly":
+      if (rawWeekly > 0) return { rate: rawWeekly };
+      if (eff.weeklyRate > 0) return { rate: eff.weeklyRate };
+      return {
+        rate: 0,
+        message:
+          "Cadastre o valor semanal do equipamento (ou a diária para derivar).",
+      };
+    case "biweekly":
+      if (rawBiweekly > 0) return { rate: rawBiweekly };
+      if (eff.biweeklyRate > 0) return { rate: eff.biweeklyRate };
+      return {
+        rate: 0,
+        message:
+          "Cadastre o valor quinzenal do equipamento (ou a diária para derivar).",
+      };
+    case "monthly":
+      if (rawMonthly > 0) return { rate: rawMonthly };
+      if (eff.monthlyRate > 0) return { rate: eff.monthlyRate };
+      return {
+        rate: 0,
+        message:
+          "Cadastre o valor mensal do equipamento (ou a diária para derivar).",
+      };
+    default:
+      return { rate: 0, message: "Tipo de cobrança inválido." };
+  }
 }
 
 /**
@@ -46,32 +125,48 @@ function effectivePricingPeriods(pricing?: {
 export function calculateBillingPeriod(
   pickupDate: Date,
   returnDate: Date,
-  rentalType: RentalType
+  rentalType: RentalType,
 ): {
   periodsCompleted: number;
   extraDays: number;
   totalPeriods: number;
   chargeExtraPeriod: boolean;
+  daysPassed: number;
 } {
-  const periodDays: Record<RentalType, number> = {
-    daily: 1,
-    weekly: 7,
-    biweekly: 15,
-    monthly: 30,
-  };
+  const periodLength = getPeriodLengthDays(rentalType);
+  const DAY_MS = 1000 * 60 * 60 * 24;
 
-  const periodLength = periodDays[rentalType];
-  const diffDays = Math.ceil(
-    (returnDate.getTime() - pickupDate.getTime()) / (1000 * 60 * 60 * 24)
-  );
-  // Para ciclos semanais/quinzenais/mensais, o período é de calendário:
-  // 01/04 até 30/04 representa 1 mensal completo, não 29/30 de um mês.
-  // Diária mantém a regra operacional de devolução no dia seguinte = 1 diária.
-  const daysPassed = Math.max(1, rentalType === 'daily' ? diffDays : diffDays + 1);
+  const s = new Date(pickupDate);
+  s.setHours(0, 0, 0, 0);
+  const e = new Date(returnDate);
+  e.setHours(0, 0, 0, 0);
+
+  let daysPassed: number;
+  if (rentalType === "daily") {
+    const diffDays = Math.ceil(
+      Math.max(0, e.getTime() - s.getTime()) / DAY_MS,
+    );
+    daysPassed = Math.max(1, diffDays);
+  } else {
+    const diffMs = e.getTime() - s.getTime();
+    if (diffMs < 0) {
+      return {
+        periodsCompleted: 0,
+        extraDays: 0,
+        totalPeriods: 0,
+        chargeExtraPeriod: false,
+        daysPassed: 0,
+      };
+    }
+    // Início e fim contam como dias do período (alinha com fechamentos de data a data no contrato)
+    const wholeDaysBetween = Math.floor(diffMs / DAY_MS);
+    daysPassed = Math.max(1, wholeDaysBetween + 1);
+  }
+
   const periodsCompleted = Math.floor(daysPassed / periodLength);
   const extraDays = daysPassed % periodLength;
 
-  // Regra canônica: dias excedentes são cobrados por diária, não por período cheio.
+  // Valor do fechamento usa períodos inteiros (ver calculateRentalLineAmount); extraDays só apoia o arredondamento.
   const chargeExtraPeriod = false;
   const totalPeriods = periodsCompleted;
 
@@ -80,6 +175,53 @@ export function calculateBillingPeriod(
     extraDays,
     totalPeriods,
     chargeExtraPeriod,
+    daysPassed,
+  };
+}
+
+/**
+ * Cobrança linear no intervalo: (tarifa do período / dias do período) × dias corridos (inclusivos),
+ * igual ao proporcional já usado no fallback computeItemPartialSubtotal.
+ * Em fechamentos por devolução evita usar a diária cadastrada isolada quando o período é incompleto.
+ */
+export function calculateProportionalIntervalAmount(
+  pricing:
+    | {
+        dailyRate?: number;
+        weeklyRate?: number;
+        biweeklyRate?: number;
+        monthlyRate?: number;
+      }
+    | undefined,
+  rentalType: RentalType,
+  daysPassed: number,
+): { amount: number; periodRate: number } {
+  const p = effectivePricingPeriods(pricing);
+  const dp = Math.max(0, Number(daysPassed || 0));
+  if (dp <= 0) {
+    return { amount: 0, periodRate: 0 };
+  }
+  const periodRates: Record<RentalType, number> = {
+    daily: Math.max(0, Number(p.dailyRate ?? 0)),
+    weekly: Math.max(0, Number(p.weeklyRate ?? 0)),
+    biweekly: Math.max(0, Number(p.biweeklyRate ?? 0)),
+    monthly: Math.max(0, Number(p.monthlyRate ?? 0)),
+  };
+  const periodRate = periodRates[rentalType];
+  const periodLen = getPeriodLengthDays(rentalType);
+  if (rentalType === "daily") {
+    return {
+      amount: Number((periodRate * dp).toFixed(2)),
+      periodRate,
+    };
+  }
+  if (periodLen <= 0 || periodRate <= 0) {
+    return { amount: 0, periodRate };
+  }
+  const impliedDaily = periodRate / periodLen;
+  return {
+    amount: Number((impliedDaily * dp).toFixed(2)),
+    periodRate,
   };
 }
 
@@ -96,76 +238,45 @@ export function calculateRentalLineAmount(
     extraDays: number;
   },
 ): { amount: number; periodRate: number; dailyRate: number } {
-  const p = effectivePricingPeriods(pricing);
-  const dailyRate = Math.max(0, Number(p.dailyRate ?? 0));
-  const periodRates: Record<RentalType, number> = {
-    daily: dailyRate,
-    weekly: Math.max(0, Number(p.weeklyRate ?? 0)),
-    biweekly: Math.max(0, Number(p.biweeklyRate ?? 0)),
-    monthly: Math.max(0, Number(p.monthlyRate ?? 0)),
-  };
-  const periodRate = periodRates[rentalType];
+  const eff = effectivePricingPeriods(pricing);
+  const dailyResolved = periodRateFromInventory(pricing, "daily");
+  const configuredDaily =
+    dailyResolved.rate > 0 ? dailyResolved.rate : eff.dailyRate;
+
   const periodsCompleted = Math.max(0, Number(period.periodsCompleted || 0));
   const extraDays = Math.max(0, Number(period.extraDays || 0));
 
-  if (rentalType !== 'daily' && extraDays > 0 && dailyRate <= 0) {
-    throw new Error('Cadastre a diária do equipamento para cobrar dias extras.');
+  if (rentalType === "daily") {
+    const billedDays = Math.max(1, periodsCompleted);
+    return {
+      amount: Number((configuredDaily * billedDays).toFixed(2)),
+      periodRate: configuredDaily,
+      dailyRate: configuredDaily,
+    };
   }
 
-  const amount = rentalType === 'daily'
-    ? dailyRate * Math.max(1, periodsCompleted)
-    : periodRate * periodsCompleted + dailyRate * extraDays;
+  const { rate: periodRate, message } = periodRateFromInventory(
+    pricing,
+    rentalType,
+  );
+  /** Semanal/quinzenal/mensal: qualquer fração de período conta como um período cheio (ex.: 14 dias em ciclo de 15 = 1 quinzena). */
+  const billablePeriods = periodsCompleted + (extraDays > 0 ? 1 : 0);
+  if (billablePeriods > 0 && periodRate <= 0) {
+    throw new Error(
+      message ||
+        "Cadastre no equipamento a tarifa do período (semanal/quinzenal/mensal) ou a diária para derivar.",
+    );
+  }
 
   return {
-    amount: Number(amount.toFixed(2)),
+    amount: Number((periodRate * billablePeriods).toFixed(2)),
     periodRate,
-    dailyRate,
+    dailyRate: configuredDaily,
   };
-}
-
-function getPeriodLengthDays(rentalType: RentalType): number {
-  const periodDays: Record<RentalType, number> = {
-    daily: 1,
-    weekly: 7,
-    biweekly: 15,
-    monthly: 30,
-  };
-
-  return periodDays[rentalType];
 }
 
 function addPeriod(date: Date, rentalType: RentalType): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + getPeriodLengthDays(rentalType));
-  return next;
-}
-
-/**
- * Valor unitário de cobrança por período conforme o tipo selecionado.
- * Mantém valores cadastrados; se há diária e falta o valor do período,
- * usa o período proporcional já adotado no aluguel (7 / 15 / 30 dias).
- */
-export function periodRateFromInventory(
-  pricing: { dailyRate?: number; weeklyRate?: number; biweeklyRate?: number; monthlyRate?: number } | undefined,
-  rentalType: RentalType
-): { rate: number; message?: string } {
-  const eff = effectivePricingPeriods(pricing);
-  switch (rentalType) {
-    case 'daily':
-      if (eff.dailyRate > 0) return { rate: eff.dailyRate };
-      return { rate: 0, message: 'Cadastre a diária do equipamento.' };
-    case 'weekly':
-      if (eff.weeklyRate > 0) return { rate: eff.weeklyRate };
-      return { rate: 0, message: 'Cadastre o valor semanal do equipamento (ou a diária para derivar).' };
-    case 'biweekly':
-      if (eff.biweeklyRate > 0) return { rate: eff.biweeklyRate };
-      return { rate: 0, message: 'Cadastre o valor quinzenal do equipamento (ou a diária para derivar).' };
-    case 'monthly':
-      if (eff.monthlyRate > 0) return { rate: eff.monthlyRate };
-      return { rate: 0, message: 'Cadastre o valor mensal do equipamento (ou a diária para derivar).' };
-    default:
-      return { rate: 0, message: 'Tipo de cobrança inválido.' };
-  }
+  return addBillingDays(date, getPeriodLengthDays(rentalType));
 }
 
 /** Evita E11000 quando vários fechamentos são criados em sequência (count+1 gerava o mesmo número). */
@@ -243,12 +354,17 @@ class BillingService {
       }
 
       if (matchIdx === -1) {
+        const billQty = Number(billingItem?.quantity ?? 0);
         matchIdx = rentalItems.findIndex((ri: any, idx: number) => {
           if (usedIndices.has(idx)) return false;
-          if (ri.returnActual) return false;
           const riId = asIdString(ri?.itemId);
           if (riId !== billingItemId) return false;
-          if (billingUnitId) return String(ri?.unitId || "") === billingUnitId;
+          if (billingUnitId) {
+            if (String(ri?.unitId || "") !== billingUnitId) return false;
+          } else if (ri.unitId) {
+            return false;
+          }
+          if (billQty > 0 && Number(ri?.quantity ?? 0) !== billQty) return false;
           return true;
         });
       }
@@ -262,6 +378,25 @@ class BillingService {
     return selected.length
       ? selected
       : rentalItems.filter((ri: any) => !ri.returnActual);
+  }
+
+  private computeLineCharge(
+    pricing: any,
+    lineRentalType: RentalType,
+    periodCalculation: ReturnType<typeof calculateBillingPeriod>,
+  ): { amount: number; periodsCharged: number } {
+    const { amount } = calculateRentalLineAmount(
+      pricing,
+      lineRentalType,
+      periodCalculation,
+    );
+    if (lineRentalType === 'daily') {
+      return { amount, periodsCharged: periodCalculation.periodsCompleted };
+    }
+    const billablePeriods =
+      periodCalculation.periodsCompleted +
+      (periodCalculation.extraDays > 0 ? 1 : 0);
+    return { amount, periodsCharged: billablePeriods };
   }
 
   private async buildScopedBillingItems(
@@ -280,7 +415,11 @@ class BillingService {
         rentalType,
       );
 
-      const { amount } = calculateRentalLineAmount(pricing, rentalType, periodCalculation);
+      const { amount, periodsCharged } = this.computeLineCharge(
+        pricing,
+        rentalType,
+        periodCalculation,
+      );
       const subtotal = amount * Number(item.quantity || 0);
       equipmentSubtotal += subtotal;
       items.push({
@@ -289,7 +428,7 @@ class BillingService {
         rentalLineKey: buildRentalLineKey(item),
         quantity: item.quantity,
         unitPrice: Number(lineUnit.toFixed(2)),
-        periodsCharged: periodCalculation.totalPeriods,
+        periodsCharged,
         subtotal: Number(subtotal.toFixed(2)),
       });
     }
@@ -323,28 +462,9 @@ class BillingService {
   ): Promise<void> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
     if (!rental) return;
-    const lineItemId = asIdString(lineItem.itemId);
+    const wantKey = buildRentalLineKey(lineItem);
     const idx = rental.items.findIndex((ri: any) => {
-      if (ri.returnActual) return false;
-      const id = asIdString(ri.itemId);
-      if (id !== lineItemId) return false;
-      if (lineItem.unitId) {
-        if (ri.unitId !== lineItem.unitId) return false;
-      } else if (ri.unitId) {
-        return false;
-      }
-      const reqLine =
-        typeof lineItem.lineId === "string" && lineItem.lineId.trim().length > 0
-          ? lineItem.lineId.trim()
-          : undefined;
-      if (reqLine != null && reqLine !== "") {
-        const riLine =
-          typeof ri.lineId === "string" && ri.lineId.trim().length > 0
-            ? ri.lineId.trim()
-            : "";
-        return riLine === reqLine;
-      }
-      return !ri.lineId;
+      return buildRentalLineKey(ri) === wantKey;
     });
     if (idx === -1) return;
     if (Number(rental.items[idx].unitPrice) <= 0) {
@@ -418,7 +538,7 @@ class BillingService {
       (billing.items?.length ?? 0) === 0 &&
       ((billing.services?.length ?? 0) > 0 || Number(billing.calculation?.servicesAmount ?? 0) > 0);
     const scopedRentalItems = isServiceOnlyBilling ? [] : this.pickRentalItemsForBilling(rental, billing);
-    const isScopedBilling = scopedRentalItems.length > 0 && scopedRentalItems.length < rental.items.length;
+    const isScopedBilling = scopedRentalItems.length > 0;
     const { equipmentSubtotal } = isServiceOnlyBilling
       ? { equipmentSubtotal: 0 }
       : isScopedBilling
@@ -433,6 +553,7 @@ class BillingService {
           rental,
           rentalType,
           periodCalculation,
+          undefined,
         );
     const { servicesSubtotal } = this.buildBillingServices(rental, isServiceOnlyBilling);
     const subtotal = equipmentSubtotal + servicesSubtotal;
@@ -486,7 +607,7 @@ class BillingService {
       !isServiceOnlyBilling &&
       ((billing.services?.length ?? 0) > 0 || Number(billing.calculation?.servicesAmount ?? 0) > 0);
     const scopedRentalItems = isServiceOnlyBilling ? [] : this.pickRentalItemsForBilling(rental, billing);
-    const isScopedBilling = scopedRentalItems.length > 0 && scopedRentalItems.length < rental.items.length;
+    const isScopedBilling = scopedRentalItems.length > 0;
     const { items, equipmentSubtotal } = isServiceOnlyBilling
       ? { items: [], equipmentSubtotal: 0 }
       : isScopedBilling
@@ -501,6 +622,7 @@ class BillingService {
           rental,
           rentalType,
           periodCalculation,
+          undefined,
         );
     const { services, servicesSubtotal } = this.buildBillingServices(rental, isServiceOnlyBilling);
     const subtotal = equipmentSubtotal + servicesSubtotal;
@@ -620,7 +742,7 @@ class BillingService {
     rental: any,
     rentalType: RentalType,
     periodCalculation: ReturnType<typeof calculateBillingPeriod>,
-    targetEquipmentSubtotal?: number
+    targetEquipmentSubtotal?: number,
   ): Promise<{ items: any[]; equipmentSubtotal: number }> {
     await this.ensureRentalItemsHavePeriodRates(companyId, rental);
 
@@ -646,7 +768,11 @@ class BillingService {
         itemRentalType,
       );
       const unitPricePerPeriod = lineUnit * scaleFactor;
-      const { amount } = calculateRentalLineAmount(pricing, itemRentalType, periodCalculation);
+      const { amount, periodsCharged } = this.computeLineCharge(
+        pricing,
+        itemRentalType,
+        periodCalculation,
+      );
       const subtotal = amount * scaleFactor * item.quantity;
       equipmentSubtotal += subtotal;
 
@@ -656,7 +782,7 @@ class BillingService {
         rentalLineKey: buildRentalLineKey(item),
         quantity: item.quantity,
         unitPrice: Number(unitPricePerPeriod.toFixed(2)),
-        periodsCharged: periodCalculation.totalPeriods,
+        periodsCharged,
         subtotal: Number(subtotal.toFixed(2)),
       });
     }
@@ -874,7 +1000,11 @@ class BillingService {
     }
     await this.persistRentalLineUnitPrice(companyId, rental._id, item, lineUnit);
 
-    const { amount } = calculateRentalLineAmount(pricing, rentalType, periodCalculation);
+    const { amount, periodsCharged } = this.computeLineCharge(
+      pricing,
+      rentalType,
+      periodCalculation,
+    );
     const itemSubtotal = amount * item.quantity;
     const rentalLineKey = buildRentalLineKey(item);
     const items = [
@@ -884,7 +1014,7 @@ class BillingService {
         rentalLineKey,
         quantity: item.quantity,
         unitPrice: lineUnit,
-        periodsCharged: periodCalculation.totalPeriods,
+        periodsCharged,
         subtotal: Number(itemSubtotal.toFixed(2)),
       },
     ];

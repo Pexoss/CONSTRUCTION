@@ -188,6 +188,10 @@ const BillingSchema = new Schema<IBilling>(
       enum: ['daily', 'weekly', 'biweekly', 'monthly'],
       required: true,
     },
+    intervalChargeMode: {
+      type: String,
+      enum: ['floored', 'proportional'],
+    },
     calculation: {
       type: BillingCalculationSchema,
       required: true,

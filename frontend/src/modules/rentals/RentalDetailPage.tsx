@@ -26,6 +26,10 @@ import {
   getBillingOutstandingAmount,
   todayDateInputValue,
 } from "../../utils/formatters";
+import {
+  periodRateFromInventory,
+  type RentalTypePricing,
+} from "../../utils/rental-pricing.util";
 import { features } from "../../config/features";
 import SortableTh from "../../components/SortableTh";
 import {
@@ -202,6 +206,7 @@ const RentalDetailPage: React.FC = () => {
   const [selectedCloseItem, setSelectedCloseItem] = useState<{
     itemId: string;
     unitId?: string;
+    lineId?: string;
     name: string;
     quantity: number;
     rentalType?: "daily" | "weekly" | "biweekly" | "monthly";
@@ -222,6 +227,7 @@ const RentalDetailPage: React.FC = () => {
       returnActualDate?: string;
       historicalDelivery?: boolean;
       recalculateOnSave?: boolean;
+      lineId?: string;
     }>,
     workAddress: {
       street: "",
@@ -635,6 +641,10 @@ const RentalDetailPage: React.FC = () => {
     setSelectedCloseItem({
       itemId: typeof item.itemId === "string" ? item.itemId : item.itemId._id,
       unitId: item.unitId,
+      lineId:
+        typeof item.lineId === "string" && item.lineId.trim()
+          ? item.lineId.trim()
+          : undefined,
       name:
         typeof item.itemId === "object" ? item.itemId.name || "Item" : "Item",
       quantity: Number(item.quantity || 1),
@@ -651,7 +661,13 @@ const RentalDetailPage: React.FC = () => {
       const preview = await rentalService.getClosePreviewItem(
         id,
         typeof item.itemId === "string" ? item.itemId : item.itemId._id,
-        item.unitId,
+        {
+          unitId: item.unitId,
+          lineId:
+            typeof item.lineId === "string" && item.lineId.trim()
+              ? item.lineId.trim()
+              : undefined,
+        },
       );
       setCloseItemPreview(preview);
     } catch {
@@ -805,21 +821,32 @@ const RentalDetailPage: React.FC = () => {
       ? rentalTypeUiToApi[value as RentalTypeUI]
       : value || "daily";
   const normalizeBillingDateKey = (value?: string | Date | null) => {
-    if (!value) return "na";
-    const text = value instanceof Date ? value.toISOString() : String(value);
-    const match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? "na" : date.toISOString().slice(0, 10);
+    if (value === undefined || value === null || value === "") return "na";
+    if (typeof value === "string") {
+      const m = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    }
+    const date =
+      value instanceof Date ? value : new Date(typeof value === "string" ? value : String(value));
+    if (Number.isNaN(date.getTime())) return "na";
+    const y = date.getFullYear();
+    const mo = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${mo}-${d}`;
   };
-  const buildRentalLineKeyForDisplay = (item: any) =>
-    [
+  const buildRentalLineKeyForDisplay = (item: any) => {
+    const base = [
       getEntityId(item.itemId),
       item.unitId ? String(item.unitId) : "no-unit",
       getRentalTypeApiValue(item.rentalType),
       normalizeBillingDateKey(item.pickupScheduled),
       normalizeBillingDateKey(item.returnScheduled),
     ].join("|");
+    if (typeof item.lineId === "string" && item.lineId.trim().length > 0) {
+      return `${base}|${item.lineId.trim()}`;
+    }
+    return base;
+  };
   const isSameBillingItemAsRentalItem = (
     billing: Billing,
     billingItem: any,
@@ -836,6 +863,11 @@ const RentalDetailPage: React.FC = () => {
       billing.rentalType === getRentalTypeApiValue(rentalItem.rentalType);
     return sameItem && sameUnit && sameType;
   };
+  /** Data de início do fechamento (= periodStart persistido); não misturar com pickup do item. */
+  const billingDisplayedPeriodStartIso = (billing: Billing): string =>
+    billing.periodStart != null && billing.periodStart !== ""
+      ? String(billing.periodStart).split("T")[0]
+      : "";
   const getDisplayedRentalItemSubtotal = (item: any) => {
     if (!item.returnActual) {
       return Number(item.subtotal || 0);
@@ -965,7 +997,7 @@ const RentalDetailPage: React.FC = () => {
                           : "Item";
                       return (
                         <div
-                          key={`${item.itemId}-${item.unitId || index}`}
+                          key={`${item.itemId}-${item.lineId || ""}-${item.unitId || index}`}
                           className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
                         >
                           <div className="flex items-center justify-between">
@@ -1460,6 +1492,7 @@ const RentalDetailPage: React.FC = () => {
                         const row: {
                           itemId: string;
                           unitId?: string;
+                          lineId?: string;
                           quantity: number;
                           rentalType:
                             | "daily"
@@ -1473,6 +1506,9 @@ const RentalDetailPage: React.FC = () => {
                         } = {
                           itemId: item.itemId,
                           unitId: item.unitId || undefined,
+                          ...(item.lineId?.trim()
+                            ? { lineId: item.lineId.trim() }
+                            : {}),
                           quantity: item.quantity,
                           rentalType: rentalTypeUiToApi[item.rentalType] as
                             | "daily"
@@ -1820,6 +1856,10 @@ const RentalDetailPage: React.FC = () => {
                               ? item.itemId
                               : item.itemId._id,
                           unitId: item.unitId,
+                          lineId:
+                            typeof item.lineId === "string" && item.lineId.trim()
+                              ? item.lineId.trim()
+                              : undefined,
                           quantity: item.quantity,
                           rentalType:
                             rentalTypeApiToUi[item.rentalType] || "diario",
@@ -2071,6 +2111,15 @@ const RentalDetailPage: React.FC = () => {
                 {rental.items.map((item, index) => {
                   const itemData =
                     typeof item.itemId === "object" ? item.itemId : null;
+                  const rtApi = (item.rentalType || "daily") as RentalTypePricing;
+                  const cadastroTariff =
+                    itemData?.pricing != null
+                      ? periodRateFromInventory(itemData.pricing, rtApi).rate
+                      : 0;
+                  const displayUnitPrice =
+                    cadastroTariff > 0
+                      ? cadastroTariff
+                      : Number(item.unitPrice ?? 0);
                   const displayedSubtotal =
                     getDisplayedRentalItemSubtotal(item);
                   return (
@@ -2085,7 +2134,7 @@ const RentalDetailPage: React.FC = () => {
                           </div>
                           <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                             Quantidade: {item.quantity} • Preço unitário: R${" "}
-                            {item.unitPrice.toFixed(2)}
+                            {displayUnitPrice.toFixed(2)}
                           </div>
                           <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                             Tipo: {formatRentalTypeLabel(item.rentalType)} • Retirada:{" "}
@@ -2528,7 +2577,10 @@ const RentalDetailPage: React.FC = () => {
                           className="align-top hover:bg-gray-50 dark:hover:bg-gray-800/50"
                         >
                           <td className="px-3 py-2 text-gray-800 dark:text-gray-200 whitespace-nowrap">
-                            {formatBillingPeriodDate(billing.periodStart)} →{" "}
+                            {formatBillingPeriodDate(
+                              billingDisplayedPeriodStartIso(billing),
+                            )}{" "}
+                            →{" "}
                             {formatBillingPeriodDate(billing.periodEnd)}
                           </td>
                           <td className="px-3 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">
@@ -2726,7 +2778,7 @@ const RentalDetailPage: React.FC = () => {
                           : "Item";
                       return (
                         <div
-                          key={`${item.itemId}-${item.unitId || index}`}
+                          key={`${item.itemId}-${item.lineId || ""}-${item.unitId || index}`}
                           className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
                         >
                           <div className="flex items-center justify-between">
@@ -3173,6 +3225,7 @@ const RentalDetailPage: React.FC = () => {
                         const row: {
                           itemId: string;
                           unitId?: string;
+                          lineId?: string;
                           quantity: number;
                           rentalType:
                             | "daily"
@@ -3186,6 +3239,9 @@ const RentalDetailPage: React.FC = () => {
                         } = {
                           itemId: item.itemId,
                           unitId: item.unitId || undefined,
+                          ...(item.lineId?.trim()
+                            ? { lineId: item.lineId.trim() }
+                            : {}),
                           quantity: item.quantity,
                           rentalType: rentalTypeUiToApi[item.rentalType] as
                             | "daily"
@@ -3513,7 +3569,8 @@ const RentalDetailPage: React.FC = () => {
                 {selectedCloseItem.name}
                 {rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
                   <span className="block mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Equipamento por unidade identificada — devolução sempre integral nesta linha.
+                    Equipamento por unidade — devolução integral nesta linha. Você pode
+                    ajustar o tipo de cobrança usado neste fechamento abaixo.
                   </span>
                 )}
               </div>
@@ -3597,8 +3654,7 @@ const RentalDetailPage: React.FC = () => {
                   />
                 </>
               )}
-              {selectedCloseItem &&
-                !rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
+              {selectedCloseItem && (
                 <>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Tipo de cobrança desta devolução (opcional)
@@ -3666,10 +3722,14 @@ const RentalDetailPage: React.FC = () => {
                     if (!selectedCloseItem || !id) return;
                     try {
                       const returnDateIso = closeItemReturnDate || undefined;
-                      const partialFlowAllowed =
-                        !rentalLineHasUnitTracked(selectedCloseItem.unitId);
+                      const isUnitLine = rentalLineHasUnitTracked(
+                        selectedCloseItem.unitId,
+                      );
+                      const partialFlowAllowed = !isUnitLine;
                       const useReturnsEndpoint =
-                        selectedCloseItem.quantity > 1 && partialFlowAllowed;
+                        isUnitLine ||
+                        selectedCloseItem.quantity > 1 ||
+                        Boolean(closeItemBillingRentalType);
 
                       if (useReturnsEndpoint) {
                         await rentalService.returnRentalItems(id, {
@@ -3678,7 +3738,15 @@ const RentalDetailPage: React.FC = () => {
                             {
                               itemId: selectedCloseItem.itemId,
                               unitId: selectedCloseItem.unitId,
-                              returnedQuantity: closeItemReturnedQuantity,
+                              ...(selectedCloseItem.lineId
+                                ? { lineId: selectedCloseItem.lineId }
+                                : {}),
+                              returnedQuantity: isUnitLine
+                                ? 1
+                                : Math.min(
+                                    closeItemReturnedQuantity,
+                                    selectedCloseItem.quantity,
+                                  ),
                               ...(closeItemBillingRentalType
                                 ? {
                                     billingRentalType:
@@ -3695,19 +3763,26 @@ const RentalDetailPage: React.FC = () => {
                           {
                             returnDate: returnDateIso,
                             unitId: selectedCloseItem.unitId,
+                            ...(selectedCloseItem.lineId
+                              ? { lineId: selectedCloseItem.lineId }
+                              : {}),
                           },
                         );
                       }
 
                       if (
                         partialFlowAllowed &&
-                        closeItemNewRentalType
+                        closeItemNewRentalType &&
+                        closeItemReturnedQuantity < selectedCloseItem.quantity
                       ) {
                         await rentalService.changeRentalTypeForItem(
                           id,
                           selectedCloseItem.itemId,
                           {
                             unitId: selectedCloseItem.unitId,
+                            ...(selectedCloseItem.lineId
+                              ? { lineId: selectedCloseItem.lineId }
+                              : {}),
                             newRentalType: closeItemNewRentalType,
                             effectiveDate: returnDateIso,
                             notes: "Alteração de tipo após devolução",

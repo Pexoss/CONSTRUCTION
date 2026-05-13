@@ -152,6 +152,7 @@ export class RentalController {
         ? parseCalendarDateBody(req.body.returnDate as string | Date)
         : undefined;
       const unitId = req.body?.unitId as string | undefined;
+      const lineId = req.body?.lineId as string | undefined;
 
       const rental = await rentalService.closeRentalItem(
         companyId,
@@ -160,6 +161,7 @@ export class RentalController {
         userId,
         returnDate,
         unitId,
+        lineId,
       );
 
       res.json({
@@ -366,12 +368,14 @@ export class RentalController {
       const { id, itemId } = req.params;
       const companyId = req.companyId!;
       const unitId = req.query.unitId as string | undefined;
+      const lineId = req.query.lineId as string | undefined;
 
       const preview = await rentalService.getClosePreviewItem(
         id,
         itemId,
         companyId,
         unitId,
+        lineId,
       );
 
       res.json({
@@ -785,6 +789,7 @@ export class RentalController {
         userId,
         {
           unitId: parsed.unitId,
+          lineId: parsed.lineId,
           effectiveDate: parsed.effectiveDate
             ? parseCalendarDateBody(parsed.effectiveDate as string | Date)
             : undefined,

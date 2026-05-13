@@ -34,6 +34,7 @@ import { User } from "../users/user.model";
 import billingService, {
   calculateBillingPeriod,
   calculateRentalLineAmount,
+  effectivePricingPeriods,
   periodRateFromInventory,
 } from "../billings/billing.service";
 import {
@@ -43,32 +44,27 @@ import {
 import { Billing } from "../billings/billing.model";
 import { Charge } from "../charges/charge.model";
 import { Invoice } from "../invoices/invoice.model";
-import { buildRentalLineKey } from "../../shared/utils/rental-line-key.util";
+import { asIdString, buildRentalLineKey } from "../../shared/utils/rental-line-key.util";
 import fs from "fs";
 import path from "path";
 import PDFDocument from "pdfkit";
+import {
+  normalizeDateForBilling,
+  addBillingDays,
+  getPeriodEndInclusive,
+  getPeriodLengthDays as getPeriodLengthDaysFromUtil,
+} from "../../shared/utils/rental-period.util";
 class RentalService {
   private getPeriodLengthDays(rentalType: RentalType): number {
-    const periodDays: Record<RentalType, number> = {
-      daily: 1,
-      weekly: 7,
-      biweekly: 15,
-      monthly: 30,
-    };
-
-    return periodDays[rentalType];
+    return getPeriodLengthDaysFromUtil(rentalType);
   }
 
   private addDays(date: Date, days: number): Date {
-    const next = new Date(date);
-    next.setDate(next.getDate() + days);
-    return next;
+    return addBillingDays(date, days);
   }
 
   private normalizeDate(date: Date): Date {
-    const normalized = new Date(date);
-    normalized.setHours(0, 0, 0, 0);
-    return normalized;
+    return normalizeDateForBilling(date);
   }
 
   private normalizeCpf(value?: string | null): string {
@@ -84,49 +80,149 @@ class RentalService {
     items: IRentalItem[] | undefined,
     itemId: string,
     unitId?: string | null,
+    lineId?: string | null,
   ): number {
     const id = itemId.toString();
     const list = items || [];
-    return list.findIndex((item) => {
-      if (item.returnActual) return false;
-      if (item.itemId.toString() !== id) return false;
-      if (unitId != null && String(unitId).trim() !== "") {
-        return item.unitId === unitId;
-      }
-      return !item.unitId;
-    });
+    const wantLine =
+      lineId != null && String(lineId).trim() !== ""
+        ? String(lineId).trim()
+        : undefined;
+
+    const matches = list
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => {
+        if (item.returnActual) return false;
+        if (item.itemId.toString() !== id) return false;
+        if (unitId != null && String(unitId).trim() !== "") {
+          return item.unitId === unitId;
+        }
+        return !item.unitId;
+      });
+
+    if (matches.length === 0) return -1;
+
+    if (wantLine) {
+      const hit = matches.find(
+        ({ item }) =>
+          typeof item.lineId === "string" && item.lineId.trim() === wantLine,
+      );
+      return hit ? hit.index : -1;
+    }
+
+    if (matches.length > 1) {
+      throw badRequest(
+        "Este contrato tem mais de uma linha aberta deste equipamento. Informe lineId ao devolver ou fechar cada segmento.",
+      );
+    }
+
+    return matches[0].index;
   }
 
   private findOpenRentalItem(
     items: IRentalItem[] | undefined,
     itemId: string,
     unitId?: string | null,
+    lineId?: string | null,
   ): IRentalItem | undefined {
-    const idx = this.findOpenRentalItemIndex(items, itemId, unitId);
+    const idx = this.findOpenRentalItemIndex(items, itemId, unitId, lineId);
     if (idx === -1) return undefined;
     return (items || [])[idx];
   }
 
-  private async removeObsoleteUnpaidItemBillings(
+  private findRentalLineItemForPatch(
+    rental: IRental,
+    patch: {
+      itemId: string;
+      unitId?: string;
+      lineId?: string | null;
+    },
+  ): IRentalItem | undefined {
+    const id = String(patch.itemId).trim();
+    const unit =
+      patch.unitId != null && String(patch.unitId).trim() !== ""
+        ? String(patch.unitId).trim()
+        : undefined;
+
+    const candidates = (rental.items || []).filter((i) => {
+      const iid =
+        typeof i.itemId === "object" && (i.itemId as any)?._id
+          ? String((i.itemId as any)._id)
+          : String(i.itemId);
+      if (iid !== id) return false;
+      if (unit !== undefined) return String(i.unitId || "").trim() === unit;
+      return !i.unitId;
+    });
+
+    const want =
+      typeof patch.lineId === "string" && patch.lineId.trim().length > 0
+        ? patch.lineId.trim()
+        : undefined;
+    if (want) {
+      return candidates.find(
+        (i) =>
+          typeof i.lineId === "string" &&
+          String(i.lineId).trim() === want,
+      );
+    }
+    const sansLine = candidates.filter(
+      (i) => !(typeof i.lineId === "string" && i.lineId.trim().length > 0),
+    );
+    if (sansLine.length === 1) return sansLine[0];
+    return candidates.length === 1 ? candidates[0] : undefined;
+  }
+
+  private rentalLineCountSameEquipment(
+    rental: IRental,
+    itemId: string,
+    unitId?: string,
+  ): number {
+    const id = String(itemId).trim();
+    const unit =
+      unitId != null && String(unitId).trim() !== ""
+        ? String(unitId).trim()
+        : undefined;
+    return (rental.items || []).filter((i) => {
+      const iid =
+        typeof i.itemId === "object" && (i.itemId as any)?._id
+          ? String((i.itemId as any)._id)
+          : String(i.itemId);
+      if (iid !== id) return false;
+      if (unit !== undefined) return String(i.unitId || "").trim() === unit;
+      return !i.unitId;
+    }).length;
+  }
+
+  /**
+   * Remove apenas fechamentos em aberto cujos itens batem estritamente com as chaves de linha dadas.
+   * Evita apagar todos os sub-fechamentos de um mesmo equipamento quando há devoluções parciais (segmentos diferentes).
+   */
+  private async removeObsoleteUnpaidBillingsForRentalLineKeys(
     companyId: string,
     rentalId: mongoose.Types.ObjectId,
-    itemId: any,
-    unitId?: string,
+    lineKeys: Set<string>,
   ): Promise<void> {
-    const filter: Record<string, unknown> = {
+    if (lineKeys.size === 0) return;
+
+    const billings = await Billing.find({
       companyId,
       rentalId,
-      "items.itemId": itemId,
       status: { $ne: "paid" },
-    };
-    if (unitId) {
-      filter["items.unitId"] = unitId;
-    }
-
-    const billings = await Billing.find(filter).select(
-      "_id status calculation outstandingAmount paymentHistory chargeId invoiceId",
+      "items.0": { $exists: true },
+    }).select(
+      "_id status calculation outstandingAmount paymentHistory chargeId invoiceId items",
     );
-    await this.deleteUnpaidBillingDocuments(companyId, billings);
+
+    const obsolete = billings.filter((billing) => {
+      const rows = billing.items || [];
+      if (!rows.length) return false;
+      return rows.every((bi: any) => {
+        const rk = bi.rentalLineKey ? String(bi.rentalLineKey).trim() : "";
+        return rk.length > 0 && lineKeys.has(rk);
+      });
+    });
+
+    await this.deleteUnpaidBillingDocuments(companyId, obsolete);
   }
 
   private async deleteUnpaidBillingDocuments(
@@ -337,7 +433,7 @@ class RentalService {
       status: { $ne: "paid" },
       "items.0": { $exists: true },
     }).select(
-      "_id rentalType periodStart items calculation outstandingAmount paymentHistory chargeId invoiceId",
+      "_id rentalType periodStart periodEnd status items calculation outstandingAmount paymentHistory chargeId invoiceId",
     );
 
     const obsolete = billings.filter((billing) => {
@@ -381,7 +477,128 @@ class RentalService {
       });
     });
 
-    await this.deleteUnpaidBillingDocuments(companyId, obsolete);
+    const findRentalItemForBillingRow = (billingItem: any): IRentalItem | undefined => {
+      const lineKeyRaw = billingItem.rentalLineKey
+        ? String(billingItem.rentalLineKey).trim()
+        : "";
+      const itemIdBid =
+        billingItem.itemId?.toString?.() || String(billingItem.itemId);
+      const uidBid =
+        billingItem.unitId != null && String(billingItem.unitId).trim() !== ""
+          ? String(billingItem.unitId)
+          : undefined;
+      if (lineKeyRaw) {
+        for (const ri of rental.items || []) {
+          if (
+            lineKeyRaw === String(buildRentalLineKey(ri as any)).trim()
+          ) {
+            return ri as IRentalItem;
+          }
+        }
+      }
+      for (const ri of rental.items || []) {
+        const iid =
+          typeof ri.itemId === "object" && (ri.itemId as any)?._id
+            ? String((ri.itemId as any)._id)
+            : String(ri.itemId);
+        if (iid !== itemIdBid) continue;
+        if (uidBid !== undefined) {
+          if (String(ri.unitId || "") === uidBid) return ri as IRentalItem;
+        } else if (!ri.unitId) {
+          return ri as IRentalItem;
+        }
+      }
+      if (rental.items?.length === 1) return rental.items[0] as IRentalItem;
+      return undefined;
+    };
+
+    /** Mesma cohorte para comparar períodos compatíveis (tipo + linha de aluguel). */
+    const cohortKeyForBillingDoc = (
+      billingDoc: (typeof billings)[0],
+      firstRow: any,
+    ): string => {
+      const lk = firstRow?.rentalLineKey
+        ? String(firstRow.rentalLineKey).trim()
+        : "";
+      const rt = String(billingDoc.rentalType || "daily");
+      if (lk) return `${rt}|rk:${lk}`;
+      const itemId =
+        firstRow?.itemId?.toString?.() || String(firstRow?.itemId || "");
+      const uid =
+        firstRow?.unitId != null && String(firstRow.unitId).trim() !== ""
+          ? String(firstRow.unitId)
+          : "no-unit";
+      return `${rt}|fb:${itemId}|${uid}`;
+    };
+
+    /** Início depois da devolução contratual; ou dois rascunhos/fatias sobrepostos (ex.: bom 01/05 e fantasma 12/05). */
+    const overlapsInclusiveBilling = (
+      aStart: Date,
+      aEnd: Date,
+      bStart: Date,
+      bEnd: Date,
+    ): boolean =>
+      aStart.getTime() <= bEnd.getTime() && bStart.getTime() <= aEnd.getTime();
+
+    const obsoleteDraftIds = new Set<string>();
+
+    for (const billingDoc of billings) {
+      if (billingDoc.status !== "draft") continue;
+      const rowsDoc = billingDoc.items || [];
+      if (!rowsDoc.length) continue;
+      const firstRow = rowsDoc[0];
+
+      let startsAfterScheduledReturn = false;
+      for (const row of rowsDoc) {
+        const ri = findRentalItemForBillingRow(row);
+        if (!ri) continue;
+        const cap = this.getContractualReturnForDraft(ri);
+        if (
+          cap &&
+          this.normalizeDate(billingDoc.periodStart).getTime() > cap.getTime()
+        ) {
+          startsAfterScheduledReturn = true;
+          break;
+        }
+      }
+      if (startsAfterScheduledReturn) {
+        obsoleteDraftIds.add(String(billingDoc._id));
+        continue;
+      }
+
+      const cohort = cohortKeyForBillingDoc(billingDoc, firstRow);
+      const dPs = this.normalizeDate(billingDoc.periodStart);
+      const dPe = this.normalizeDate(billingDoc.periodEnd);
+
+      let overlapEarlier = false;
+      for (const other of billings) {
+        if (String(other._id) === String(billingDoc._id)) continue;
+        if (other.status === "paid" || other.status === "cancelled") continue;
+        const otherRows = other.items || [];
+        if (!otherRows.length) continue;
+        if (cohortKeyForBillingDoc(other, otherRows[0]) !== cohort) continue;
+
+        const oPs = this.normalizeDate(other.periodStart);
+        const oPe = this.normalizeDate(other.periodEnd);
+
+        /** Rascunho “fantasma” começa depois mas ainda atravessa o mesmo período coberto por linha válida já faturável. */
+        if (dPs.getTime() <= oPs.getTime()) continue;
+        if (!overlapsInclusiveBilling(dPs, dPe, oPs, oPe)) continue;
+        overlapEarlier = true;
+        break;
+      }
+      if (overlapEarlier) {
+        obsoleteDraftIds.add(String(billingDoc._id));
+      }
+    }
+
+    const obsoleteCombined = billings.filter(
+      (billing) =>
+        obsolete.some((b) => String(b._id) === String(billing._id)) ||
+        obsoleteDraftIds.has(String(billing._id)),
+    );
+
+    await this.deleteUnpaidBillingDocuments(companyId, obsoleteCombined);
   }
 
   private async getLatestLockedItemBillingEnd(
@@ -389,18 +606,36 @@ class RentalService {
     rentalId: mongoose.Types.ObjectId,
     itemId: any,
     unitId?: string,
+    rentalLineKey?: string | null,
   ): Promise<Date | undefined> {
+    const rk =
+      typeof rentalLineKey === "string" && rentalLineKey.trim().length > 0
+        ? rentalLineKey.trim()
+        : undefined;
+
     const filter: Record<string, unknown> = {
       companyId,
       rentalId,
-      "items.itemId": itemId,
       $or: [
         { status: "paid" },
         { "paymentHistory.0": { $exists: true } },
       ],
     };
-    if (unitId) {
-      filter["items.unitId"] = unitId;
+
+    if (rk) {
+      const em: Record<string, unknown> = {
+        itemId,
+        rentalLineKey: rk,
+      };
+      if (unitId != null && String(unitId).trim() !== "") {
+        em.unitId = unitId;
+      }
+      filter.items = { $elemMatch: em };
+    } else {
+      filter["items.itemId"] = itemId;
+      if (unitId) {
+        filter["items.unitId"] = unitId;
+      }
     }
 
     const billing = await Billing.findOne(filter)
@@ -453,11 +688,11 @@ class RentalService {
     if (item.returnActual) {
       return this.normalizeDate(item.returnActual);
     }
-    if (item.retroactiveOpenBilling) {
-      return null;
-    }
     if (item.returnScheduled) {
       return this.normalizeDate(item.returnScheduled);
+    }
+    if (item.retroactiveOpenBilling) {
+      return null;
     }
     return null;
   }
@@ -500,11 +735,7 @@ class RentalService {
   }
 
   private getPeriodEnd(startDate: Date, rentalType: RentalType): Date {
-    const normalizedStart = this.normalizeDate(startDate);
-    return this.addDays(
-      normalizedStart,
-      this.getPeriodLengthDays(rentalType) - 1,
-    );
+    return getPeriodEndInclusive(startDate, rentalType);
   }
 
   private addPeriod(date: Date, rentalType: RentalType): Date {
@@ -548,23 +779,7 @@ class RentalService {
     biweeklyRate: number;
     monthlyRate: number;
   } {
-    const p = inventoryItem?.pricing || {};
-    const dailyRate = Math.max(0, Number(p.dailyRate ?? 0));
-    let weeklyRate = Math.max(0, Number(p.weeklyRate ?? 0));
-    let biweeklyRate = Math.max(0, Number(p.biweeklyRate ?? 0));
-    let monthlyRate = Math.max(0, Number(p.monthlyRate ?? 0));
-    if (dailyRate > 0) {
-      if (weeklyRate <= 0) {
-        weeklyRate = Number((dailyRate * 7).toFixed(2));
-      }
-      if (biweeklyRate <= 0) {
-        biweeklyRate = Number((dailyRate * 15).toFixed(2));
-      }
-      if (monthlyRate <= 0) {
-        monthlyRate = Number((dailyRate * 30).toFixed(2));
-      }
-    }
-    return { dailyRate, weeklyRate, biweeklyRate, monthlyRate };
+    return effectivePricingPeriods(inventoryItem?.pricing);
   }
 
   private assertConfiguredRateForRentalType(
@@ -602,18 +817,17 @@ class RentalService {
       );
     }
   }
-  /**
-   * Calculate rental price based on period and rates
-   * NOVO: Suporta biweeklyRate e rentalType
-   */
+  /** Valor da linha (1 unidade) no intervalo, usando sempre o cadastro bruto do equipamento. */
   private calculateRentalPrice(
-    dailyRate: number,
-    weeklyRate: number | undefined,
-    biweeklyRate: number | undefined,
-    monthlyRate: number | undefined,
+    inventoryPricing: {
+      dailyRate?: number;
+      weeklyRate?: number;
+      biweeklyRate?: number;
+      monthlyRate?: number;
+    } | undefined,
     startDate: Date,
     endDate: Date,
-    rentalType?: RentalType,
+    rentalType: RentalType | undefined,
   ): number {
     if (!rentalType) {
       throw badRequest("RentalType é obrigatório para cálculo do aluguel");
@@ -621,7 +835,7 @@ class RentalService {
 
     const period = calculateBillingPeriod(startDate, endDate, rentalType);
     return calculateRentalLineAmount(
-      { dailyRate, weeklyRate, biweeklyRate, monthlyRate },
+      inventoryPricing,
       rentalType,
       period,
     ).amount;
@@ -706,23 +920,6 @@ class RentalService {
       return "daily";
     };
 
-    const calculateRentalPriceCorrect = (
-      dailyRate = 0,
-      weeklyRate = 0,
-      biweeklyRate = 0,
-      monthlyRate = 0,
-      startDate: Date,
-      endDate: Date,
-      rentalType: RentalType,
-    ) => {
-      const period = calculateBillingPeriod(startDate, endDate, rentalType);
-      return calculateRentalLineAmount(
-        { dailyRate, weeklyRate, biweeklyRate, monthlyRate },
-        rentalType,
-        period,
-      ).amount;
-    };
-
     // Validar disponibilidade e preço do tipo escolhido
     for (const item of data.items) {
       const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
@@ -795,15 +992,11 @@ class RentalService {
         }
       }
 
-      const eff = this.getEffectivePricingForRentalLines(inventoryItem);
       pickupDates.push(pickupScheduled);
       returnDates.push(returnScheduled);
 
-      const unitPrice = calculateRentalPriceCorrect(
-        eff.dailyRate,
-        eff.weeklyRate,
-        eff.biweeklyRate,
-        eff.monthlyRate,
+      const unitPrice = this.calculateRentalPrice(
+        inventoryItem.pricing,
         pickupScheduled,
         returnScheduled,
         rentalType,
@@ -813,6 +1006,7 @@ class RentalService {
 
       itemsWithPricing.push({
         itemId: item.itemId,
+        lineId: randomUUID(),
         unitId: item.unitId,
         quantity: item.quantity,
         unitPrice,
@@ -1095,6 +1289,7 @@ class RentalService {
     itemId: string,
     companyId: string,
     unitId?: string,
+    lineId?: string,
   ) {
     const rental = await Rental.findOne({
       _id: rentalId,
@@ -1105,7 +1300,12 @@ class RentalService {
       throw notFound("Aluguel não encontrado");
     }
 
-    const targetItem = this.findOpenRentalItem(rental.items, itemId, unitId);
+    const targetItem = this.findOpenRentalItem(
+      rental.items,
+      itemId,
+      unitId,
+      lineId,
+    );
 
     if (!targetItem) {
       throw badRequest(`Item não encontrado no aluguel`);
@@ -1143,12 +1343,12 @@ class RentalService {
 
     // Calcula o total do aluguel APÓS fechar este item
     let rentalTotalAfterClose = 0;
+    const targetLineKey = buildRentalLineKey(targetItem as any);
     for (const item of rental.items) {
-      if (item.itemId.toString() === itemId && (!unitId || item.unitId === unitId)) {
-        // Este é o item que está sendo fechado - usa o valor recalculado
+      const lineKey = buildRentalLineKey(item as any);
+      if (lineKey === targetLineKey && !item.returnActual) {
         rentalTotalAfterClose += recalculatedTotal;
       } else {
-        // Outros itens - usa o valor atual (pode estar já fechado ou não)
         rentalTotalAfterClose += item.subtotal || 0;
       }
     }
@@ -1178,6 +1378,7 @@ class RentalService {
     userId: string,
     returnDate?: Date,
     unitId?: string,
+    lineId?: string,
   ): Promise<IRental> {
     const rental = await Rental.findOne({ _id: rentalId, companyId });
 
@@ -1185,7 +1386,12 @@ class RentalService {
       throw notFound("Aluguel não encontrado");
     }
 
-    const targetItem = this.findOpenRentalItem(rental.items, itemId, unitId);
+    const targetItem = this.findOpenRentalItem(
+      rental.items,
+      itemId,
+      unitId,
+      lineId,
+    );
 
     if (!targetItem) {
       throw badRequest(`Item não encontrado no aluguel`);
@@ -1300,9 +1506,15 @@ class RentalService {
         );
       }
 
-      const billingItem = finalBilling.items?.find((item: any) => {
-        const sameItem = String(item.itemId) === String(targetItem.itemId);
-        const sameUnit = targetItem.unitId ? item.unitId === targetItem.unitId : true;
+      const wantKey = rentalLineKey;
+      const billingItem = finalBilling.items?.find((row: any) => {
+        if (wantKey && String(row.rentalLineKey || "") === String(wantKey)) {
+          return true;
+        }
+        const sameItem = String(row.itemId) === String(targetItem.itemId);
+        const sameUnit = targetItem.unitId
+          ? row.unitId === targetItem.unitId
+          : !row.unitId;
         return sameItem && sameUnit;
       });
       finalBillingSubtotal = Number(billingItem?.subtotal || finalBilling.calculation?.baseAmount || 0);
@@ -1389,22 +1601,19 @@ class RentalService {
     periodEnd: Date,
     quantity: number,
   ): number {
-    const diffTime = new Date(periodEnd).getTime() - new Date(periodStart).getTime();
-    const usedDays = Math.max(1, diffTime / (1000 * 60 * 60 * 24));
     const rentalType = item.rentalType || "daily";
-
-    let proportional = 0;
-    if (rentalType === "weekly") {
-      proportional = (item.unitPrice / 7) * usedDays;
-    } else if (rentalType === "biweekly") {
-      proportional = (item.unitPrice / 15) * usedDays;
-    } else if (rentalType === "monthly") {
-      proportional = (item.unitPrice / 30) * usedDays;
-    } else {
-      proportional = item.unitPrice * usedDays;
+    const pc = calculateBillingPeriod(
+      periodStart,
+      periodEnd,
+      rentalType as RentalType,
+    );
+    if (rentalType === "daily") {
+      return Number((Number(item.unitPrice || 0) * pc.daysPassed * quantity).toFixed(2));
     }
-
-    return Number((proportional * quantity).toFixed(2));
+    const periodLen = getPeriodLengthDaysFromUtil(rentalType as RentalType);
+    const implied =
+      periodLen > 0 ? Number(item.unitPrice || 0) / periodLen : Number(item.unitPrice || 0);
+    return Number((implied * pc.daysPassed * quantity).toFixed(2));
   }
 
   async returnRentalItems(
@@ -1417,6 +1626,7 @@ class RentalService {
       items: Array<{
         itemId: string;
         unitId?: string;
+        lineId?: string;
         returnedQuantity?: number;
         billingRentalType?: RentalType;
       }>;
@@ -1439,6 +1649,7 @@ class RentalService {
         rental.items,
         reqItem.itemId,
         reqItem.unitId,
+        reqItem.lineId,
       );
       if (idx === -1) {
         throw badRequest(
@@ -1558,12 +1769,15 @@ class RentalService {
       );
 
       const expectedKey = partialSplit ? buildRentalLineKey(lineForBilling) : "";
+      const billedKey =
+        partialSplit && expectedKey
+          ? expectedKey
+          : buildRentalLineKey(lineForBilling);
       const billingRow =
-        (partialSplit && expectedKey
-          ? (createdBilling.items || []).find(
-              (row: any) => String(row.rentalLineKey || "") === expectedKey,
-            )
-          : undefined) ||
+        (createdBilling.items || []).find((row: any) => {
+          const rk = String(row.rentalLineKey || "");
+          return rk !== "" && rk === billedKey;
+        }) ||
         (createdBilling.items || []).find((row: any) => {
           const sameItem =
             String(row.itemId) === String(targetItem.itemId);
@@ -1578,6 +1792,9 @@ class RentalService {
         targetItem.retroactiveOpenBilling = false;
         targetItem.lastBillingDate = periodEndNorm;
         targetItem.nextBillingDate = undefined;
+        if (reqItem.billingRentalType) {
+          targetItem.rentalType = reqItem.billingRentalType;
+        }
         if (billingRow) {
           targetItem.unitPrice = Number(billingRow.unitPrice);
           targetItem.subtotal = Number(billingRow.subtotal);
@@ -1973,9 +2190,6 @@ class RentalService {
       if (!item.pickupScheduled) {
         continue;
       }
-      if (item.returnActual) {
-        continue;
-      }
       const cycle: RentalType = item.rentalType || "daily";
       const pickupBase = this.normalizeDate(item.pickupScheduled);
       const horizon = this.getBillingHorizonForItem(item, now);
@@ -2089,12 +2303,87 @@ class RentalService {
         nextBillingDate = item.nextBillingDate;
       }
 
+      /**
+       * Quando a devolução (ou “hoje”) é anterior ao fim do próximo ciclo teórico, o loop acima não
+       * chega a gerar período integral — exemplo: quinzena de 01/04 a devolução 07/04 com fim téorico em 15/04.
+       * Gera fechamento aprovado do trecho até o cap somente quando faz sentido fechar caixa (devolução real,
+       * devolução prevista já atingida, ou cobrança retroativa em atraso). Com contrato ainda vigente
+       * (devolução futura), não antecipa faturamento parcial — evita duplicar o mesmo mês/quinzena com o rascunho do ciclo cheio.
+       */
+      const capNormalized = this.normalizeDate(horizon);
+      const retroOverdueBillingToToday =
+        !!item.retroactiveOpenBilling &&
+        draftCap !== null &&
+        draftCap.getTime() < now.getTime();
+      const skipTailApprovedOpenContract =
+        !item.returnActual &&
+        draftCap !== null &&
+        capNormalized.getTime() < draftCap.getTime() &&
+        !retroOverdueBillingToToday;
+
+      const tailStartNorm = this.normalizeDate(periodStart);
+      if (
+        !skipTailApprovedOpenContract &&
+        tailStartNorm.getTime() <= capNormalized.getTime() &&
+        tailStartNorm.getTime() < capNormalized.getTime()
+      ) {
+        const nextFullNorm = this.normalizeDate(nextBillingDate);
+        if (capNormalized.getTime() <= nextFullNorm.getTime()) {
+          const tailExisting = await Billing.findOne({
+            ...itemFilter,
+            periodStart: tailStartNorm,
+            periodEnd: capNormalized,
+            status: { $nin: ["paid", "cancelled"] },
+          }).lean();
+
+          if (!tailExisting) {
+            await billingService.createPeriodicBillingForItem(
+              companyId,
+              rental,
+              item,
+              tailStartNorm,
+              capNormalized,
+              userId,
+              {
+                includeServices: includeServicesAvailable,
+                notes: item.returnActual
+                  ? "Fechamento período até devolução"
+                  : "Fechamento até a data atual",
+              },
+            );
+            includeServicesAvailable = false;
+            createdCount += 1;
+          } else {
+            await billingService.refreshBillingFromRental(
+              companyId,
+              String(tailExisting._id),
+            );
+          }
+
+          item.lastBillingDate = capNormalized;
+          if (!item.returnActual) {
+            const dayAfterCap = this.addDays(capNormalized, 1);
+            periodStart = dayAfterCap;
+            expectedNextBillingDate = this.getPeriodEnd(periodStart, cycle);
+            nextBillingDate = expectedNextBillingDate;
+            item.nextBillingDate = expectedNextBillingDate;
+          } else {
+            item.nextBillingDate = undefined;
+          }
+        }
+      }
+
       /** Rascunho do período seguinte só se ainda há contrato em aberto (início deste período ≤ devolução prevista). */
       const draftAllowedByContract =
         draftCap === null ||
         this.normalizeDate(periodStart).getTime() <= draftCap.getTime();
 
-      if (nextBillingDate > now && draftAllowedByContract) {
+      /** Rascunhos de período futuro só para linhas em aberto (contrato não encerrado na realidade dessa linha). */
+      if (
+        !item.returnActual &&
+        nextBillingDate > now &&
+        draftAllowedByContract
+      ) {
         const existingFuture = await Billing.findOne({
           ...itemFilter,
           periodStart: this.normalizeDate(periodStart),
@@ -2226,12 +2515,79 @@ class RentalService {
     companyId: string,
     rentalId: string,
   ): Promise<IRental | null> {
-    return Rental.findOne({ _id: rentalId, companyId })
+    const rental = await Rental.findOne({ _id: rentalId, companyId })
       .populate("customerId", "name cpfCnpj email phone addresses")
       .populate("items.itemId", "name sku pricing photos")
       .populate("createdBy", "name email")
       .populate("checklistPickup.completedBy", "name email")
       .populate("checklistReturn.completedBy", "name email");
+    if (rental) {
+      await this.recalcPricingForRental(rental as IRental, companyId);
+    }
+    return rental;
+  }
+
+  /**
+   * Tabela IV do PDF do contrato: tarifa cadastrada do período × quantidade × períodos
+   * cobráveis nas datas da linha (alinha ao fechamento; não usa só valores persistidos no aluguel).
+   */
+  private resolveCommercialRowForPdf(
+    ritem: any,
+    rental: any,
+  ): { periodLabel: string; tariffShown: number; lineTotal: number } {
+    const inv = ritem.itemId;
+
+    const fmtDate = (d: Date | string | undefined) =>
+      d ? new Date(d).toLocaleDateString("pt-BR") : "—";
+
+    const pickup = ritem.pickupScheduled ? fmtDate(ritem.pickupScheduled) : "";
+    const ret = ritem.returnScheduled ? fmtDate(ritem.returnScheduled) : "";
+    const periodLabel =
+      pickup && ret
+        ? `${pickup} a ${ret}`
+        : this.rentalTypeLabelForPdf(ritem.rentalType || "daily");
+
+    const pricing =
+      inv && typeof inv === "object" && inv.pricing ? inv.pricing : null;
+    const rt = (ritem.rentalType || "daily") as RentalType;
+    const qty = Number(ritem.quantity || 1);
+
+    if (!pricing) {
+      return {
+        periodLabel,
+        tariffShown: Number(ritem.unitPrice ?? 0),
+        lineTotal: Number(
+          ritem.subtotal ?? qty * Number(ritem.unitPrice ?? 0),
+        ),
+      };
+    }
+
+    const pickupDt = new Date(
+      ritem.pickupScheduled || rental.dates?.pickupScheduled,
+    );
+    const endSrc =
+      ritem.returnActual ??
+      ritem.returnScheduled ??
+      rental.dates?.returnScheduled ??
+      pickupDt;
+    const endDt = new Date(endSrc);
+
+    try {
+      const pc = calculateBillingPeriod(pickupDt, endDt, rt);
+      const lineUnit = calculateRentalLineAmount(pricing, rt, pc).amount;
+      const tariff = periodRateFromInventory(pricing, rt).rate;
+      return {
+        periodLabel,
+        tariffShown: tariff,
+        lineTotal: Number((lineUnit * qty).toFixed(2)),
+      };
+    } catch {
+      return {
+        periodLabel,
+        tariffShown: Number(ritem.unitPrice ?? 0),
+        lineTotal: Number(ritem.subtotal ?? 0),
+      };
+    }
   }
 
   private rentalTypeLabelForPdf(rt: RentalType | string): string {
@@ -2704,23 +3060,17 @@ class RentalService {
       y = drawTableHeader(y);
       doc.font("Helvetica").fontSize(7);
 
+      let sumItems = 0;
       rental.items.forEach((ritem: any) => {
         const inv = ritem.itemId as any;
         const name =
           inv && typeof inv === "object" && inv.name ? inv.name : "Item";
         const sku =
           inv?.sku || inv?.customId || inv?.barcode || "—";
-        const pickup = ritem.pickupScheduled
-          ? fmtDate(ritem.pickupScheduled)
-          : "";
-        const ret = ritem.returnScheduled
-          ? fmtDate(ritem.returnScheduled)
-          : "";
-        const periodLabel =
-          pickup && ret
-            ? `${pickup} a ${ret}`
-            : this.rentalTypeLabelForPdf(ritem.rentalType || "daily");
-        const lineTotal = Number(ritem.subtotal ?? 0);
+        const { periodLabel, tariffShown, lineTotal } =
+          this.resolveCommercialRowForPdf(ritem, rental);
+
+        sumItems += lineTotal;
 
         if (y > 720) {
           doc.addPage();
@@ -2733,7 +3083,7 @@ class RentalService {
         doc.text(String(ritem.quantity), col.q, y, { width: 24, align: "center" });
         doc.text(String(sku).slice(0, 12), col.cod, y, { width: 44 });
         doc.text(name, col.desc, y, { width: 214 });
-        doc.text(fmtMoney(ritem.unitPrice), col.unit, y, {
+        doc.text(fmtMoney(tariffShown), col.unit, y, {
           width: 64,
           align: "right",
         });
@@ -2782,10 +3132,6 @@ class RentalService {
         .stroke();
       y += 8;
 
-      const sumItems = rental.items.reduce(
-        (acc: number, it: any) => acc + Number(it.subtotal ?? 0),
-        0,
-      );
       const sumServices =
         rental.services?.reduce(
           (acc: number, s: any) =>
@@ -2795,10 +3141,7 @@ class RentalService {
         ) ?? 0;
       const subtotalTable = sumItems + sumServices;
       const discount = Number(rental.pricing?.discount ?? 0);
-      const contractTotal =
-        rental.pricing?.total != null
-          ? Number(rental.pricing.total)
-          : Math.max(0, subtotalTable - discount);
+      const contractTotal = Math.max(0, subtotalTable - discount);
 
       if (discount > 0) {
         doc.font("Helvetica").fontSize(8);
@@ -2902,20 +3245,19 @@ class RentalService {
     let recalculatedEquipmentSubtotal = 0;
     for (const item of rental.items) {
       const { unitPrice, rentalType, quantity } = item;
-      let proportional = 0;
+      let lineTotal = 0;
 
       if (rentalType === "weekly") {
-        proportional = (unitPrice / 7) * usedDays;
+        lineTotal = unitPrice * Math.max(1, Math.ceil(usedDays / 7));
       } else if (rentalType === "biweekly") {
-        proportional = (unitPrice / 15) * usedDays;
+        lineTotal = unitPrice * Math.max(1, Math.ceil(usedDays / 15));
       } else if (rentalType === "monthly") {
-        proportional = (unitPrice / 30) * usedDays;
+        lineTotal = unitPrice * Math.max(1, Math.ceil(usedDays / 30));
       } else {
-        // daily - sem divisão necessária
-        proportional = unitPrice * usedDays;
+        lineTotal = unitPrice * usedDays;
       }
 
-      recalculatedEquipmentSubtotal += proportional * quantity;
+      recalculatedEquipmentSubtotal += lineTotal * quantity;
     }
 
     const recalculatedTotal =
@@ -2939,7 +3281,16 @@ class RentalService {
     let equipmentSubtotal = 0;
 
     for (const item of rental.items) {
-      const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
+      /** Linha já encerrada (devolução registrada): manter valores do fechamento, não reelaborar período pela data prevista */
+      if (item.returnActual) {
+        equipmentSubtotal += Number(item.subtotal ?? 0);
+        continue;
+      }
+
+      const inventoryItem = await Item.findOne({
+        _id: asIdString(item.itemId),
+        companyId,
+      });
       if (!inventoryItem) {
         throw notFound(`Item ${item.itemId} not found`);
       }
@@ -2951,12 +3302,8 @@ class RentalService {
         returnScheduled ||
         this.getPricingEndDate(pickupScheduled, item.rentalType);
 
-      const eff = this.getEffectivePricingForRentalLines(inventoryItem);
       const price = this.calculateRentalPrice(
-        eff.dailyRate,
-        eff.weeklyRate,
-        eff.biweeklyRate,
-        eff.monthlyRate,
+        inventoryItem.pricing,
         pickupScheduled,
         pricingEndDate,
         item.rentalType,
@@ -3575,16 +3922,23 @@ class RentalService {
     // Recalculate pricing
     let totalSubtotal = 0;
     for (const item of rental.items) {
-      const inventoryItem = await Item.findOne({ _id: item.itemId, companyId });
+      if (item.returnActual) {
+        totalSubtotal += Number(item.subtotal ?? 0);
+        continue;
+      }
+      const inventoryItem = await Item.findOne({
+        _id: asIdString(item.itemId),
+        companyId,
+      });
       if (inventoryItem) {
-        const eff = this.getEffectivePricingForRentalLines(inventoryItem);
+        const pickupScheduled =
+          item.pickupScheduled || rental.dates.pickupScheduled;
+        const returnEnd =
+          item.returnScheduled || rental.dates.returnScheduled;
         const price = this.calculateRentalPrice(
-          eff.dailyRate,
-          eff.weeklyRate,
-          eff.biweeklyRate,
-          eff.monthlyRate,
-          rental.dates.pickupScheduled,
-          rental.dates.returnScheduled,
+          inventoryItem.pricing,
+          pickupScheduled,
+          returnEnd,
           item.rentalType,
         );
         const subtotal = price * item.quantity;
@@ -3680,14 +4034,18 @@ class RentalService {
     const itemUpdates = Array.isArray(data.items) ? data.items : [];
     if (itemUpdates.length > 0) {
       for (const itemUpdate of itemUpdates) {
-        const existingItem = rental.items.find(
-          (i) =>
-            i.itemId.toString() === itemUpdate.itemId &&
-            (itemUpdate.unitId ? i.unitId === itemUpdate.unitId : !i.unitId),
-        );
+        const existingItem = this.findRentalLineItemForPatch(rental, {
+          itemId: itemUpdate.itemId,
+          unitId: itemUpdate.unitId,
+          lineId:
+            typeof itemUpdate.lineId === "string"
+              ? itemUpdate.lineId
+              : undefined,
+        });
         itemChanges.push({
           itemId: itemUpdate.itemId,
           unitId: itemUpdate.unitId,
+          lineId: itemUpdate.lineId,
           isNew: !existingItem,
           previousRentalType: existingItem?.rentalType,
           newRentalType: itemUpdate.rentalType,
@@ -3801,7 +4159,10 @@ class RentalService {
     }
 
     if (hasItemChanges) {
-      const changedItems: Array<{ itemId: string; unitId?: string }> = [];
+      const keysToInvalidate = new Set<string>();
+      const touchedSnapshots: Array<{ item: IRentalItem; snapKey: string }> =
+        [];
+
       for (const itemUpdate of itemUpdates) {
         const inventoryItem = await Item.findOne({
           _id: itemUpdate.itemId,
@@ -3818,13 +4179,32 @@ class RentalService {
           );
         }
 
-        const existingItem = rental.items.find(
-          (i) =>
-            i.itemId.toString() === itemUpdate.itemId &&
-            (itemUpdate.unitId ? i.unitId === itemUpdate.unitId : !i.unitId),
-        );
+        const patchLineId =
+          typeof itemUpdate.lineId === "string" ? itemUpdate.lineId : undefined;
+        const existingItem = this.findRentalLineItemForPatch(rental, {
+          itemId: itemUpdate.itemId,
+          unitId: itemUpdate.unitId,
+          lineId: patchLineId,
+        });
+
+        if (
+          !existingItem &&
+          this.rentalLineCountSameEquipment(
+            rental,
+            itemUpdate.itemId,
+            itemUpdate.unitId,
+          ) > 0
+        ) {
+          throw badRequest(
+            "Este contrato tem mais de uma linha do mesmo equipamento. Informe lineId ao editar cada segmento.",
+          );
+        }
 
         if (existingItem) {
+          const snapKey = buildRentalLineKey(existingItem as any);
+          keysToInvalidate.add(snapKey);
+          touchedSnapshots.push({ item: existingItem, snapKey });
+
           if (itemUpdate.rentalType) {
             this.assertConfiguredRateForRentalType(
               inventoryItem,
@@ -3906,12 +4286,8 @@ class RentalService {
             }
           }
 
-          const eff = this.getEffectivePricingForRentalLines(inventoryItem);
           const price = this.calculateRentalPrice(
-            eff.dailyRate,
-            eff.weeklyRate,
-            eff.biweeklyRate,
-            eff.monthlyRate,
+            inventoryItem.pricing,
             pickupScheduled,
             pricingEndDate,
             rentalType,
@@ -3939,41 +4315,41 @@ class RentalService {
             userId,
           );
         }
-
-        changedItems.push({
-          itemId: itemUpdate.itemId,
-          unitId: itemUpdate.unitId,
-        });
       }
 
-      for (const changed of changedItems) {
-        const item = rental.items.find(
-          (i) =>
-            i.itemId.toString() === changed.itemId &&
-            (changed.unitId ? i.unitId === changed.unitId : !i.unitId),
-        );
-        if (item) {
-          item.lastBillingDate = undefined;
-          item.nextBillingDate = undefined;
-        }
-        await this.removeObsoleteUnpaidItemBillings(
-          companyId,
-          rental._id,
-          changed.itemId,
-          changed.unitId,
-        );
+      await this.removeObsoleteUnpaidBillingsForRentalLineKeys(
+        companyId,
+        rental._id,
+        keysToInvalidate,
+      );
+
+      for (const { item: row } of touchedSnapshots) {
+        row.lastBillingDate = undefined;
+        row.nextBillingDate = undefined;
+      }
+      const seenRowIds = new Set<string>();
+      for (const { item: row, snapKey } of touchedSnapshots) {
+        const rowKeyStr = `${
+          row.itemId?.toString?.() || String(row.itemId)
+        }\t${String(row.unitId || "")}\t${
+          typeof row.lineId === "string" ? row.lineId : ""
+        }`;
+        if (seenRowIds.has(rowKeyStr)) continue;
+        seenRowIds.add(rowKeyStr);
+
         const lockedEnd = await this.getLatestLockedItemBillingEnd(
           companyId,
           rental._id,
-          changed.itemId,
-          changed.unitId,
+          row.itemId,
+          row.unitId,
+          snapKey,
         );
-        if (item && lockedEnd) {
-          item.lastBillingDate = lockedEnd;
+        if (lockedEnd) {
+          row.lastBillingDate = lockedEnd;
           const nextStart = this.addDays(lockedEnd, 1);
-          item.nextBillingDate = this.getPeriodEnd(
+          row.nextBillingDate = this.getPeriodEnd(
             nextStart,
-            item.rentalType || "daily",
+            row.rentalType || "daily",
           );
         }
       }
@@ -4533,33 +4909,38 @@ class RentalService {
         // Alterar tipo de aluguel dos itens
         if (requestDetails.items && Array.isArray(requestDetails.items)) {
           for (const itemChange of requestDetails.items) {
-            const item = rental.items.find(
-              (i) => i.itemId.toString() === itemChange.itemId,
+            const item = this.findRentalLineItemForPatch(rental, {
+              itemId: itemChange.itemId,
+              unitId: itemChange.unitId,
+              lineId:
+                typeof itemChange.lineId === "string"
+                  ? itemChange.lineId
+                  : undefined,
+            });
+            if (!item) continue;
+            const rkBefore = buildRentalLineKey(item as any);
+            await this.removeObsoleteUnpaidBillingsForRentalLineKeys(
+              rental.companyId.toString(),
+              rental._id,
+              new Set([rkBefore]),
             );
-            if (item) {
-              item.rentalType = itemChange.newRentalType;
-              item.lastBillingDate = undefined;
-              item.nextBillingDate = undefined;
-              await this.removeObsoleteUnpaidItemBillings(
-                rental.companyId.toString(),
-                rental._id,
-                item.itemId,
-                item.unitId,
+            item.rentalType = itemChange.newRentalType;
+            item.lastBillingDate = undefined;
+            item.nextBillingDate = undefined;
+            const lockedEnd = await this.getLatestLockedItemBillingEnd(
+              rental.companyId.toString(),
+              rental._id,
+              item.itemId,
+              item.unitId,
+              rkBefore,
+            );
+            if (lockedEnd) {
+              item.lastBillingDate = lockedEnd;
+              const nextStart = this.addDays(lockedEnd, 1);
+              item.nextBillingDate = this.getPeriodEnd(
+                nextStart,
+                item.rentalType || "daily",
               );
-              const lockedEnd = await this.getLatestLockedItemBillingEnd(
-                rental.companyId.toString(),
-                rental._id,
-                item.itemId,
-                item.unitId,
-              );
-              if (lockedEnd) {
-                item.lastBillingDate = lockedEnd;
-                const nextStart = this.addDays(lockedEnd, 1);
-                item.nextBillingDate = this.getPeriodEnd(
-                  nextStart,
-                  item.rentalType || "daily",
-                );
-              }
             }
           }
           await this.recalcPricingForRental(
@@ -4571,24 +4952,33 @@ class RentalService {
           const item =
             requestDetails.itemIndex !== undefined
               ? rental.items[requestDetails.itemIndex]
-              : rental.items.find(
+              : this.findRentalLineItemForPatch(rental, {
+                  itemId: requestDetails.itemId,
+                  unitId: requestDetails.unitId,
+                  lineId:
+                    typeof requestDetails.lineId === "string"
+                      ? requestDetails.lineId
+                      : undefined,
+                }) ||
+                rental.items.find(
                   (i) => i.itemId.toString() === requestDetails.itemId,
                 );
           if (item && requestDetails.newRentalType) {
+            const rkBefore = buildRentalLineKey(item as any);
+            await this.removeObsoleteUnpaidBillingsForRentalLineKeys(
+              rental.companyId.toString(),
+              rental._id,
+              new Set([rkBefore]),
+            );
             item.rentalType = requestDetails.newRentalType;
             item.lastBillingDate = undefined;
             item.nextBillingDate = undefined;
-            await this.removeObsoleteUnpaidItemBillings(
-              rental.companyId.toString(),
-              rental._id,
-              item.itemId,
-              item.unitId,
-            );
             const lockedEnd = await this.getLatestLockedItemBillingEnd(
               rental.companyId.toString(),
               rental._id,
               item.itemId,
               item.unitId,
+              rkBefore,
             );
             if (lockedEnd) {
               item.lastBillingDate = lockedEnd;
@@ -4697,7 +5087,12 @@ class RentalService {
           );
         }
         if (Array.isArray(requestDetails.items)) {
-          const changedItems: Array<{ itemId: string; unitId?: string }> = [];
+          const keysToInvalidate = new Set<string>();
+          const touchedSnapshots: Array<{
+            item: IRentalItem;
+            snapKey: string;
+          }> = [];
+
           for (const itemChange of requestDetails.items) {
             const inventoryItem = await Item.findOne({
               _id: itemChange.itemId,
@@ -4714,15 +5109,35 @@ class RentalService {
               );
             }
 
-            const existingItem = rental.items.find(
-              (i) =>
-                i.itemId.toString() === itemChange.itemId &&
-                (itemChange.unitId
-                  ? i.unitId === itemChange.unitId
-                  : !i.unitId),
-            );
+            const patchLineId =
+              typeof itemChange.lineId === "string"
+                ? itemChange.lineId
+                : undefined;
+            const existingItem = this.findRentalLineItemForPatch(rental, {
+              itemId: itemChange.itemId,
+              unitId: itemChange.unitId,
+              lineId: patchLineId,
+            });
 
-            if (existingItem) {
+            if (
+              !existingItem &&
+              !itemChange.isNew &&
+              this.rentalLineCountSameEquipment(
+                rental,
+                itemChange.itemId,
+                itemChange.unitId,
+              ) > 0
+            ) {
+              throw badRequest(
+                "Este contrato tem mais de uma linha do mesmo equipamento. Informe lineId ao editar cada segmento.",
+              );
+            }
+
+            if (existingItem && !itemChange.isNew) {
+              const snapKey = buildRentalLineKey(existingItem as any);
+              keysToInvalidate.add(snapKey);
+              touchedSnapshots.push({ item: existingItem, snapKey });
+
               if (itemChange.newRentalType) {
                 existingItem.rentalType = itemChange.newRentalType;
               }
@@ -4768,12 +5183,8 @@ class RentalService {
                 returnScheduled ||
                 this.getPricingEndDate(pickupScheduled, rentalType);
 
-              const eff = this.getEffectivePricingForRentalLines(inventoryItem);
               const price = this.calculateRentalPrice(
-                eff.dailyRate,
-                eff.weeklyRate,
-                eff.biweeklyRate,
-                eff.monthlyRate,
+                inventoryItem.pricing,
                 pickupScheduled,
                 pricingEndDate,
                 rentalType,
@@ -4799,41 +5210,41 @@ class RentalService {
                 userId,
               );
             }
-
-            changedItems.push({
-              itemId: itemChange.itemId,
-              unitId: itemChange.unitId,
-            });
           }
 
-          for (const changed of changedItems) {
-            const item = rental.items.find(
-              (i) =>
-                i.itemId.toString() === changed.itemId &&
-                (changed.unitId ? i.unitId === changed.unitId : !i.unitId),
-            );
-            if (item) {
-              item.lastBillingDate = undefined;
-              item.nextBillingDate = undefined;
-            }
-            await this.removeObsoleteUnpaidItemBillings(
-              rental.companyId.toString(),
-              rental._id,
-              changed.itemId,
-              changed.unitId,
-            );
+          await this.removeObsoleteUnpaidBillingsForRentalLineKeys(
+            rental.companyId.toString(),
+            rental._id,
+            keysToInvalidate,
+          );
+
+          for (const { item: row } of touchedSnapshots) {
+            row.lastBillingDate = undefined;
+            row.nextBillingDate = undefined;
+          }
+          const seenRowIdsApproval = new Set<string>();
+          for (const { item: row, snapKey } of touchedSnapshots) {
+            const rowKeyStr = `${
+              row.itemId?.toString?.() || String(row.itemId)
+            }\t${String(row.unitId || "")}\t${
+              typeof row.lineId === "string" ? row.lineId : ""
+            }`;
+            if (seenRowIdsApproval.has(rowKeyStr)) continue;
+            seenRowIdsApproval.add(rowKeyStr);
+
             const lockedEnd = await this.getLatestLockedItemBillingEnd(
               rental.companyId.toString(),
               rental._id,
-              changed.itemId,
-              changed.unitId,
+              row.itemId,
+              row.unitId,
+              snapKey,
             );
-            if (item && lockedEnd) {
-              item.lastBillingDate = lockedEnd;
+            if (lockedEnd) {
+              row.lastBillingDate = lockedEnd;
               const nextStart = this.addDays(lockedEnd, 1);
-              item.nextBillingDate = this.getPeriodEnd(
+              row.nextBillingDate = this.getPeriodEnd(
                 nextStart,
-                item.rentalType || "daily",
+                row.rentalType || "daily",
               );
             }
           }
@@ -4959,6 +5370,7 @@ class RentalService {
     userId: string,
     options?: {
       unitId?: string;
+      lineId?: string;
       effectiveDate?: Date;
       notes?: string;
     },
@@ -4968,7 +5380,12 @@ class RentalService {
       throw notFound("Rental not found");
     }
 
-    const item = this.findOpenRentalItem(rental.items, itemId, options?.unitId);
+    const item = this.findOpenRentalItem(
+      rental.items,
+      itemId,
+      options?.unitId,
+      options?.lineId,
+    );
     if (!item) {
       throw notFound("Item not found in rental");
     }

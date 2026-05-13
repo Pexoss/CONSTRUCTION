@@ -54,9 +54,13 @@ export const rentalService = {
   getClosePreviewItem: async (
     rentalId: string,
     itemId: string,
-    unitId?: string,
+    opts?: { unitId?: string; lineId?: string },
   ) => {
-    const params = unitId ? `?unitId=${encodeURIComponent(unitId)}` : "";
+    const params = new URLSearchParams();
+    if (opts?.unitId) params.set("unitId", opts.unitId);
+    if (opts?.lineId) params.set("lineId", opts.lineId);
+    const qs = params.toString() ? `?${params.toString()}` : "";
+
     const response = await api.get<{
       success: boolean;
       data: {
@@ -67,7 +71,7 @@ export const rentalService = {
         rentalType: string;
         rentalTotalAfterClose: number;
       };
-    }>(`/rentals/${rentalId}/items/${itemId}/close-preview${params}`);
+    }>(`/rentals/${rentalId}/items/${itemId}/close-preview${qs}`);
 
     return response.data.data;
   },
@@ -89,7 +93,7 @@ export const rentalService = {
   closeRentalItem: async (
     rentalId: string,
     itemId: string,
-    data: { returnDate?: string; unitId?: string },
+    data: { returnDate?: string; unitId?: string; lineId?: string },
   ) => {
     const response = await api.post<{
       success: boolean;
@@ -107,6 +111,7 @@ export const rentalService = {
       items: Array<{
         itemId: string;
         unitId?: string;
+        lineId?: string;
         returnedQuantity?: number;
         billingRentalType?: "daily" | "weekly" | "biweekly" | "monthly";
       }>;
@@ -137,6 +142,7 @@ export const rentalService = {
       items?: Array<{
         itemId: string;
         unitId?: string;
+        lineId?: string;
         quantity?: number;
         rentalType?: "daily" | "weekly" | "biweekly" | "monthly";
         pickupScheduled?: string;
@@ -227,6 +233,7 @@ export const rentalService = {
     itemId: string,
     data: {
       unitId?: string;
+      lineId?: string;
       newRentalType: "daily" | "weekly" | "biweekly" | "monthly";
       effectiveDate?: string;
       notes?: string;

@@ -58,6 +58,12 @@ export interface IBilling extends Document {
   periodEnd: Date;
   
   rentalType: RentalType;
+
+  /**
+   * proporcional = tarifa período proporcional aos dias corridos no intervalo
+   * (evita diária isolada em trechos incompletos; usado em fechamentos por devolução).
+   */
+  intervalChargeMode?: 'floored' | 'proportional';
   
   // Cálculo do período
   calculation: IBillingCalculation;
