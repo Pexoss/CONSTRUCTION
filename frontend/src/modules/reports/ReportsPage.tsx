@@ -155,7 +155,7 @@ const ReportsPage: React.FC = () => {
     queryFn: () => reportService.getTopCustomers(startDate, endDate, 10),
   });
 
-  const { data: inventoryReport, isLoading: inventoryLoading } = useQuery({
+  const { data: inventoryReport } = useQuery({
     queryKey: ["inventory-report"],
     queryFn: () => reportService.getInventoryReport(),
     enabled: reportType === "inventory",

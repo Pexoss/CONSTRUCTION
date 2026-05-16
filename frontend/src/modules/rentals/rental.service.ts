@@ -114,6 +114,7 @@ export const rentalService = {
         lineId?: string;
         returnedQuantity?: number;
         billingRentalType?: "daily" | "weekly" | "biweekly" | "monthly";
+        remainderRentalType?: "daily" | "weekly" | "biweekly" | "monthly";
       }>;
     },
   ) => {

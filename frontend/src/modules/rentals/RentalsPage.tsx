@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
 import { RentalFilters, RentalStatus } from "../../types/rental.types";
@@ -22,6 +22,7 @@ type RentalSortKey =
   | "value"
   | "status";
 const RentalsPage: React.FC = () => {
+  const navigate = useNavigate();
   const location = useLocation();
   const [filters, setFilters] = useState<RentalFilters>({
     page: 1,
@@ -253,8 +254,11 @@ const RentalsPage: React.FC = () => {
                   {dayRentals.slice(0, 2).map((rental) => (
                     <div
                       key={rental._id}
-                      className={`text-[10px] sm:text-xs p-1 sm:p-1.5 rounded truncate ${getStatusColor(rental.status)}`}
-                      title={rental.rentalNumber}
+                      className={`text-[10px] sm:text-xs p-1 sm:p-1.5 rounded truncate cursor-pointer ${getStatusColor(rental.status)}`}
+                      title={`${rental.rentalNumber} — duplo clique para abrir`}
+                      onDoubleClick={() =>
+                        navigate(`/rentals/${rental._id}`)
+                      }
                     >
                       {rental.rentalNumber}
                     </div>
@@ -420,7 +424,10 @@ const RentalsPage: React.FC = () => {
                         return (
                           <tr
                             key={rental._id}
-                            className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                            className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer"
+                            onDoubleClick={() =>
+                              navigate(`/rentals/${rental._id}`)
+                            }
                           >
                             <td className="px-4 py-4 whitespace-nowrap">
                               <div className="text-sm font-medium text-gray-900 dark:text-white">
@@ -458,7 +465,10 @@ const RentalsPage: React.FC = () => {
                                 {getStatusLabel(rental.status)}
                               </span>
                             </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <td
+                              className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium"
+                              onDoubleClick={(e) => e.stopPropagation()}
+                            >
                               <div className="flex justify-end items-center gap-2">
                                 {/* PDF */}
                                 <button

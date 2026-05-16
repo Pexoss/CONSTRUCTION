@@ -74,6 +74,30 @@ class BillingController {
   }
 
   /**
+   * Resumo para dashboard (vencidos + próximos por periodEnd).
+   */
+  async getAttentionSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const companyId = req.companyId!;
+      const raw = parseInt(String(req.query.horizonDays ?? '7'), 10);
+      const horizonDays =
+        Number.isFinite(raw) ? Math.min(90, Math.max(1, raw)) : 7;
+
+      const data = await billingService.getBillingsAttentionSummary(
+        companyId,
+        horizonDays,
+      );
+
+      res.json({
+        success: true,
+        data,
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
    * Cria fechamentos para aluguéis em aberto que ainda não possuem nenhum fechamento.
    */
   async syncMissingRentals(req: Request, res: Response, next: NextFunction) {

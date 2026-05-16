@@ -5,7 +5,6 @@ import Skeleton from "../../components/Skeleton";
 import { billingService } from "./billing.service";
 import { customerService } from "../customers/customer.service";
 import { Billing, BillingStatus } from "../../types/billing.types";
-import { useAuth } from "../../hooks/useAuth";
 import { toast } from "react-toastify";
 import { billingStatusLabel } from "../../utils/statusLabels";
 import { formatDateNoTimezoneShift } from "../../utils/formatters";
@@ -27,8 +26,6 @@ type BillSortKey =
 
 const BillingsPage: React.FC = () => {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
-  const isAdmin = ["admin", "superadmin"].includes(user?.role || "");
 
   const [status, setStatus] = useState<BillingStatus | "">("");
   const [customerId, setCustomerId] = useState("");
@@ -38,13 +35,6 @@ const BillingsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const [showPaidModal, setShowPaidModal] = useState(false);
-  const [selectedBilling, setSelectedBilling] = useState<Billing | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState("pix");
-  const [paymentDate, setPaymentDate] = useState("");
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentDiscount, setPaymentDiscount] = useState("");
-  const [paymentDiscountReason, setPaymentDiscountReason] = useState("");
   const [tableSort, setTableSort] = useState<ColumnSort<BillSortKey> | null>({
     key: "period",
     dir: "desc",
@@ -88,36 +78,6 @@ const BillingsPage: React.FC = () => {
     onError: (err: any) => {
       const message =
         err.response?.data?.message || "Erro ao gerar fechamentos em falta";
-      toast.error(message);
-    },
-  });
-
-  const markAsPaidMutation = useMutation({
-    mutationFn: (payload: {
-      id: string;
-      paymentMethod: string;
-      paymentDate?: string;
-      amount?: number;
-      discount?: number;
-      discountReason?: string;
-    }) =>
-      billingService.markAsPaid(payload.id, {
-        paymentMethod: payload.paymentMethod,
-        paymentDate: payload.paymentDate,
-        amount: payload.amount,
-        discount: payload.discount,
-        discountReason: payload.discountReason,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["billings"] });
-      toast.success("Fechamento marcado como recebido.");
-      setShowPaidModal(false);
-      setSelectedBilling(null);
-      setPaymentAmount("");
-    },
-    onError: (err: any) => {
-      const message =
-        err.response?.data?.message || "Erro ao marcar como recebido";
       toast.error(message);
     },
   });
@@ -168,6 +128,49 @@ const BillingsPage: React.FC = () => {
     return "A receber";
   };
 
+  /** Mesmo critério do filtro “Vencidos” no backend: fim do período (periodEnd) antes de hoje. */
+  const parseCalendarDayLocal = (iso?: string): Date | null => {
+    if (!iso) return null;
+    const part = String(iso).split("T")[0];
+    const [y, m, d] = part.split("-").map(Number);
+    if (!y || !m || !d) return null;
+    return new Date(y, m - 1, d);
+  };
+
+  const isBillingOverdue = (billing: Billing): boolean => {
+    if (billing.status === "paid" || billing.status === "cancelled") return false;
+    const due = parseCalendarDayLocal(billing.periodEnd);
+    if (!due) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    due.setHours(0, 0, 0, 0);
+    return due.getTime() < today.getTime();
+  };
+
+  const hasChargeLinked = (billing: Billing): boolean => {
+    const c = billing.chargeId as unknown;
+    if (c == null || c === "") return false;
+    if (typeof c === "string") return c.trim().length > 0;
+    if (typeof c === "object" && c !== null && "_id" in c) {
+      const id = (c as { _id?: unknown })._id;
+      return id != null && String(id).trim().length > 0;
+    }
+    return false;
+  };
+
+  const billingRowClasses = (billing: Billing): string => {
+    if (billing.status === "paid") {
+      return "bg-green-50 hover:bg-green-100/80 dark:bg-green-950/35 dark:hover:bg-green-950/45";
+    }
+    if (billing.status === "cancelled") {
+      return "";
+    }
+    if (isBillingOverdue(billing)) {
+      return "bg-red-50 hover:bg-red-100/80 dark:bg-red-950/35 dark:hover:bg-red-950/45";
+    }
+    return "";
+  };
+
   const sortedBillings = useMemo(
     () =>
       sortedTableRows(billings, tableSort, {
@@ -211,7 +214,7 @@ const BillingsPage: React.FC = () => {
   };
 
   return (
-    <Layout title="Fechamentos" backTo="/dashboard">
+    <Layout title="Vencimentos próximos" backTo="/dashboard">
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="mb-6 flex flex-wrap gap-2">
@@ -336,6 +339,22 @@ const BillingsPage: React.FC = () => {
             <Skeleton className="w-full h-48" />
           ) : (
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+              <div className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400 border-b border-gray-100 dark:border-gray-700 flex flex-wrap gap-x-4 gap-y-1">
+                <span>
+                  <span className="inline-block w-3 h-3 rounded-sm bg-green-200 dark:bg-green-800 align-middle mr-1" />{" "}
+                  Pago
+                </span>
+                <span>
+                  <span className="inline-block w-3 h-3 rounded-sm bg-red-200 dark:bg-red-800 align-middle mr-1" />{" "}
+                  Vencido (fim do período antes de hoje)
+                </span>
+                <span>
+                  <span className="inline-block px-1 rounded bg-amber-100 dark:bg-amber-900/50 text-amber-900 dark:text-amber-100 align-middle mr-1">
+                    Cobrança
+                  </span>
+                  Ainda sem cobrança gerada no financeiro
+                </span>
+              </div>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                   <thead className="bg-gray-50 dark:bg-gray-900/50">
@@ -370,6 +389,9 @@ const BillingsPage: React.FC = () => {
                         sort={tableSort}
                         onSort={handleBillingSort}
                       />
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                        Cobrança
+                      </th>
                       <SortableTh<BillSortKey>
                         columnKey="total"
                         label="Total"
@@ -392,14 +414,17 @@ const BillingsPage: React.FC = () => {
                       <tr>
                         <td
                           className="px-4 py-6 text-sm text-gray-500 dark:text-gray-400"
-                          colSpan={8}
+                          colSpan={9}
                         >
                           Nenhum fechamento encontrado.
                         </td>
                       </tr>
                     ) : (
                       sortedBillings.map((billing) => (
-                        <tr key={billing._id}>
+                        <tr
+                          key={billing._id}
+                          className={billingRowClasses(billing)}
+                        >
                           <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-200">
                             {billing.items && billing.items.length > 0
                               ? billing.items
@@ -456,36 +481,12 @@ const BillingsPage: React.FC = () => {
                           </td>
                           <td className="px-4 py-3 text-right text-sm">
                             <button
-                              className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white mr-3"
+                              type="button"
+                              className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
                               onClick={() => handleDownloadPDF(billing._id)}
                             >
                               PDF
                             </button>
-                            {isAdmin && billing.status === "approved" && (
-                              <button
-                                className="text-green-700 hover:text-green-800"
-                                onClick={() => {
-                                  setSelectedBilling(billing);
-                                  setPaymentDate(
-                                    new Date().toISOString().split("T")[0],
-                                  );
-                                  setPaymentAmount(
-                                    String(
-                                      Number(
-                                        billing.outstandingAmount ??
-                                          billing.calculation?.total ??
-                                          0,
-                                      ).toFixed(2),
-                                    ),
-                                  );
-                                  setPaymentDiscount("");
-                                  setPaymentDiscountReason("");
-                                  setShowPaidModal(true);
-                                }}
-                              >
-                                Dar baixa
-                              </button>
-                            )}
                           </td>
                         </tr>
                       ))
@@ -519,127 +520,6 @@ const BillingsPage: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {showPaidModal && selectedBilling && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75">
-          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl p-6 w-full max-w-md">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              Dar baixa no recebimento
-            </h2>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                  Método de pagamento
-                </label>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="pix">Pix</option>
-                  <option value="dinheiro">Dinheiro</option>
-                  <option value="cartao">Cartão</option>
-                  <option value="transferencia">Transferência</option>
-                  <option value="boleto">Boleto</option>
-                  <option value="outro">Outro</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                  Data do recebimento
-                </label>
-                <input
-                  type="date"
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                  Valor recebido (R$)
-                </label>
-                <input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
-                <p className="text-[11px] text-gray-500 mt-1">
-                  Em aberto: {formatCurrency(
-                    Number(
-                      selectedBilling.outstandingAmount ??
-                        selectedBilling.calculation?.total ??
-                        0,
-                    ),
-                  )}
-                </p>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                  Desconto (R$)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={paymentDiscount}
-                  onChange={(e) => setPaymentDiscount(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
-                  Motivo do desconto
-                </label>
-                <input
-                  type="text"
-                  value={paymentDiscountReason}
-                  onChange={(e) => setPaymentDiscountReason(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-6">
-              <button
-                className="px-4 py-2 border rounded"
-                onClick={() => {
-                  setShowPaidModal(false);
-                  setSelectedBilling(null);
-                  setPaymentAmount("");
-                }}
-              >
-                Cancelar
-              </button>
-              <button
-                className="px-4 py-2 bg-gray-900 text-white rounded"
-                onClick={() =>
-                  markAsPaidMutation.mutate({
-                    id: selectedBilling._id,
-                    paymentMethod,
-                    paymentDate: paymentDate
-                      ? new Date(paymentDate).toISOString()
-                      : undefined,
-                      amount:
-                        paymentAmount.trim() === ""
-                          ? undefined
-                          : Number(paymentAmount),
-                      discount:
-                        paymentDiscount.trim() === ""
-                          ? undefined
-                          : Number(paymentDiscount),
-                      discountReason: paymentDiscountReason.trim() || undefined,
-                  })
-                }
-              >
-                Confirmar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </Layout>
   );
 };

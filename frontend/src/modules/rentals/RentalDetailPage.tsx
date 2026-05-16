@@ -3753,6 +3753,14 @@ const RentalDetailPage: React.FC = () => {
                                       closeItemBillingRentalType,
                                   }
                                 : {}),
+                              ...(partialFlowAllowed &&
+                              closeItemReturnedQuantity <
+                                selectedCloseItem.quantity &&
+                              closeItemNewRentalType
+                                ? {
+                                    remainderRentalType: closeItemNewRentalType,
+                                  }
+                                : {}),
                             },
                           ],
                         });
@@ -3770,25 +3778,7 @@ const RentalDetailPage: React.FC = () => {
                         );
                       }
 
-                      if (
-                        partialFlowAllowed &&
-                        closeItemNewRentalType &&
-                        closeItemReturnedQuantity < selectedCloseItem.quantity
-                      ) {
-                        await rentalService.changeRentalTypeForItem(
-                          id,
-                          selectedCloseItem.itemId,
-                          {
-                            unitId: selectedCloseItem.unitId,
-                            ...(selectedCloseItem.lineId
-                              ? { lineId: selectedCloseItem.lineId }
-                              : {}),
-                            newRentalType: closeItemNewRentalType,
-                            effectiveDate: returnDateIso,
-                            notes: "Alteração de tipo após devolução",
-                          },
-                        );
-                      }
+                      /** Remainder type passa junto na devolução parcial (/returns); evita segunda chamada com lineId antigo. */
                       setCloseItemModal(false);
                       queryClient.invalidateQueries({
                         queryKey: ["rental", id],

@@ -552,9 +552,11 @@ class RentalService {
       for (const row of rowsDoc) {
         const ri = findRentalItemForBillingRow(row);
         if (!ri) continue;
-        const cap = this.getContractualReturnForDraft(ri);
+        const cap = this.getContractualReturnForDraft(ri, rental);
+        /** Só elimina rascunho “após o contrato” quando a linha já tem devolução real; em atraso o previsto segue útil. */
         if (
           cap &&
+          ri.returnActual &&
           this.normalizeDate(billingDoc.periodStart).getTime() > cap.getTime()
         ) {
           startsAfterScheduledReturn = true;
@@ -659,37 +661,53 @@ class RentalService {
     }
   }
 
-  /** Até quando pode haver fechamento automático “aprovado” (não ultrapassa hoje nem a devolução real). */
-  private getBillingHorizonForItem(item: IRentalItem, today: Date): Date {
+  /**
+   * Devolução prevista só da linha do item quando o contrato tem mais de um equipamento
+   * (cada um pode ter data diferente). Cabeçalho `rental.dates.returnScheduled` só vale como fallback
+   * em contrato de item único — evita usar ex. 19/05 do andaime na linha da bomba (26/04).
+   */
+  private getScheduledReturnNorm(
+    item: IRentalItem,
+    rental: IRental,
+  ): Date | undefined {
+    if (item.returnScheduled) {
+      return this.normalizeDate(new Date(item.returnScheduled));
+    }
+    const multi = (rental.items?.length ?? 0) > 1;
+    if (!multi && rental.dates?.returnScheduled) {
+      return this.normalizeDate(new Date(rental.dates.returnScheduled));
+    }
+    return undefined;
+  }
+
+  /**
+   * Limite temporal para fechamentos automáticos aprovados nesta execução: linha em aberto → até hoje
+   * (o teto por equipamento/devolução prevista entra em getScheduledReturnNorm / getContractualReturnForDraft).
+   */
+  private getBillingHorizonForItem(
+    item: IRentalItem,
+    _rental: IRental,
+    today: Date,
+  ): Date {
     const t = this.normalizeDate(today);
     if (item.returnActual) {
       const a = this.normalizeDate(item.returnActual);
       return a.getTime() <= t.getTime() ? a : t;
     }
-    if (
-      item.retroactiveOpenBilling &&
-      item.returnScheduled &&
-      this.normalizeDate(item.returnScheduled) < t
-    ) {
-      return t;
-    }
-    if (!item.returnScheduled) {
-      return t;
-    }
-    const s = this.normalizeDate(item.returnScheduled);
-    if (s.getTime() > t.getTime()) {
-      return t;
-    }
-    return s;
+    return t;
   }
 
   /** Limite superior para rascunho de próximo período (null = sem data de devolução prevista). */
-  private getContractualReturnForDraft(item: IRentalItem): Date | null {
+  private getContractualReturnForDraft(
+    item: IRentalItem,
+    rental: IRental,
+  ): Date | null {
     if (item.returnActual) {
       return this.normalizeDate(item.returnActual);
     }
-    if (item.returnScheduled) {
-      return this.normalizeDate(item.returnScheduled);
+    const s = this.getScheduledReturnNorm(item, rental);
+    if (s) {
+      return s;
     }
     if (item.retroactiveOpenBilling) {
       return null;
@@ -786,25 +804,33 @@ class RentalService {
     inventoryItem: any,
     rentalType: RentalType,
   ): void {
+    const p = inventoryItem.pricing || {};
+    /** Quinzenal exige valor cadastrado no SKU; não usar derivação automática (evita valor “inventado”). */
+    if (rentalType === "biweekly") {
+      const rawBiweekly = Math.max(0, Number(p.biweeklyRate ?? 0));
+      if (rawBiweekly <= 0) {
+        throw badRequest(
+          `Não há valor quinzenal cadastrado para o equipamento "${inventoryItem.name}". Informe o valor do período de 15 dias no cadastro do item antes de usar cobrança quinzenal.`,
+        );
+      }
+      return;
+    }
+
     const eff = this.getEffectivePricingForRentalLines(inventoryItem);
     const rate =
       rentalType === "daily"
         ? eff.dailyRate
         : rentalType === "weekly"
           ? eff.weeklyRate
-          : rentalType === "biweekly"
-            ? eff.biweeklyRate
-            : eff.monthlyRate;
+          : eff.monthlyRate;
 
     const raw = Math.max(
       0,
       rentalType === "daily"
-        ? Number(inventoryItem.pricing?.dailyRate ?? 0)
+        ? Number(p.dailyRate ?? 0)
         : rentalType === "weekly"
-          ? Number(inventoryItem.pricing?.weeklyRate ?? 0)
-          : rentalType === "biweekly"
-            ? Number(inventoryItem.pricing?.biweeklyRate ?? 0)
-            : Number(inventoryItem.pricing?.monthlyRate ?? 0),
+          ? Number(p.weeklyRate ?? 0)
+          : Number(p.monthlyRate ?? 0),
     );
 
     if (rate <= 0) {
@@ -1162,8 +1188,11 @@ class RentalService {
 
     //Dias utilizados
     const diffTime = returnDate.getTime() - pickupDate.getTime();
-
-    const usedDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    const DAY_MS = 1000 * 60 * 60 * 24;
+    const usedDays =
+      diffTime >= 0
+        ? Math.max(1, Math.floor(diffTime / DAY_MS) + 1)
+        : 1;
 
     let equipmentSubtotal = 0;
 
@@ -1235,18 +1264,30 @@ class RentalService {
 
     const startDate = rental.dates.pickupActual ?? rental.dates.pickupScheduled;
     const endDate = rental.dates.returnActual ?? new Date();
-    const diffInMs = endDate.getTime() - startDate.getTime();
-    const usedDays = Math.max(1, Math.ceil(diffInMs / (1000 * 60 * 60 * 24)));
+    const DAY_MS = 1000 * 60 * 60 * 24;
+    const sd = new Date(startDate);
+    sd.setHours(0, 0, 0, 0);
+    const ed = new Date(endDate);
+    ed.setHours(0, 0, 0, 0);
+    const diffInMs = ed.getTime() - sd.getTime();
+    const usedDays =
+      diffInMs >= 0 ? Math.max(1, Math.floor(diffInMs / DAY_MS) + 1) : 1;
 
     // Dias contratados e tipo de contrato
     let contractedDays = rental.pricing.contractedDays;
     if (!contractedDays) {
-      // fallback: calcula diferença entre datas agendadas
+      // fallback: calcula diferença entre datas agendadas (calendário inclusivo)
       const scheduledStart = rental.dates.pickupScheduled;
       const scheduledEnd = rental.dates.returnScheduled;
-      const diff =
-        new Date(scheduledEnd).getTime() - new Date(scheduledStart).getTime();
-      contractedDays = Math.max(1, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+      const ds = new Date(scheduledStart);
+      ds.setHours(0, 0, 0, 0);
+      const de = new Date(scheduledEnd);
+      de.setHours(0, 0, 0, 0);
+      const contractedDiffMs = de.getTime() - ds.getTime();
+      contractedDays =
+        contractedDiffMs >= 0
+          ? Math.max(1, Math.floor(contractedDiffMs / DAY_MS) + 1)
+          : 1;
     }
     // Tipo de contrato: pega do primeiro item ou do ciclo de faturamento
     const rentalType =
@@ -1311,18 +1352,21 @@ class RentalService {
       throw badRequest(`Item não encontrado no aluguel`);
     }
 
-    const startDate =
+    const startDateRaw =
       targetItem.pickupScheduled || rental.dates.pickupScheduled;
-    const endDate = targetItem.returnActual || new Date();
-    const diffInMs = endDate.getTime() - startDate.getTime();
-    const usedDays = Math.max(1, Math.ceil(diffInMs / (1000 * 60 * 60 * 24)));
+    const endDateRaw = targetItem.returnActual || new Date();
+    const startDate = this.normalizeDate(new Date(startDateRaw));
+    const endDate = this.normalizeDate(new Date(endDateRaw));
 
     let contractedDays = 1;
     if (targetItem.returnScheduled) {
-      const diff =
-        new Date(targetItem.returnScheduled).getTime() -
-        new Date(startDate).getTime();
-      contractedDays = Math.max(1, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+      const diffMs =
+        this.normalizeDate(new Date(targetItem.returnScheduled)).getTime() -
+        startDate.getTime();
+      if (diffMs >= 0) {
+        const whole = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        contractedDays = Math.max(1, whole + 1);
+      }
     }
 
     const rentalType = targetItem.rentalType || "daily";
@@ -1332,11 +1376,12 @@ class RentalService {
     if (!inventoryItem) {
       throw notFound("Item do inventário não encontrado");
     }
-    const period = calculateBillingPeriod(startDate, endDate, rentalType);
+    const pc = calculateBillingPeriod(startDate, endDate, rentalType);
+    const usedDays = Math.max(1, pc.daysPassed);
     const { amount } = calculateRentalLineAmount(
       inventoryItem.pricing,
       rentalType,
-      period,
+      pc,
     );
 
     const recalculatedTotal = amount * targetItem.quantity;
@@ -1418,8 +1463,9 @@ class RentalService {
     // =========================
     // 2. FINALIZA ITEM
     // =========================
-    const finalReturnDate = returnDate || new Date();
-    targetItem.returnActual = finalReturnDate;
+    const returnNorm = this.normalizeDate(returnDate || new Date());
+    targetItem.returnActual = returnNorm;
+    targetItem.returnScheduled = returnNorm;
     targetItem.retroactiveOpenBilling = false;
     targetItem.nextBillingDate = undefined;
     await this.removeObsoleteUnpaidBillingsForCurrentRental(companyId, rental);
@@ -1467,27 +1513,37 @@ class RentalService {
     // =========================
     // 2. BILLING FINAL DO ITEM
     // =========================
-    const periodStart = targetItem.lastBillingDate
-      ? this.addDays(targetItem.lastBillingDate, 1)
-      : targetItem.pickupScheduled || rental.dates.pickupScheduled;
+    const pickupBase = this.normalizeDate(
+      new Date(
+        targetItem.pickupScheduled || rental.dates.pickupScheduled,
+      ),
+    );
+    const rentalLineKey = buildRentalLineKey(targetItem as any);
 
-    const periodEnd = finalReturnDate;
+    await this.deleteUnpaidBillingsOverlappingItemWindow(
+      companyId,
+      rental._id,
+      targetItem.itemId,
+      targetItem.unitId,
+      pickupBase,
+      returnNorm,
+      rentalLineKey,
+    );
+
+    const periodStart = pickupBase;
+    const periodEnd = returnNorm;
     let finalBillingSubtotal: number | undefined;
 
-    if (periodEnd > periodStart) {
-      const normalizedPeriodStart = new Date(periodStart);
-      normalizedPeriodStart.setHours(0, 0, 0, 0);
-      const normalizedPeriodEnd = new Date(periodEnd);
-      normalizedPeriodEnd.setHours(0, 0, 0, 0);
-      const rentalLineKey = buildRentalLineKey(targetItem as any);
+    if (periodEnd.getTime() >= periodStart.getTime()) {
       let finalBilling: any = await Billing.findOne({
         companyId,
         rentalId: rental._id,
+        status: { $nin: ["paid", "cancelled"] },
         "items.itemId": targetItem.itemId,
         ...(targetItem.unitId ? { "items.unitId": targetItem.unitId } : {}),
         "items.rentalLineKey": rentalLineKey,
-        periodStart: normalizedPeriodStart,
-        periodEnd: normalizedPeriodEnd,
+        periodStart: pickupBase,
+        periodEnd: returnNorm,
       });
 
       if (!finalBilling) {
@@ -1495,8 +1551,8 @@ class RentalService {
           companyId,
           rental,
           targetItem,
-          periodStart,
-          periodEnd,
+          pickupBase,
+          returnNorm,
           userId,
           {
             includeServices: false,
@@ -1523,13 +1579,14 @@ class RentalService {
     }
 
     // =========================
-    // 3. RECALCULAR ITEM - USANDO PERÍODO DESDE ÚLTIMA COBRANÇA
+    // 3. RECALCULAR ITEM (período retirada → devolução, dias inclusivos)
     // =========================
-    const diffTime = finalReturnDate.getTime() - new Date(periodStart).getTime();
-
-    // Cálculo proporcional de dias (não arredonda para cima)
-    const usedDaysExact = diffTime / (1000 * 60 * 60 * 24);
-    const usedDays = Math.max(1, usedDaysExact);
+    const rtItem = (targetItem.rentalType || "daily") as RentalType;
+    const usedDaysBilling = calculateBillingPeriod(
+      periodStart,
+      periodEnd,
+      rtItem,
+    ).daysPassed;
 
     targetItem.subtotal =
       finalBillingSubtotal ??
@@ -1539,7 +1596,7 @@ class RentalService {
         periodEnd,
         targetItem.quantity,
       );
-    targetItem.usedDays = Math.ceil(usedDays);
+    targetItem.usedDays = Math.max(1, usedDaysBilling);
 
     // =========================
     // 4. RECALCULAR TOTAL DO ALUGUEL
@@ -1629,6 +1686,7 @@ class RentalService {
         lineId?: string;
         returnedQuantity?: number;
         billingRentalType?: RentalType;
+        remainderRentalType?: RentalType;
       }>;
     },
   ): Promise<IRental> {
@@ -1832,7 +1890,16 @@ class RentalService {
         rental.items.push(returnedLine);
 
         const remainderType =
-          (targetItem.rentalType || plainItem.rentalType || "daily") as RentalType;
+          (reqItem.remainderRentalType ||
+            targetItem.rentalType ||
+            plainItem.rentalType ||
+            "daily") as RentalType;
+        if (reqItem.remainderRentalType) {
+          this.assertConfiguredRateForRentalType(
+            invForLine,
+            reqItem.remainderRentalType,
+          );
+        }
         const { rate: remainderRate, message: remainderMsg } =
           periodRateFromInventory(invForLine.pricing, remainderType);
         if (remainderRate <= 0) {
@@ -1843,18 +1910,19 @@ class RentalService {
         }
 
         const prevQty = plainItem.quantity;
-        targetItem.lineId = splitRemainderLineId;
-        /** Mesma data de retirada do contrato; o fim do período já coberto até a devolução parcial fica em lastBillingDate. */
-        targetItem.pickupScheduled = this.normalizeDate(
+        const pickupContinued = this.normalizeDate(
           new Date(plainItem.pickupScheduled),
         );
+        targetItem.lineId = splitRemainderLineId;
+        /** Mesma retirada — fechamentos seguintes ancoram na retirada (não no dia após a devolução parcial). */
+        targetItem.pickupScheduled = pickupContinued;
         targetItem.quantity = prevQty - returnedQuantity;
+        targetItem.rentalType = remainderType;
         targetItem.unitPrice = remainderRate;
         targetItem.retroactiveOpenBilling = false;
-        targetItem.lastBillingDate = periodEndNorm;
-        const accrualStartAfterPartial = this.addDays(periodEndNorm, 1);
+        targetItem.lastBillingDate = undefined;
         targetItem.nextBillingDate = this.getPeriodEnd(
-          this.normalizeDate(accrualStartAfterPartial),
+          pickupContinued,
           remainderType,
         );
         targetItem.subtotal = Number(
@@ -2192,8 +2260,8 @@ class RentalService {
       }
       const cycle: RentalType = item.rentalType || "daily";
       const pickupBase = this.normalizeDate(item.pickupScheduled);
-      const horizon = this.getBillingHorizonForItem(item, now);
-      const draftCap = this.getContractualReturnForDraft(item);
+      const horizon = this.getBillingHorizonForItem(item, rental, now);
+      const draftCap = this.getContractualReturnForDraft(item, rental);
 
       const itemFilter: any = {
         companyId,
@@ -2322,8 +2390,21 @@ class RentalService {
         !retroOverdueBillingToToday;
 
       const tailStartNorm = this.normalizeDate(periodStart);
+      const nextFullNormForTail = this.normalizeDate(nextBillingDate);
+      /**
+       * Evita “fatiar” o ciclo atual até hoje (ex.: 11/05→14/05) quando o fechamento do ciclo cheio
+       * (ex.: 11/05→17/05 semanal) ainda não terminou; mantém um único fechamento com o período inteiro.
+       * Também aplica com retroactiveOpenBilling — o corte em “hoje” não substitui a semana/quinzena cheia.
+       */
+      const skipTailTruncatesNextDraft =
+        !item.returnActual &&
+        capNormalized.getTime() === now.getTime() &&
+        nextFullNormForTail.getTime() > now.getTime() &&
+        tailStartNorm.getTime() < nextFullNormForTail.getTime();
+
       if (
         !skipTailApprovedOpenContract &&
+        !skipTailTruncatesNextDraft &&
         tailStartNorm.getTime() <= capNormalized.getTime() &&
         tailStartNorm.getTime() < capNormalized.getTime()
       ) {
@@ -2373,17 +2454,8 @@ class RentalService {
         }
       }
 
-      /** Rascunho do período seguinte só se ainda há contrato em aberto (início deste período ≤ devolução prevista). */
-      const draftAllowedByContract =
-        draftCap === null ||
-        this.normalizeDate(periodStart).getTime() <= draftCap.getTime();
-
-      /** Rascunhos de período futuro só para linhas em aberto (contrato não encerrado na realidade dessa linha). */
-      if (
-        !item.returnActual &&
-        nextBillingDate > now &&
-        draftAllowedByContract
-      ) {
+      /** Próximo ciclo em rascunho: equipamento ainda em campo — previsto mesmo se o início do período for após a data prevista no contrato (atraso / ciclo maior). */
+      if (!item.returnActual && nextBillingDate > now) {
         const existingFuture = await Billing.findOne({
           ...itemFilter,
           periodStart: this.normalizeDate(periodStart),
@@ -3238,8 +3310,16 @@ class RentalService {
 
     const returnDate = returnDateOverride || new Date();
 
-    const diffMs = returnDate.getTime() - pickupDate.getTime();
-    const usedDays = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+    const s = new Date(pickupDate);
+    s.setHours(0, 0, 0, 0);
+    const e = new Date(returnDate);
+    e.setHours(0, 0, 0, 0);
+    const DAY_MS = 1000 * 60 * 60 * 24;
+    const diffMs = e.getTime() - s.getTime();
+    const usedDays =
+      diffMs >= 0
+        ? Math.max(1, Math.floor(diffMs / DAY_MS) + 1)
+        : 1;
 
     // Recalcular o subtotal dos equipamentos baseado nos dias utilizados
     let recalculatedEquipmentSubtotal = 0;

@@ -201,15 +201,20 @@ class InvoiceService {
     for (const bill of billings) {
       const billingTotal = Number(bill.calculation?.total || 0);
       const billingOutstanding = Number(bill.outstandingAmount ?? billingTotal);
-      if (billingOutstanding <= 0) {
-        throw new Error(`Fechamento ${bill.billingNumber} não possui saldo em aberto para faturar`);
+      /** Quitado: emite NF pelo valor do fechamento (total), não pelo saldo zerado. */
+      const basisForInvoice =
+        billingOutstanding > 0.01 ? billingOutstanding : billingTotal;
+      if (basisForInvoice <= 0.01) {
+        throw new Error(
+          `Fechamento ${bill.billingNumber} não possui valor para compor a fatura`,
+        );
       }
       const grossLinesTotal =
         [...(bill.items || []), ...(bill.services || [])].reduce(
           (sum: number, line: any) => sum + Number(line.subtotal || 0),
           0,
         ) || billingTotal;
-      const scale = grossLinesTotal > 0 ? billingOutstanding / grossLinesTotal : 1;
+      const scale = grossLinesTotal > 0 ? basisForInvoice / grossLinesTotal : 1;
 
       for (const line of bill.items || []) {
         const itemDoc = line.itemId as unknown as { name?: string } | mongoose.Types.ObjectId;
@@ -238,8 +243,8 @@ class InvoiceService {
         items.push({
           description: "Aluguel",
           quantity: 1,
-          unitPrice: billingOutstanding,
-          total: billingOutstanding,
+          unitPrice: basisForInvoice,
+          total: basisForInvoice,
         });
       }
     }

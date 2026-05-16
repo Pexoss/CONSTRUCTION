@@ -18,6 +18,18 @@ export const billingService = {
     return response.data;
   },
 
+  /** Contagem de fechamentos a cobrar: periodEnd vencido ou nos próximos `horizonDays` dias. */
+  getAttentionSummary: async (horizonDays = 7) => {
+    const params = new URLSearchParams({
+      horizonDays: String(horizonDays),
+    });
+    const response = await api.get<{
+      success: boolean;
+      data: { total: number; overdue: number; dueWithinHorizon: number };
+    }>(`/billings/attention-summary?${params.toString()}`);
+    return response.data;
+  },
+
   processRentalBilling: async (rentalId: string) => {
     const response = await api.post<{
       success: boolean;

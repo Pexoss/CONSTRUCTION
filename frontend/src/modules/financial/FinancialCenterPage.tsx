@@ -42,6 +42,9 @@ const chargeStatusLabel: Record<string, string> = {
   cancelled: "Cancelado",
 };
 
+const isChargeEditLocked = (charge: any): boolean =>
+  charge?.status === "paid" || charge?.status === "cancelled";
+
 const invoiceStatusLabel: Record<string, string> = {
   draft: "Rascunho",
   sent: "Enviada",
@@ -51,6 +54,18 @@ const invoiceStatusLabel: Record<string, string> = {
 
 const getBillingOutstanding = getBillingOutstandingAmount;
 
+/** Nomes dos equipamentos/itens ligados ao fechamento (cadastro já vem populado no board financeiro). */
+const getBillingItemNamesLabel = (billing: any): string => {
+  const raw = (billing?.items || [])
+    .map((it: any) => {
+      const ref = it?.itemId;
+      if (ref && typeof ref === "object" && ref.name) return String(ref.name).trim();
+      return "";
+    })
+    .filter((s: string): s is string => s.length > 0);
+  return raw.filter((name: string, idx: number) => raw.indexOf(name) === idx).join(", ");
+};
+
 const isBillingEligibleForCharge = (billing: any): boolean =>
   billing?.financialStage === "pending" &&
   billing?.status !== "paid" &&
@@ -59,11 +74,9 @@ const isBillingEligibleForCharge = (billing: any): boolean =>
   !billing?.invoiceId &&
   getBillingOutstanding(billing) > 0.01;
 
-const isBillingEligibleForInvoice = (billing: any): boolean =>
-  billing?.status !== "paid" &&
-  billing?.status !== "cancelled" &&
-  !billing?.invoiceId &&
-  getBillingOutstanding(billing) > 0.01;
+/** Nova fatura (documento fiscal): permite fechamento já quitado, desde que não cancelado nem já vinculado a NF. */
+const isBillingEligibleForInvoiceDocument = (billing: any): boolean =>
+  billing?.status !== "cancelled" && !billing?.invoiceId;
 
 type FinBillSortKey =
   | "customer"
@@ -78,7 +91,6 @@ const FinancialCenterPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedBillingIds, setSelectedBillingIds] = useState<string[]>([]);
-  const [selectedChargeId, setSelectedChargeId] = useState<string>("");
   const [activeTab, setActiveTab] = useState<"billings" | "charges" | "invoices">("billings");
   const [billingsSubView, setBillingsSubView] = useState<"lista" | "quadro">("lista");
   const [finBillSort, setFinBillSort] = useState<ColumnSort<FinBillSortKey> | null>({
@@ -86,11 +98,16 @@ const FinancialCenterPage: React.FC = () => {
     dir: "desc",
   });
   const [deliveryModalRentalId, setDeliveryModalRentalId] = useState<string | null>(null);
-  const [paymentValue, setPaymentValue] = useState<string>("");
-  const [paymentDiscountValue, setPaymentDiscountValue] = useState<string>("");
-  const [paymentMethod, setPaymentMethod] = useState<string>("manual");
+  /** Baixa parcial no modal da cobrança (fluxo centralizado na aba Cobranças). */
+  const [chargePartialAmount, setChargePartialAmount] = useState<string>("");
+  const [chargePartialDiscount, setChargePartialDiscount] = useState<string>("");
+  /** Desconto na quitação total (saldo quitado = valor recebido + desconto). */
+  const [chargeFullSettleDiscount, setChargeFullSettleDiscount] = useState<string>("");
+  const [chargePartialMethod, setChargePartialMethod] = useState<string>("manual");
   const [invoiceDueDate, setInvoiceDueDate] = useState<string>("");
   const [invoicePaymentMethod, setInvoicePaymentMethod] = useState<string>("boleto/PIX");
+  /** Filtro exclusivo da lista na aba Cobranças */
+  const [chargeStatusFilter, setChargeStatusFilter] = useState<string>("");
   const [chargeModal, setChargeModal] = useState<any | null>(null);
   const [invoiceModal, setInvoiceModal] = useState<any | null>(null);
   const [chargeModalNotes, setChargeModalNotes] = useState<string>("");
@@ -192,8 +209,9 @@ const FinancialCenterPage: React.FC = () => {
       });
     },
     onSuccess: () => {
-      setPaymentValue("");
-      setPaymentDiscountValue("");
+      setChargePartialAmount("");
+      setChargePartialDiscount("");
+      setChargeFullSettleDiscount("");
       toast.success("Baixa registrada com sucesso.");
       queryClient.invalidateQueries({ queryKey: ["financial-board"] });
       queryClient.invalidateQueries({ queryKey: ["financial-dashboard-unified"] });
@@ -407,6 +425,9 @@ const FinancialCenterPage: React.FC = () => {
 
   const filteredCharges = useMemo(() => {
     return charges.filter((charge: any) => {
+      if (chargeStatusFilter && String(charge.status || "") !== chargeStatusFilter) {
+        return false;
+      }
       const chargeCustomerId = String(charge.customerId?._id || charge.customerId || "");
       const customerMatches = !customerFilter || chargeCustomerId === customerFilter;
       if (!customerMatches) return false;
@@ -414,7 +435,16 @@ const FinancialCenterPage: React.FC = () => {
       if (!relatedBillings.length) return !itemFilter && !obraFilter && !periodStartFilter && !periodEndFilter;
       return relatedBillings.some((billing: any) => billingMatchesGlobalFilter(billing));
     });
-  }, [charges, customerFilter, itemFilter, obraFilter, periodStartFilter, periodEndFilter, billingMatchesGlobalFilter]);
+  }, [
+    charges,
+    chargeStatusFilter,
+    customerFilter,
+    itemFilter,
+    obraFilter,
+    periodStartFilter,
+    periodEndFilter,
+    billingMatchesGlobalFilter,
+  ]);
 
   const filteredInvoices = useMemo(() => {
     return invoices.filter((invoice: any) => {
@@ -467,15 +497,11 @@ const FinancialCenterPage: React.FC = () => {
     createChargeMutation.mutate();
   };
 
-  const handlePayCharge = () => {
-    if (!selectedChargeId) {
-      toast.info("Selecione uma cobrança para dar baixa.");
-      return;
-    }
-    const selectedCharge = charges.find((charge: any) => charge._id === selectedChargeId);
-    const outstanding = Number(selectedCharge?.outstandingAmount || 0);
-    const amount = Number(paymentValue || 0);
-    const discount = Number(paymentDiscountValue || 0);
+  const handlePayChargePartialFromModal = () => {
+    if (!chargeModal) return;
+    const outstanding = Number(chargeModal.outstandingAmount || 0);
+    const amount = Number(chargePartialAmount || 0);
+    const discount = Number(chargePartialDiscount || 0);
     if (!Number.isFinite(amount) || amount < 0) {
       toast.warning("Informe um valor de baixa válido.");
       return;
@@ -493,41 +519,52 @@ const FinancialCenterPage: React.FC = () => {
       return;
     }
     payChargeMutation.mutate({
-      chargeId: selectedChargeId,
+      chargeId: chargeModal._id,
       amount,
       discount: Number.isFinite(discount) && discount > 0 ? discount : 0,
-      method: paymentMethod,
+      method: chargePartialMethod,
     });
   };
 
   const handleSettleCharge = (charge: any) => {
-    const remaining = Number(charge.outstandingAmount || 0);
-    if (remaining <= 0) {
+    const outstanding = Number(charge.outstandingAmount || 0);
+    if (outstanding <= 0.01) {
       toast.info("Essa cobrança já está quitada.");
       return;
     }
+    const discountParsed = Number(String(chargeFullSettleDiscount || "").replace(",", "."));
+    if (!Number.isFinite(discountParsed) || discountParsed < 0) {
+      toast.warning("Informe um desconto válido ou deixe em branco/zero.");
+      return;
+    }
+    const discount = Number(discountParsed.toFixed(2));
+    if (discount - outstanding > 0.01) {
+      toast.warning("O desconto não pode ser maior que o saldo em aberto.");
+      return;
+    }
+    const amount = Number((outstanding - discount).toFixed(2));
     payChargeMutation.mutate({
       chargeId: charge._id,
-      amount: remaining,
-      discount: 0,
-      method: paymentMethod,
+      amount,
+      discount: discount > 0 ? discount : undefined,
+      method: "manual",
     });
   };
 
   const handleGenerateInvoiceFromCharge = (charge: any) => {
     const relatedBillings = (charge.billingIds || []).filter((billing: any) => !!billing);
-    const billingIds = relatedBillings
-      .filter((billing: any) =>
-        typeof billing === "string" ? true : isBillingEligibleForInvoice(billing),
-      )
-      .map((billing: any) => String(billing?._id || billing));
+    const eligibleBillings = relatedBillings.filter((billing: any) =>
+      typeof billing === "string" ? true : isBillingEligibleForInvoiceDocument(billing),
+    );
+    const billingIds = eligibleBillings.map((billing: any) => String(billing?._id || billing));
     if (!billingIds.length) {
-      toast.warning("Cobrança sem fechamentos elegíveis para gerar fatura.");
+      toast.warning(
+        "Nenhum fechamento disponível para fatura (cancelados ou já vinculados a uma fatura).",
+      );
       return;
     }
-    if (billingIds.length !== relatedBillings.length) {
-      toast.warning("A cobrança possui fechamentos já pagos, cancelados ou faturados.");
-      return;
+    if (eligibleBillings.length < relatedBillings.length) {
+      toast.info("A fatura incluirá apenas fechamentos ainda sem nota fiscal vinculada.");
     }
     generateInvoiceMutation.mutate({ chargeId: charge._id, billingIds });
   };
@@ -538,6 +575,10 @@ const FinancialCenterPage: React.FC = () => {
     setChargeModalDueDate(toDateInputValue(charge.dueDate));
     setChargeModalTotal(String(Number(charge.total || 0)));
     setChargeModalBillingIds((charge.billingIds || []).map((b: any) => String(b?._id || b)));
+    setChargePartialAmount("");
+    setChargePartialDiscount("");
+    setChargeFullSettleDiscount("");
+    setChargePartialMethod("manual");
   };
 
   const openInvoiceModal = (invoice: any) => {
@@ -547,6 +588,10 @@ const FinancialCenterPage: React.FC = () => {
 
   const handleSaveChargeFromModal = () => {
     if (!chargeModal) return;
+    if (isChargeEditLocked(chargeModal)) {
+      toast.info("Esta cobrança não pode mais ser alterada.");
+      return;
+    }
     if (chargeModalBillingIds.length === 0) {
       toast.warning("Selecione ao menos um fechamento para a cobrança.");
       return;
@@ -577,6 +622,27 @@ const FinancialCenterPage: React.FC = () => {
     );
   };
 
+  const chargeModalViewOnly = Boolean(chargeModal && isChargeEditLocked(chargeModal));
+  /** Cobrança cancelada não gera NF a partir deste fluxo; quitada (paga) pode. */
+  const chargeModalShowInvoiceSection = Boolean(
+    chargeModal && chargeModal.status !== "cancelled",
+  );
+
+  const chargeModalFullSettlePreview = useMemo(() => {
+    if (!chargeModal) {
+      return { outstanding: 0, discount: 0, received: 0 };
+    }
+    const os = Number(chargeModal.outstandingAmount || 0);
+    const parsed = Number(String(chargeFullSettleDiscount || "").replace(",", "."));
+    const discount =
+      Number.isFinite(parsed) && parsed >= 0 ? Number(parsed.toFixed(2)) : 0;
+    return {
+      outstanding: os,
+      discount,
+      received: Math.max(0, Number((os - discount).toFixed(2))),
+    };
+  }, [chargeModal, chargeFullSettleDiscount]);
+
   if (!features.financialUnifiedModule) {
     return (
       <Layout title="Financeiro" backTo="/dashboard">
@@ -602,7 +668,7 @@ const FinancialCenterPage: React.FC = () => {
             </p>
           </div>
           <div className="border rounded-md p-4">
-            <p className="text-xs text-gray-500">Ações rápidas</p>
+            <p className="text-xs text-gray-500">Atalhos</p>
             <div className="flex flex-wrap gap-2 mt-2">
               <Link
                 to="/rentals?status=active"
@@ -610,60 +676,11 @@ const FinancialCenterPage: React.FC = () => {
               >
                 Devoluções pendentes
               </Link>
-              <button
-                onClick={handleCreateCharge}
-                disabled={selectedEligibleBillingIds.length === 0 || createChargeMutation.isPending}
-                className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm disabled:opacity-50"
-              >
-                Criar cobrança
-              </button>
-              <select
-                value={selectedChargeId}
-                onChange={(e) => setSelectedChargeId(e.target.value)}
-                className="border rounded-md px-2 py-1 text-sm w-44"
-              >
-                <option value="">Selecionar cobrança</option>
-                {filteredCharges.map((charge: any) => (
-                  <option key={charge._id} value={charge._id}>
-                    {charge.chargeNumber} ({charge.customerId?.name || "Cliente"})
-                  </option>
-                ))}
-              </select>
-              <input
-                className="border rounded-md px-2 py-1 text-sm w-28"
-                placeholder="Valor baixa"
-                value={paymentValue}
-                onChange={(e) => setPaymentValue(e.target.value)}
-              />
-              <input
-                className="border rounded-md px-2 py-1 text-sm w-28"
-                placeholder="Desconto"
-                value={paymentDiscountValue}
-                onChange={(e) => setPaymentDiscountValue(e.target.value)}
-              />
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                className="border rounded-md px-2 py-1 text-sm w-36"
-              >
-                <option value="manual">Manual</option>
-                <option value="pix">PIX</option>
-                <option value="boleto">Boleto</option>
-                <option value="cartao">Cartão</option>
-                <option value="transferencia">Transferência</option>
-              </select>
-              <button
-                onClick={handlePayCharge}
-                className="px-3 py-1.5 bg-green-600 text-white rounded-md text-sm"
-              >
-                Marcar pagamento
-              </button>
             </div>
-            {hasMixedCustomers && (
-              <p className="text-xs text-amber-600 mt-2">
-                Você selecionou fechamentos de clientes diferentes. Selecione apenas do mesmo cliente para criar cobrança.
-              </p>
-            )}
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 leading-relaxed">
+              Baixas e recebimentos ficam na aba <strong>Cobranças</strong> (abra a cobrança com duplo clique ou em
+              &quot;Abrir&quot;).
+            </p>
           </div>
         </div>
 
@@ -754,21 +771,45 @@ const FinancialCenterPage: React.FC = () => {
 
           {activeTab === "billings" && (
             <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className={`px-3 py-1.5 rounded-md text-sm ${billingsSubView === "lista" ? "bg-slate-700 text-white" : "border border-gray-300 dark:border-gray-600"}`}
-                  onClick={() => setBillingsSubView("lista")}
-                >
-                  Lista (cobranças)
-                </button>
-                <button
-                  type="button"
-                  className={`px-3 py-1.5 rounded-md text-sm ${billingsSubView === "quadro" ? "bg-slate-700 text-white" : "border border-gray-300 dark:border-gray-600"}`}
-                  onClick={() => setBillingsSubView("quadro")}
-                >
-                  Quadro (kanban)
-                </button>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 rounded-md text-sm ${billingsSubView === "lista" ? "bg-slate-700 text-white" : "border border-gray-300 dark:border-gray-600"}`}
+                    onClick={() => setBillingsSubView("lista")}
+                  >
+                    Lista (cobranças)
+                  </button>
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 rounded-md text-sm ${billingsSubView === "quadro" ? "bg-slate-700 text-white" : "border border-gray-300 dark:border-gray-600"}`}
+                    onClick={() => setBillingsSubView("quadro")}
+                  >
+                    Quadro (kanban)
+                  </button>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleCreateCharge}
+                    disabled={
+                      selectedEligibleBillingIds.length === 0 || createChargeMutation.isPending
+                    }
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium shadow-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    {createChargeMutation.isPending ? "Criando…" : "Criar cobrança"}
+                  </button>
+                  {selectedEligibleBillingIds.length > 0 && (
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400 text-right max-w-[220px]">
+                      {selectedEligibleBillingIds.length} fechamento(s) elegível(is) para nova cobrança
+                    </span>
+                  )}
+                  {hasMixedCustomers && (
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400 text-right max-w-[260px]">
+                      Fechamentos de clientes diferentes — agrupe apenas o mesmo cliente.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {billingsSubView === "lista" && (
@@ -1064,58 +1105,62 @@ const FinancialCenterPage: React.FC = () => {
           {activeTab === "charges" && (
             <div className="border rounded-md p-4">
               <h3 className="font-semibold mb-1">Cobranças</h3>
-              <p className="text-xs text-gray-500 mb-3">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                 Duplo clique em uma cobrança para abrir detalhes completos e ações.
               </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-            <input
-              type="date"
-              value={invoiceDueDate}
-              onChange={(e) => setInvoiceDueDate(e.target.value)}
-              className="border rounded-md px-2 py-2 text-sm"
-              placeholder="Vencimento da fatura (opcional)"
-            />
-            <select
-              value={invoicePaymentMethod}
-              onChange={(e) => setInvoicePaymentMethod(e.target.value)}
-              className="border rounded-md px-2 py-2 text-sm"
-            >
-              <option value="boleto/PIX">Boleto/PIX</option>
-              <option value="PIX">PIX</option>
-              <option value="Boleto">Boleto</option>
-              <option value="Transferência">Transferência</option>
-            </select>
-          </div>
-          {filteredCharges.length === 0 ? (
-            <p className="text-sm text-gray-600">Nenhuma cobrança criada ainda.</p>
-          ) : (
-            <div className="space-y-2">
-              {filteredCharges.map((charge: any) => (
-                <div
-                  key={charge._id}
-                  className="border rounded-md p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60"
-                  onDoubleClick={() => openChargeModal(charge)}
-                  title="Duplo clique para abrir detalhes"
+              <div className="mb-4 max-w-xs">
+                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                  Status da cobrança
+                </label>
+                <select
+                  value={chargeStatusFilter}
+                  onChange={(e) => setChargeStatusFilter(e.target.value)}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-2 py-2 text-sm bg-white dark:bg-gray-900"
                 >
-                  <div>
-                    <p className="font-medium">{charge.chargeNumber}</p>
-                    <p className="text-xs text-gray-500">
-                      Cliente: {charge.customerId?.name || "Cliente"} | Status: {chargeStatusLabel[String(charge.status)] || charge.status} | Em aberto: R${" "}
-                      {Number(charge.outstandingAmount || 0).toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => openChargeModal(charge)}
-                      className="px-3 py-1.5 border border-gray-300 rounded-md text-sm"
+                  <option value="">Todos</option>
+                  {Object.entries(chargeStatusLabel).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {filteredCharges.length === 0 ? (
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {charges.length === 0
+                    ? "Nenhuma cobrança criada ainda."
+                    : "Nenhuma cobrança com os filtros atuais."}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {filteredCharges.map((charge: any) => (
+                    <div
+                      key={charge._id}
+                      className="border rounded-md p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                      onDoubleClick={() => openChargeModal(charge)}
+                      title="Duplo clique para abrir detalhes"
                     >
-                      Abrir
-                    </button>
-                  </div>
+                      <div>
+                        <p className="font-medium">{charge.chargeNumber}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Cliente: {charge.customerId?.name || "Cliente"} | Status:{" "}
+                          {chargeStatusLabel[String(charge.status)] || charge.status} | Em aberto: R${" "}
+                          {Number(charge.outstandingAmount || 0).toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openChargeModal(charge)}
+                          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm"
+                        >
+                          Abrir
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              )}
             </div>
           )}
 
@@ -1161,9 +1206,10 @@ const FinancialCenterPage: React.FC = () => {
 
         <div className="border rounded-md p-4">
           <h3 className="font-semibold mb-2">Fluxo recomendado nesta tela</h3>
-          <p className="text-sm text-gray-600">
-            Use as abas para operar todo o fluxo em uma única tela: <strong>Fechamentos</strong> para seleção/edição,
-            <strong>Cobranças</strong> para baixa/impressão/cancelamento e <strong>Faturas</strong> para gestão final.
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Selecione fechamentos elegíveis na lista ou no quadro e use <strong>Criar cobrança</strong> à direita. Em seguida, na aba{" "}
+            <strong>Cobranças</strong>, abra a cobrança para baixa total/parcial, PDF ou cancelamento; em{" "}
+            <strong>Faturas</strong>, trate o documento fiscal.
           </p>
         </div>
       </div>
@@ -1173,57 +1219,174 @@ const FinancialCenterPage: React.FC = () => {
       {chargeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700">
-            <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Cobrança {chargeModal.chargeNumber}
-                </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Cliente: {chargeModal.customerId?.name || "Cliente"} | Status:{" "}
-                  {chargeStatusLabel[String(chargeModal.status)] || chargeModal.status}
+            <div className="sticky top-0 z-10 px-5 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 gap-y-1">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Cobrança {chargeModal.chargeNumber}
+                  </h3>
+                  <span
+                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      chargeModal.status === "paid"
+                        ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100"
+                        : chargeModal.status === "partial"
+                          ? "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"
+                          : chargeModal.status === "cancelled"
+                            ? "bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-100"
+                            : "bg-indigo-100 text-indigo-900 dark:bg-indigo-900/40 dark:text-indigo-100"
+                    }`}
+                  >
+                    {chargeStatusLabel[String(chargeModal.status)] || chargeModal.status}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 truncate">
+                  {chargeModal.customerId?.name || "Cliente"}
                 </p>
               </div>
               <button
                 type="button"
-                className="px-2 py-1 border rounded text-sm"
+                className="shrink-0 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
                 onClick={() => setChargeModal(null)}
               >
                 Fechar
               </button>
             </div>
-            <div className="px-5 py-4 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <input
-                  type="date"
-                  className="border rounded-md px-2 py-2 text-sm"
-                  value={chargeModalDueDate}
-                  onChange={(e) => setChargeModalDueDate(e.target.value)}
-                />
-                <input
-                  className="border rounded-md px-2 py-2 text-sm"
-                  value={chargeModalTotal}
-                  onChange={(e) => setChargeModalTotal(e.target.value)}
-                  placeholder="Valor total"
-                />
-                <input
-                  className="border rounded-md px-2 py-2 text-sm"
-                  value={chargeModalNotes}
-                  onChange={(e) => setChargeModalNotes(e.target.value)}
-                  placeholder="Observações"
-                />
+            <div className="px-5 py-5 space-y-6">
+              {chargeModalViewOnly ? (
+                <div
+                  className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100"
+                  role="status"
+                >
+                  {chargeModal.status === "paid"
+                    ? "Esta cobrança está quitada: não é possível alterar dados, fechamentos nem baixas. Você pode gerar a fatura nesta tela se os fechamentos ainda não estiverem em outra nota, ou imprimir o PDF."
+                    : "Esta cobrança foi cancelada e não pode ser alterada."}
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 px-4 py-3">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Total
+                  </p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-gray-900 dark:text-white">
+                    R$ {Number(chargeModal.total || 0).toFixed(2)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 px-4 py-3">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Recebido
+                  </p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-gray-900 dark:text-white">
+                    R$ {Number(chargeModal.paidAmount || 0).toFixed(2)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 px-4 py-3 col-span-2 lg:col-span-1">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Em aberto
+                  </p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-indigo-700 dark:text-indigo-300">
+                    R$ {Number(chargeModal.outstandingAmount || 0).toFixed(2)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 px-4 py-3 col-span-2 lg:col-span-1">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Vencimento
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-gray-900 dark:text-white">
+                    {chargeModalDueDate
+                      ? formatDateNoTimezoneShift(chargeModalDueDate)
+                      : chargeModal.dueDate
+                        ? formatDateNoTimezoneShift(chargeModal.dueDate)
+                        : "—"}
+                  </p>
+                </div>
               </div>
 
-              <div className="border rounded-md p-3">
-                <h4 className="font-medium text-sm mb-2">
-                  Fechamentos da cobrança (mesmo cliente e sem outra cobrança/fatura)
-                </h4>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
+              <section className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="bg-gray-50/90 dark:bg-gray-800/60 px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                    Dados da cobrança
+                  </h4>
+                </div>
+                <div className="p-4 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                        Data de vencimento
+                      </label>
+                      <input
+                        type="date"
+                        className={`w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 ${
+                          chargeModalViewOnly ? "opacity-70 cursor-not-allowed" : ""
+                        }`}
+                        disabled={chargeModalViewOnly}
+                        value={chargeModalDueDate}
+                        onChange={(e) => setChargeModalDueDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                        Valor total (R$)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className={`w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums ${
+                          chargeModalViewOnly ? "opacity-70 cursor-not-allowed" : ""
+                        }`}
+                        disabled={chargeModalViewOnly}
+                        value={chargeModalTotal}
+                        onChange={(e) => setChargeModalTotal(e.target.value)}
+                        placeholder="0,00"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                      Observações
+                    </label>
+                    <textarea
+                      rows={3}
+                      className={`w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 resize-y min-h-[4.5rem] ${
+                        chargeModalViewOnly ? "opacity-70 cursor-not-allowed" : ""
+                      }`}
+                      disabled={chargeModalViewOnly}
+                      value={chargeModalNotes}
+                      onChange={(e) => setChargeModalNotes(e.target.value)}
+                      placeholder="Notas internas sobre esta cobrança…"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="bg-gray-50/90 dark:bg-gray-800/60 px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                    Fechamentos vinculados
+                  </h4>
+                  {!chargeModalViewOnly ? (
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      Mesmo cliente; marque ou desmarque para alterar o agrupamento antes de salvar.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="p-3 max-h-64 overflow-y-auto space-y-2">
                   {availableBillingsForChargeModal.map((bill: any) => {
                     const billId = String(bill._id);
+                    const itemNames = getBillingItemNamesLabel(bill);
                     return (
-                      <label key={billId} className="flex items-start gap-2 text-sm border rounded p-2">
+                      <label
+                        key={billId}
+                        className={`flex items-start gap-3 text-sm rounded-lg border border-gray-200 dark:border-gray-600 p-3 bg-white dark:bg-gray-900/40 ${
+                          chargeModalViewOnly
+                            ? "cursor-default"
+                            : "cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-600"
+                        }`}
+                      >
                         <input
                           type="checkbox"
+                          className="mt-1 rounded border-gray-300"
+                          disabled={chargeModalViewOnly}
                           checked={chargeModalBillingIds.includes(billId)}
                           onChange={(e) => {
                             setChargeModalBillingIds((curr) =>
@@ -1231,65 +1394,249 @@ const FinancialCenterPage: React.FC = () => {
                             );
                           }}
                         />
-                        <span>
-                          <strong>{bill.billingNumber || bill._id}</strong> -{" "}
-                          {bill.periodStart ? formatDateNoTimezoneShift(bill.periodStart) : "-"} ate{" "}
-                          {bill.periodEnd ? formatDateNoTimezoneShift(bill.periodEnd) : "-"} | R${" "}
-                          {getBillingOutstanding(bill).toFixed(2)}
+                        <span className="min-w-0 flex-1">
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {bill.billingNumber || bill._id}
+                          </span>
+                          {itemNames ? (
+                            <span className="text-gray-600 dark:text-gray-300"> — {itemNames}</span>
+                          ) : null}
+                          <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {bill.periodStart ? formatDateNoTimezoneShift(bill.periodStart) : "-"} até{" "}
+                            {bill.periodEnd ? formatDateNoTimezoneShift(bill.periodEnd) : "-"} ·{" "}
+                            <span className="tabular-nums font-medium">
+                              R$ {getBillingOutstanding(bill).toFixed(2)}
+                            </span>
+                          </span>
                         </span>
                       </label>
                     );
                   })}
                 </div>
-              </div>
+              </section>
 
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm"
-                  onClick={handleSaveChargeFromModal}
-                >
-                  Salvar cobrança
-                </button>
-                <button
-                  type="button"
-                  className="px-3 py-1.5 border border-gray-300 rounded-md text-sm"
-                  onClick={() => printChargeMutation.mutate(chargeModal._id)}
-                >
-                  Imprimir PDF
-                </button>
-                <button
-                  type="button"
-                  className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm"
-                  onClick={() => handleGenerateInvoiceFromCharge(chargeModal)}
-                >
-                  Gerar fatura
-                </button>
-                <button
-                  type="button"
-                  className="px-3 py-1.5 bg-emerald-700 text-white rounded-md text-sm"
-                  onClick={() => handleSettleCharge(chargeModal)}
-                >
-                  Baixa total
-                </button>
-                <button
-                  type="button"
-                  className="px-3 py-1.5 bg-green-600 text-white rounded-md text-sm"
-                  onClick={() => {
-                    setSelectedChargeId(chargeModal._id);
-                    setChargeModal(null);
-                    toast.info(`Cobrança ${chargeModal.chargeNumber} selecionada para baixa parcial.`);
-                  }}
-                >
-                  Baixa parcial
-                </button>
-                <button
-                  type="button"
-                  className="px-3 py-1.5 border border-red-300 text-red-600 rounded-md text-sm"
-                  onClick={() => cancelChargeMutation.mutate(chargeModal._id)}
-                >
-                  Cancelar cobrança
-                </button>
+              {!chargeModalViewOnly && Number(chargeModal.outstandingAmount || 0) > 0.01 ? (
+                <section>
+                  <div className="mb-2 px-0.5">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      Baixas e quitação
+                    </h4>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      Quite o saldo inteiro (com desconto opcional) ou registre uma baixa parcial.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="rounded-lg border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/60 dark:bg-emerald-950/25 overflow-hidden flex flex-col">
+                      <div className="px-4 py-2.5 border-b border-emerald-200/80 dark:border-emerald-800/50">
+                        <h4 className="text-xs font-semibold uppercase tracking-wide text-emerald-900 dark:text-emerald-200">
+                          Quitação total
+                        </h4>
+                      </div>
+                      <div className="p-4 space-y-3 flex-1 flex flex-col">
+                        <div className="space-y-1.5 max-w-full sm:max-w-[200px]">
+                          <label className="text-xs font-medium text-emerald-900/90 dark:text-emerald-200/90">
+                            Desconto (opcional), R$
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            className="w-full border border-emerald-200 dark:border-emerald-800 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums"
+                            placeholder="0,00"
+                            value={chargeFullSettleDiscount}
+                            onChange={(e) => setChargeFullSettleDiscount(e.target.value)}
+                          />
+                        </div>
+                        <p className="text-xs text-emerald-900/85 dark:text-emerald-100/90 leading-relaxed rounded-lg bg-white/60 dark:bg-gray-900/30 px-3 py-2.5 border border-emerald-100 dark:border-emerald-900/40">
+                          Saldo em aberto{" "}
+                          <span className="font-semibold tabular-nums">
+                            R$ {chargeModalFullSettlePreview.outstanding.toFixed(2)}
+                          </span>
+                          . Serão registrados recebimento de{" "}
+                          <span className="font-semibold tabular-nums">
+                            R$ {chargeModalFullSettlePreview.received.toFixed(2)}
+                          </span>
+                          {chargeModalFullSettlePreview.discount > 0.005 ? (
+                            <>
+                              {" "}
+                              + desconto{" "}
+                              <span className="font-semibold tabular-nums">
+                                R$ {chargeModalFullSettlePreview.discount.toFixed(2)}
+                              </span>
+                            </>
+                          ) : null}
+                          .
+                        </p>
+                        <button
+                          type="button"
+                          disabled={payChargeMutation.isPending}
+                          className="w-full sm:w-auto px-4 py-2.5 bg-emerald-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-emerald-800"
+                          onClick={() => handleSettleCharge(chargeModal)}
+                        >
+                          {payChargeMutation.isPending ? "Registrando…" : "Registrar baixa total"}
+                        </button>
+                        <p className="text-xs text-emerald-800/75 dark:text-emerald-200/80 mt-auto">
+                          Saldo em aberto nesta cobrança:{" "}
+                          <span className="font-semibold tabular-nums">
+                            R$ {Number(chargeModal.outstandingAmount || 0).toFixed(2)}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-slate-50/80 dark:bg-gray-800/40 overflow-hidden flex flex-col">
+                      <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
+                        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                          Baixa parcial
+                        </h4>
+                      </div>
+                      <div className="p-4 space-y-3 flex-1 flex flex-col">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                              Valor (R$)
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums"
+                              placeholder="0,00"
+                              value={chargePartialAmount}
+                              onChange={(e) => setChargePartialAmount(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                              Desconto (R$)
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums"
+                              placeholder="0,00"
+                              value={chargePartialDiscount}
+                              onChange={(e) => setChargePartialDiscount(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                              Forma
+                            </label>
+                            <select
+                              value={chargePartialMethod}
+                              onChange={(e) => setChargePartialMethod(e.target.value)}
+                              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900"
+                            >
+                              <option value="manual">Manual</option>
+                              <option value="pix">PIX</option>
+                              <option value="boleto">Boleto</option>
+                              <option value="cartao">Cartão</option>
+                              <option value="transferencia">Transferência</option>
+                            </select>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={payChargeMutation.isPending}
+                          className="w-full sm:w-auto px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-green-700"
+                          onClick={() => handlePayChargePartialFromModal()}
+                        >
+                          {payChargeMutation.isPending ? "Registrando…" : "Registrar baixa parcial"}
+                        </button>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-auto">
+                          Saldo em aberto nesta cobrança:{" "}
+                          <span className="font-semibold tabular-nums text-gray-700 dark:text-gray-200">
+                            R$ {Number(chargeModal.outstandingAmount || 0).toFixed(2)}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              {chargeModalShowInvoiceSection ? (
+                <section className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                  <div className="bg-gray-50/90 dark:bg-gray-800/60 px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                      Ao gerar fatura a partir desta cobrança
+                    </h4>
+                  </div>
+                  <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                        Vencimento na fatura (opcional)
+                      </label>
+                      <input
+                        type="date"
+                        value={invoiceDueDate}
+                        onChange={(e) => setInvoiceDueDate(e.target.value)}
+                        className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                        Forma de pagamento na fatura
+                      </label>
+                      <select
+                        value={invoicePaymentMethod}
+                        onChange={(e) => setInvoicePaymentMethod(e.target.value)}
+                        className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900"
+                      >
+                        <option value="boleto/PIX">Boleto/PIX</option>
+                        <option value="PIX">PIX</option>
+                        <option value="Boleto">Boleto</option>
+                        <option value="Transferência">Transferência</option>
+                      </select>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              <div className="flex flex-col gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Ações
+                  </span>
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
+                    {!chargeModalViewOnly ? (
+                      <button
+                        type="button"
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+                        onClick={handleSaveChargeFromModal}
+                      >
+                        Salvar cobrança
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                      onClick={() => printChargeMutation.mutate(chargeModal._id)}
+                    >
+                      Imprimir PDF
+                    </button>
+                    {chargeModalShowInvoiceSection ? (
+                      <button
+                        type="button"
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+                        onClick={() => handleGenerateInvoiceFromCharge(chargeModal)}
+                      >
+                        Gerar fatura
+                      </button>
+                    ) : null}
+                    {!chargeModalViewOnly ? (
+                      <button
+                        type="button"
+                        className="px-4 py-2 border border-red-300 text-red-600 dark:border-red-800 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-50 dark:hover:bg-red-950/30"
+                        onClick={() => cancelChargeMutation.mutate(chargeModal._id)}
+                      >
+                        Cancelar cobrança
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

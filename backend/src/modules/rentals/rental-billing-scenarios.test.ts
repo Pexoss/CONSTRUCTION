@@ -49,18 +49,24 @@ describe("rental billing — cálculo único (billing.service)", () => {
     expect(amount * 50).toBe(750);
   });
 
-  it("quinzenal com tarifa só semanal no cadastro (deriva 15/7) — devolução mudando tipo", () => {
+  it("diária inclusiva: 01/04 → 03/04 = 3 dias / 3 diárias", () => {
+    const period = calculateBillingPeriod(d(2026, 4, 1), d(2026, 4, 3), "daily");
+    expect(period.daysPassed).toBe(3);
+    const { amount } = calculateRentalLineAmount({ dailyRate: 10 }, "daily", period);
+    expect(amount).toBe(30);
+  });
+
+  it("quinzenal exige tarifa quinzenal explícita no cadastro (não deriva só da semanal)", () => {
     const start = d(2026, 4, 1);
     const end = d(2026, 4, 15);
     const period = calculateBillingPeriod(start, end, "biweekly");
     expect(period.extraDays).toBe(0);
     const { amount } = calculateRentalLineAmount(
-      { weeklyRate: 70 },
+      { weeklyRate: 70, biweeklyRate: 150 },
       "biweekly",
       period,
     );
-    const expectedBiweekly = Number(((70 * 15) / 7).toFixed(2));
-    expect(amount).toBe(expectedBiweekly);
+    expect(amount).toBe(150);
   });
 
   /* Primeira fatia < ciclo cobra 1 quinzena inteira quando não há período completo antes (ex.: 14 dias corrido na quinzena de 15) */

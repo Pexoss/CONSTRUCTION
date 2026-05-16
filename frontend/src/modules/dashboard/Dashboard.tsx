@@ -6,6 +6,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { inventoryService } from "../inventory/inventory.service";
 import { rentalService } from "../rentals/rental.service";
 import { maintenanceService } from "../maintenance/maintenance.service";
+import { billingService } from "../billings/billing.service";
 import { features } from "../../config/features";
 
 const Dashboard: React.FC = () => {
@@ -13,9 +14,10 @@ const Dashboard: React.FC = () => {
 
   const [inventorySummary, setInventorySummary] = useState<any>(null);
   const [activeRentals, setActiveRentals] = useState<number | null>(null);
-  const [upcomingExpirations, setUpcomingExpirations] = useState<number | null>(
-    null,
-  );
+  /** Fechamentos (billings): periodEnd vencido ou nos próximos 7 dias; card aponta para /billings */
+  const [billingsAttentionTotal, setBillingsAttentionTotal] = useState<
+    number | null
+  >(null);
   const [pendingMaintenances, setPendingMaintenances] = useState<number | null>(
     null,
   );
@@ -23,18 +25,23 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [invRes, rentRes, maintRes] = await Promise.all([
-          inventoryService.getInformationsItens(),
-          rentalService.getExpirationDashboard(),
-          maintenanceService.getMaintenanceStatistics(),
-        ]);
+        const [invRes, rentRes, maintRes, billingAttentionRes] =
+          await Promise.all([
+            inventoryService.getInformationsItens(),
+            rentalService.getExpirationDashboard(),
+            maintenanceService.getMaintenanceStatistics(),
+            billingService.getAttentionSummary(7).catch(() => ({
+              success: false as const,
+              data: { total: 0, overdue: 0, dueWithinHorizon: 0 },
+            })),
+          ]);
 
         setInventorySummary(invRes ?? null);
 
         const rentData = rentRes?.data ?? {};
 
         setActiveRentals(rentData?.summary?.totalActive ?? 0);
-        setUpcomingExpirations(rentData?.summary?.totalExpiringSoon ?? 0);
+        setBillingsAttentionTotal(billingAttentionRes?.data?.total ?? 0);
 
         const maintStats = maintRes?.data ?? {};
 
@@ -76,11 +83,6 @@ const Dashboard: React.FC = () => {
     {
       title: "Gestão",
       cards: [
-        {
-          title: "Financeiro",
-          description: "Faturamento e fluxo de caixa",
-          to: "/finance",
-        },
         ...(features.financialUnifiedModule
           ? [
               {
@@ -248,17 +250,6 @@ const Dashboard: React.FC = () => {
             transition-colors
           "
                   >
-                  <div
-                    className="
-            flex items-center gap-3
-            bg-white/80
-            backdrop-blur-sm
-            px-5 py-3
-            rounded-lg
-            border border-blue-100
-            shadow-sm
-          "
-                  >
                     <div className="bg-amber-100 p-2 rounded-lg">
                       <svg
                         className="w-5 h-5 text-amber-600"
@@ -277,14 +268,58 @@ const Dashboard: React.FC = () => {
 
                     <div>
                       <p className="text-xl font-semibold text-gray-800">
-                        {upcomingExpirations ?? "-"}
+                        {billingsAttentionTotal ?? "-"}
                       </p>
                       <p className="text-sm text-gray-500">
                         Vencimentos próximos
                       </p>
-                    </div>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        Fechamentos em aberto (vencidos ou até 7 dias)
+                      </p>
                     </div>
                   </Link>
+
+                  {(user?.role === "admin" || user?.role === "superadmin") && (
+                    <Link
+                      to="/finance"
+                      className="
+            flex items-center gap-3
+            bg-white/80
+            backdrop-blur-sm
+            px-5 py-3
+            rounded-lg
+            border border-blue-100
+            shadow-sm
+            hover:bg-white
+            transition-colors
+          "
+                    >
+                      <div className="bg-indigo-100 p-2 rounded-lg">
+                        <svg
+                          className="w-5 h-5 text-indigo-600"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                      </div>
+
+                      <div>
+                        <p className="text-xl font-semibold text-gray-800 dark:text-gray-100">
+                          Financeiro
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          Faturamento e fluxo de caixa
+                        </p>
+                      </div>
+                    </Link>
+                  )}
                 </div>
               </div>
 
@@ -337,14 +372,6 @@ const Dashboard: React.FC = () => {
                 // Equipe apenas admin e superadmin
                 if (
                   card.title === "Equipe" &&
-                  user?.role !== "admin" &&
-                  user?.role !== "superadmin"
-                ) {
-                  return false;
-                }
-
-                if (
-                  card.title === "Financeiro" &&
                   user?.role !== "admin" &&
                   user?.role !== "superadmin"
                 ) {
@@ -449,10 +476,10 @@ const Dashboard: React.FC = () => {
 
               <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Vencimentos próximos
+                  Fechamentos (vencidos ou 7 dias)
                 </p>
                 <p className="text-2xl font-bold">
-                  {upcomingExpirations ?? "-"}
+                  {billingsAttentionTotal ?? "-"}
                 </p>
               </div>
 

@@ -169,6 +169,10 @@ export const returnRentalItemsSchema = z.object({
         billingRentalType: z
           .enum(["daily", "weekly", "biweekly", "monthly"])
           .optional(),
+        /** Tipo do saldo após devolução parcial (mesma retirada; próximos fechamentos ancorados na retirada). */
+        remainderRentalType: z
+          .enum(["daily", "weekly", "biweekly", "monthly"])
+          .optional(),
       }),
     )
     .min(1, "At least one item must be informed"),

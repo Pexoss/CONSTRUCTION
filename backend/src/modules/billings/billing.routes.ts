@@ -24,6 +24,12 @@ router.post(
 // Listar pendentes de aprovação
 router.get('/pending-approvals', billingController.getPendingApprovals.bind(billingController));
 
+// Resumo vencidos + período próximo (dashboard)
+router.get(
+  '/attention-summary',
+  billingController.getAttentionSummary.bind(billingController),
+);
+
 // Obter fechamento por ID
 router.get('/:id', billingController.getBillingById.bind(billingController));
 

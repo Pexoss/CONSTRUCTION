@@ -62,8 +62,9 @@ export function effectivePricingPeriods(pricing?: {
 
 /**
  * Valor unitário de cobrança por período conforme o tipo selecionado.
- * Prioriza o valor cadastrado explícito no período solicitado (ex.: quinzenal no SKU);
- * só usa effectivePricingPeriods para derivar quando esse campo está vazio/zero no cadastro.
+ * Prioriza o valor cadastrado explícito no período solicitado.
+ * Para diária/semanal/mensal, fallback em effectivePricingPeriods quando o campo bruto está zero.
+ * Quinzenal exige biweeklyRate explícito (não deriva de semanal/mensal/diária).
  */
 export function periodRateFromInventory(
   pricing:
@@ -96,11 +97,10 @@ export function periodRateFromInventory(
       };
     case "biweekly":
       if (rawBiweekly > 0) return { rate: rawBiweekly };
-      if (eff.biweeklyRate > 0) return { rate: eff.biweeklyRate };
       return {
         rate: 0,
         message:
-          "Cadastre o valor quinzenal do equipamento (ou a diária para derivar).",
+          "Cadastre o valor quinzenal no cadastro do equipamento (15 dias). Não basta ter só semanal ou mensal — o período quinzenal deve estar explícito.",
       };
     case "monthly":
       if (rawMonthly > 0) return { rate: rawMonthly };
@@ -143,10 +143,19 @@ export function calculateBillingPeriod(
 
   let daysPassed: number;
   if (rentalType === "daily") {
-    const diffDays = Math.ceil(
-      Math.max(0, e.getTime() - s.getTime()) / DAY_MS,
-    );
-    daysPassed = Math.max(1, diffDays);
+    const diffMs = e.getTime() - s.getTime();
+    if (diffMs < 0) {
+      return {
+        periodsCompleted: 0,
+        extraDays: 0,
+        totalPeriods: 0,
+        chargeExtraPeriod: false,
+        daysPassed: 0,
+      };
+    }
+    /** Mesmos limites inclusivos das demais modalidades (ex.: retirada 01/04 e devolução 03/04 = 3 diárias). */
+    const wholeDaysBetween = Math.floor(diffMs / DAY_MS);
+    daysPassed = Math.max(1, wholeDaysBetween + 1);
   } else {
     const diffMs = e.getTime() - s.getTime();
     if (diffMs < 0) {
@@ -1388,7 +1397,8 @@ class BillingService {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       query.status = { $nin: ['paid', 'cancelled'] };
-      query.billingDate = { ...(query.billingDate || {}), $lt: today };
+      /** Vencido = fim do período coberto pelo fechamento já passou (não usa billingDate). */
+      query.periodEnd = { ...(query.periodEnd || {}), $lt: today };
     }
 
     const page = filters.page || 1;
@@ -1582,6 +1592,41 @@ class BillingService {
 
       doc.end();
     });
+  }
+
+  /**
+   * Dashboard: fechamentos em aberto com fim de período já vencido ou até N dias à frente.
+   * Alinha com “vencido” por periodEnd (não billingDate).
+   */
+  async getBillingsAttentionSummary(
+    companyId: string,
+    horizonDays = 7,
+  ): Promise<{ total: number; overdue: number; dueWithinHorizon: number }> {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const horizonEnd = new Date(todayStart);
+    horizonEnd.setDate(horizonEnd.getDate() + Math.max(1, horizonDays));
+    horizonEnd.setHours(23, 59, 59, 999);
+
+    const open = { companyId, status: { $nin: ['paid', 'cancelled'] } };
+
+    const [overdue, dueWithinHorizon] = await Promise.all([
+      Billing.countDocuments({
+        ...open,
+        periodEnd: { $lt: todayStart },
+      }),
+      Billing.countDocuments({
+        ...open,
+        periodEnd: { $gte: todayStart, $lte: horizonEnd },
+      }),
+    ]);
+
+    return {
+      overdue,
+      dueWithinHorizon,
+      total: overdue + dueWithinHorizon,
+    };
   }
 
   /**
