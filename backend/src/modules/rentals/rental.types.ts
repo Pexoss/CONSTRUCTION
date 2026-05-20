@@ -79,6 +79,8 @@ export interface IRentalItem {
   pickupScheduled: Date;
   returnScheduled?: Date;
   returnActual?: Date;
+  /** Data apenas informativa (quando física diverge da base usada nos cálculos). */
+  informativeReturnDate?: Date;
   /** Devolução prevista no passado, equipamento ainda em campo: gerar fechamentos até hoje */
   retroactiveOpenBilling?: boolean;
   usedDays?: number;
@@ -141,6 +143,8 @@ export interface IRental extends Document {
   // NOVO: Endereço da obra
   workAddress?: IRentalWorkAddress;
   fulfillmentMethod: RentalFulfillmentMethod;
+  /** Nome de quem retirou/recebeu os equipamentos (informativo). */
+  pickedUpBy?: string;
 
   dates: IRentalDates;
   pricing: IRentalPricing;

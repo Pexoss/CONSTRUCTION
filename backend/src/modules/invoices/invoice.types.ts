@@ -6,6 +6,11 @@ export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'cancelled';
 export interface IInvoice extends Document {
   companyId: mongoose.Types.ObjectId;
   invoiceNumber: string;
+  /** Emitente (CNPJ da empresa na fatura): subdocumento da Company */
+  billingIssuerId?: mongoose.Types.ObjectId;
+  /** Cópia do CNPJ na emissão (14 dígitos) */
+  issuerCnpj?: string;
+  issuerLabel?: string;
   /** Fechamentos (billings) agrupados nesta fatura, quando criada a partir de fechamentos */
   billingIds?: mongoose.Types.ObjectId[];
   chargeIds?: mongoose.Types.ObjectId[];

@@ -27,13 +27,16 @@ export const reportService = {
     return response.data;
   },
 
-  getInvoicesGeneratedReport: async (startDate: string, endDate: string) => {
+  getInvoicesGeneratedReport: async (startDate: string, endDate: string, billingIssuerId?: string) => {
+    const params = new URLSearchParams();
+    params.append("startDate", startDate);
+    params.append("endDate", endDate);
+    if (billingIssuerId?.trim()) params.append("billingIssuerId", billingIssuerId.trim());
+
     const response = await api.get<{
       success: boolean;
       data: InvoicesGeneratedReport;
-    }>(
-      `/reports/invoices-generated?startDate=${startDate}&endDate=${endDate}`,
-    );
+    }>(`/reports/invoices-generated?${params.toString()}`);
     return response.data;
   },
 
@@ -140,9 +143,18 @@ export const reportService = {
     return response.data;
   },
 
-  exportInvoicesGeneratedReport: async (startDate: string, endDate: string) => {
+  exportInvoicesGeneratedReport: async (
+    startDate: string,
+    endDate: string,
+    billingIssuerId?: string,
+  ) => {
+    const params = new URLSearchParams();
+    params.append("startDate", startDate);
+    params.append("endDate", endDate);
+    if (billingIssuerId?.trim()) params.append("billingIssuerId", billingIssuerId.trim());
+
     const response = await api.get(
-      `/reports/invoices-generated/export?startDate=${startDate}&endDate=${endDate}`,
+      `/reports/invoices-generated/export?${params.toString()}`,
       {
         responseType: "blob",
       },
@@ -209,9 +221,15 @@ export const reportService = {
   exportInvoicesGeneratedReportPdf: async (
     startDate: string,
     endDate: string,
+    billingIssuerId?: string,
   ) => {
+    const params = new URLSearchParams();
+    params.append("startDate", startDate);
+    params.append("endDate", endDate);
+    if (billingIssuerId?.trim()) params.append("billingIssuerId", billingIssuerId.trim());
+
     const response = await api.get(
-      `/reports/invoices-generated/export-pdf?startDate=${startDate}&endDate=${endDate}`,
+      `/reports/invoices-generated/export-pdf?${params.toString()}`,
       { responseType: "blob" },
     );
     return response.data;

@@ -1,14 +1,20 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import Layout from "../../components/Layout";
 import { customerService } from "../customers/customer.service";
 import { billingService } from "../billings/billing.service";
 import { invoiceService } from "./invoice.service";
+import { companyService } from "../company/company.service";
 import { toast } from "react-toastify";
 import { ArrowLeft, FilePlus2 } from "lucide-react";
 import type { CustomerAddress } from "../../types/customer.types";
-import { formatDocumentForDisplay } from "../../utils/formatters";
+import {
+  formatCurrencyBr,
+  formatDocumentForDisplay,
+  formatMoneyInputBr,
+  parseMoneyBr,
+} from "../../utils/formatters";
 import { billingStatusLabel } from "../../utils/statusLabels";
 import SortableTh from "../../components/SortableTh";
 import {
@@ -16,6 +22,7 @@ import {
   sortedTableRows,
   toggleColumnSort,
 } from "../../utils/tableSort";
+import { getBillingCompositionRowsOrdered, sortBillingDocumentsFreteClosureGroupLastStable } from "../../utils/billingDisplayOrder";
 
 type CreateInvoiceBillingSortKey =
   | "closure"
@@ -45,6 +52,7 @@ const CreateInvoicePage: React.FC = () => {
   const [notes, setNotes] = useState("");
   const [tax, setTax] = useState("");
   const [discount, setDiscount] = useState("");
+  const [billingIssuerForCreate, setBillingIssuerForCreate] = useState("");
   const [createInvBillingSort, setCreateInvBillingSort] = useState<
     ColumnSort<CreateInvoiceBillingSortKey> | null
   >({
@@ -101,21 +109,38 @@ const CreateInvoicePage: React.FC = () => {
   const customerAddresses = customerDetail?.addresses ?? [];
   const billings = billingsRes?.data?.billings ?? [];
 
+  const billingsGroupedFreteClosureLast = useMemo(
+    () =>
+      sortBillingDocumentsFreteClosureGroupLastStable(billings, (it) =>
+        typeof it.itemId === "object" && it.itemId?.name ? it.itemId.name : "Item",
+      ),
+    [billings],
+  );
+
   const sortedBillingsForCreateInv = useMemo(
     () =>
-      sortedTableRows(billings, createInvBillingSort, {
+      sortedTableRows(billingsGroupedFreteClosureLast, createInvBillingSort, {
         closure: (b) => String(b.billingNumber ?? "").toLowerCase(),
         period: (b) =>
           b.periodStart ? new Date(b.periodStart).getTime() : 0,
         items: (b: any) => {
-          const names = [
-            ...(b.items || []).map((it: any) =>
-              typeof it.itemId === "object" && it.itemId?.name
-                ? it.itemId.name
-                : "",
-            ),
-            ...(b.services || []).map((s: any) => s.description || "servico"),
-          ]
+          const billingItemLabel = (it: any) =>
+            typeof it.itemId === "object" && it.itemId?.name
+              ? it.itemId.name
+              : "";
+          const rows = getBillingCompositionRowsOrdered(
+            {
+              items: b.items ?? [],
+              services: b.services ?? [],
+            },
+            billingItemLabel,
+          );
+          const names = rows
+            .map((r) =>
+              r.kind === "item"
+                ? billingItemLabel(r.item)
+                : r.service.description || "servico",
+            )
             .filter(Boolean)
             .join(", ")
             .toLowerCase();
@@ -125,8 +150,19 @@ const CreateInvoicePage: React.FC = () => {
           String(billingStatusLabel[b.status as keyof typeof billingStatusLabel] || b.status || ""),
         total: (b) => Number(b.calculation?.total ?? 0),
       }),
-    [billings, createInvBillingSort],
+    [billingsGroupedFreteClosureLast, createInvBillingSort],
   );
+
+  const { data: invoiceIssuerOptions = [] } = useQuery({
+    queryKey: ["company-invoice-issuers-create"],
+    queryFn: () => companyService.getInvoiceIssuers(),
+  });
+
+  useEffect(() => {
+    if (invoiceIssuerOptions.length > 0 && !billingIssuerForCreate) {
+      setBillingIssuerForCreate(invoiceIssuerOptions[0].id);
+    }
+  }, [invoiceIssuerOptions, billingIssuerForCreate]);
 
   const handleCreateInvBillingSort = (k: CreateInvoiceBillingSortKey) =>
     setCreateInvBillingSort((prev) => toggleColumnSort(prev, k));
@@ -164,8 +200,10 @@ const CreateInvoicePage: React.FC = () => {
         paymentMethod: paymentMethod.trim() || undefined,
         obraDescription: obraDescription.trim() || undefined,
         notes: notes.trim() || undefined,
-        tax: tax.trim() === "" ? undefined : Number(tax),
-        discount: discount.trim() === "" ? undefined : Number(discount),
+        tax: tax.trim() === "" ? undefined : parseMoneyBr(tax),
+        discount: discount.trim() === "" ? undefined : parseMoneyBr(discount),
+        billingIssuerId:
+          invoiceIssuerOptions.length > 0 ? billingIssuerForCreate || undefined : undefined,
       }),
     onSuccess: (res) => {
       const inv = res.data as { _id: string; invoiceNumber?: string; total?: number };
@@ -256,9 +294,6 @@ const CreateInvoicePage: React.FC = () => {
     };
     return statusMap[status] || status;
   };
-
-  const fmtMoney = (n: number) =>
-    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
 
   const fmtDate = (d: string) =>
     new Date(d).toLocaleDateString("pt-BR");
@@ -407,6 +442,36 @@ const CreateInvoicePage: React.FC = () => {
                 </div>
               </div>
 
+              {invoiceIssuerOptions.length > 0 ? (
+                <div className="max-w-xl space-y-1">
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    CNPJ emissor na fatura *
+                  </label>
+                  <select
+                    value={billingIssuerForCreate}
+                    onChange={(e) => setBillingIssuerForCreate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white"
+                  >
+                    {invoiceIssuerOptions.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.label} · {formatDocumentForDisplay(row.cnpj)}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    A numeração é sequencial separada por CNPJ cadastrado.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2 max-w-xl">
+                  Cadastre os CNPJs emissores em{" "}
+                  <Link to="/company/settings" className="underline font-medium">
+                    Configurações da empresa
+                  </Link>{" "}
+                  para faturamento com mais de um CNPJ da locadora.
+                </p>
+              )}
+
               <div>
                 <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
                   Endereço
@@ -471,12 +536,13 @@ const CreateInvoicePage: React.FC = () => {
                     Imposto (R$)
                   </label>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0,00"
                     value={tax}
                     onChange={(e) => setTax(e.target.value)}
-                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm"
+                    onBlur={(e) => setTax(formatMoneyInputBr(e.target.value))}
+                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm tabular-nums"
                   />
                 </div>
                 <div>
@@ -484,12 +550,13 @@ const CreateInvoicePage: React.FC = () => {
                     Desconto (R$)
                   </label>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="0,00"
                     value={discount}
                     onChange={(e) => setDiscount(e.target.value)}
-                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm"
+                    onBlur={(e) => setDiscount(formatMoneyInputBr(e.target.value))}
+                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm tabular-nums"
                   />
                 </div>
               </div>
@@ -595,24 +662,32 @@ const CreateInvoicePage: React.FC = () => {
                             {(b.items && b.items.length > 0) ||
                             (b.services && b.services.length > 0) ? (
                               <div className="space-y-1">
-                                {b.items?.map((item, idx) => {
-                                  const itemName = typeof item.itemId === "object" && item.itemId?.name
-                                    ? item.itemId.name
-                                    : typeof item.itemId === "string"
-                                    ? `Item ${item.itemId}`
-                                    : "Item desconhecido";
-                                  return (
-                                    <div key={idx} className="text-xs">
-                                      {itemName} (qty: {item.quantity})
+                                {getBillingCompositionRowsOrdered(
+                                  { items: b.items ?? [], services: b.services ?? [] },
+                                  (item) =>
+                                    typeof item.itemId === "object" && item.itemId?.name
+                                      ? item.itemId.name
+                                      : typeof item.itemId === "string"
+                                        ? `Item ${item.itemId}`
+                                        : "Item desconhecido",
+                                ).map((row, idx) =>
+                                  row.kind === "item" ? (
+                                    <div key={`it-${idx}`} className="text-xs">
+                                      {typeof row.item.itemId === "object" &&
+                                      row.item.itemId?.name
+                                        ? row.item.itemId.name
+                                        : typeof row.item.itemId === "string"
+                                          ? `Item ${row.item.itemId}`
+                                          : "Item desconhecido"}{" "}
+                                      (qty: {row.item.quantity})
                                     </div>
-                                  );
-                                })}
-                                {b.services?.map((service, idx) => (
-                                  <div key={`service-${idx}`} className="text-xs">
-                                    {service.description || "Serviço"} (serviço, qty:{" "}
-                                    {service.quantity || 1})
-                                  </div>
-                                ))}
+                                  ) : (
+                                    <div key={`sv-${idx}`} className="text-xs">
+                                      {row.service.description || "Serviço"} (serviço, qty:{" "}
+                                      {row.service.quantity || 1})
+                                    </div>
+                                  ),
+                                )}
                               </div>
                             ) : (
                               <span className="text-xs text-gray-400">Sem itens</span>
@@ -620,7 +695,7 @@ const CreateInvoicePage: React.FC = () => {
                           </td>
                           <td className="px-3 py-2 text-xs">{getStatusInPortuguese(b.status)}</td>
                           <td className="px-3 py-2 text-sm text-right font-medium">
-                            {fmtMoney(total)}
+                            {formatCurrencyBr(total)}
                           </td>
                         </tr>
                       );
@@ -636,7 +711,7 @@ const CreateInvoicePage: React.FC = () => {
                   {selectedIds.size} fechamento(s) selecionado(s)
                 </span>
                 <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Referência fechamentos: {fmtMoney(selectedTotal)}
+                  Referência fechamentos: {formatCurrencyBr(selectedTotal)}
                 </span>
               </div>
             )}
@@ -655,7 +730,8 @@ const CreateInvoicePage: React.FC = () => {
             disabled={
               !customerId ||
               selectedIds.size === 0 ||
-              createMutation.isPending
+              createMutation.isPending ||
+              (invoiceIssuerOptions.length > 0 && !billingIssuerForCreate.trim())
             }
             onClick={() => createMutation.mutate()}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -695,7 +771,7 @@ const CreateInvoicePage: React.FC = () => {
                   <div className="w-full bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3 mb-4">
                     <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">Valor Total</p>
                     <p className="text-lg font-bold text-gray-900 dark:text-white">
-                      {fmtMoney(createdInvoice.total)}
+                      {formatCurrencyBr(createdInvoice.total)}
                     </p>
                   </div>
                 )}

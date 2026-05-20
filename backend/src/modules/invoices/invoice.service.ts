@@ -10,6 +10,20 @@ import { IInvoice, InvoiceStatus } from "./invoice.types";
 import PDFDocument from "pdfkit";
 import { financialService } from "../financial/financial.service";
 import { transactionService } from "../transactions/transaction.service";
+import { normalizeDocument, isValidCnpj, formatCnpjForDisplay } from "../../shared/utils/document.utils";
+import { allocateNextInvoiceSequenceNumber } from "./invoice.sequence.util";
+import { mergeInvoiceIssuerFilter } from "./invoiceIssuerQuery.util";
+import {
+  getBillingCompositionRowsOrdered,
+  isBillingFreteLine,
+  sortBillingDocumentsFreteClosureGroupLastStable,
+  sortBillingRowsFreteLastStable,
+} from "../../shared/utils/billing-display-order.util";
+import {
+  formatDateBrNoTimezoneShift,
+  parseCalendarDate,
+} from "../../shared/utils/date-display.util";
+import { formatCurrencyBr } from "../../shared/utils/money-display.util";
 
 const ISS_MUNICIPAL_NOTE =
   "A empresa abaixo identificada está dispensada de emitir documento fiscal de Serviços quando tributada pelo anexo III, tendo deduzido a parcela do ISS, conforme inciso V do parágrafo 4º do artigo 18 da Lei Complementar nº 123/2006.";
@@ -33,7 +47,7 @@ function resolveSicoobLogoPath(): string {
   return path.join(__dirname, "../../shared/imagens/sicoob.png");
 }
 
-const INVOICE_FOOTER_PIX = "Chave PIX: CNPJ 28.408.479/0001-19";
+
 
 const INVOICE_FOOTER_BANK_LINES = [
   "Banco: 756 - Sicoob",
@@ -76,6 +90,153 @@ type InvoicePdfRow = {
   total: number;
 };
 
+/**
+ * Cada segmento corresponde a um fechamento na ordem de `billingIds`.
+ * Dentro do segmento, coloca valores de linhas não-frete antes das de frete (estável),
+ * alinhando com `meta` já montada com `getBillingCompositionRowsOrdered`.
+ */
+function alignInvoiceLineAmountsOrderForBillingPdfSegments(
+  sourceItems: IInvoice["items"],
+  segmentSizes: number[],
+): IInvoice["items"] | null {
+  const sumSeg = segmentSizes.reduce((s, n) => s + n, 0);
+  if (sumSeg !== sourceItems.length || segmentSizes.length === 0) {
+    return null;
+  }
+  let offset = 0;
+  const out: IInvoice["items"] = [];
+  for (const sz of segmentSizes) {
+    const slice = sourceItems.slice(offset, offset + sz);
+    offset += sz;
+    out.push(
+      ...sortBillingRowsFreteLastStable(slice, (it) => isBillingFreteLine(it.description)),
+    );
+  }
+  return out;
+}
+
+function fallbackHeaderCnpjDisplay(): string {
+  const last = INVOICE_HEADER_BRAND_LINES[INVOICE_HEADER_BRAND_LINES.length - 1];
+  return last.replace(/^CNPJ\s*/i, "").trim();
+}
+
+function issuerCnpjDisplayForPdf(invoice: IInvoice, company: { cnpj?: string } | null): string {
+  const fromInvoice = invoice.issuerCnpj ? normalizeDocument(String(invoice.issuerCnpj)) : "";
+  if (fromInvoice.length === 14 && isValidCnpj(fromInvoice)) {
+    return formatCnpjForDisplay(fromInvoice);
+  }
+  const fromCompany = company?.cnpj ? normalizeDocument(String(company.cnpj)) : "";
+  if (fromCompany.length === 14 && isValidCnpj(fromCompany)) {
+    return formatCnpjForDisplay(fromCompany);
+  }
+  return fallbackHeaderCnpjDisplay();
+}
+
+function isInvoiceDupKey(err: unknown): boolean {
+  const e = err as { code?: number; keyPattern?: Record<string, number> };
+  return Boolean(
+    e?.code === 11000 &&
+      e?.keyPattern &&
+      typeof e.keyPattern === "object" &&
+      "invoiceNumber" in e.keyPattern &&
+      "companyId" in e.keyPattern,
+  );
+}
+
+async function ensureInvoiceIssuersIfEmptyCompanyDoc(companyId: string): Promise<void> {
+  const company = await Company.findById(companyId).select("invoiceIssuers cnpj");
+  if (!company) throw new Error("Company not found");
+  const cleanMain = company.cnpj ? normalizeDocument(String(company.cnpj)) : "";
+  if (
+    (!company.invoiceIssuers || company.invoiceIssuers.length === 0) &&
+    cleanMain.length === 14 &&
+    isValidCnpj(cleanMain)
+  ) {
+    company.invoiceIssuers = [{ label: "Matriz", cnpj: cleanMain } as any];
+    await company.save();
+  }
+}
+
+async function resolveIssuerFieldsOrThrow(
+  companyId: string,
+  billingIssuerIdInput?: string,
+): Promise<{
+  billingIssuerId?: mongoose.Types.ObjectId;
+  issuerCnpj?: string;
+  issuerLabel?: string;
+  /** Ausente apenas no fluxo legado sem emitentes cadastrados. */
+  initialInvoiceNumber?: number;
+}> {
+  await ensureInvoiceIssuersIfEmptyCompanyDoc(companyId);
+  const company = await Company.findById(companyId).select("invoiceIssuers").orFail();
+  const issuers = (company.invoiceIssuers || []) as any[];
+
+  if (issuers.length === 0) {
+    if (billingIssuerIdInput?.trim()) {
+      throw new Error("Cadastre emissores de fatura (CNPJ) na empresa antes de escolher o emitente.");
+    }
+    return {};
+  }
+
+  if (!billingIssuerIdInput?.trim()) {
+    throw new Error("Selecione o CNPJ emissor da fatura.");
+  }
+
+  const sub = issuers.find((x: any) => String(x._id) === billingIssuerIdInput.trim());
+  if (!sub) {
+    throw new Error("Emitente de fatura inválido.");
+  }
+  const issuerCnpj = normalizeDocument(String(sub.cnpj || ""));
+  if (issuerCnpj.length !== 14 || !isValidCnpj(issuerCnpj)) {
+    throw new Error("CNPJ do emissor é inválido.");
+  }
+  const rawMin = sub.initialInvoiceNumber as unknown;
+  const initialInvoiceNumber =
+    typeof rawMin === "number" && Number.isFinite(rawMin) && rawMin >= 1
+      ? Math.floor(rawMin)
+      : 1;
+
+  return {
+    billingIssuerId: sub._id as mongoose.Types.ObjectId,
+    issuerCnpj,
+    issuerLabel: String(sub.label || "").trim() || "Matriz",
+    initialInvoiceNumber,
+  };
+}
+
+async function createInvoiceWithSequenceRetry(
+  fields: Record<string, unknown>,
+  options?: { fixedInvoiceNumber?: string; sequenceStartMin?: number },
+): Promise<IInvoice> {
+  const companyOid = fields.companyId as mongoose.Types.ObjectId;
+  const billingIssuerOid =
+    fields.billingIssuerId != null && fields.billingIssuerId !== undefined
+      ? (fields.billingIssuerId as mongoose.Types.ObjectId)
+      : null;
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    try {
+      const invoiceNumber =
+        options?.fixedInvoiceNumber ||
+        (await allocateNextInvoiceSequenceNumber(
+          companyOid,
+          billingIssuerOid || undefined,
+          options?.sequenceStartMin ?? 1,
+        ));
+
+      const created = await Invoice.create({ ...fields, invoiceNumber });
+      return created;
+    } catch (err: unknown) {
+      lastErr = err;
+      if (options?.fixedInvoiceNumber) throw err;
+      if (isInvoiceDupKey(err)) continue;
+      throw err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("Não foi possível gerar número único de fatura.");
+}
+
 class InvoiceService {
   /**
    * Create invoice from rental
@@ -89,6 +250,7 @@ class InvoiceService {
       discount?: number;
       terms?: string;
       notes?: string;
+      billingIssuerId?: string;
     },
   ): Promise<IInvoice> {
     const rental = await Rental.findOne({ _id: rentalId, companyId })
@@ -120,28 +282,35 @@ class InvoiceService {
     const tax = options?.tax || 0;
     const discount = options?.discount || rental.pricing.discount || 0;
     const total = subtotal + tax - discount;
-    const invoiceNumber = `INV-${Date.now()}`;
 
-    const invoice = await Invoice.create({
-      invoiceNumber,
-      companyId,
-      rentalId: rental._id,
-      customerId:
-        typeof rental.customerId === "object"
-          ? rental.customerId._id
-          : rental.customerId,
-      items,
-      subtotal,
-      tax,
-      discount,
-      total,
-      status: "draft",
-      issueDate: new Date(),
-      dueDate: rental.dates.returnScheduled,
-      terms: options?.terms,
-      notes: options?.notes,
-      createdBy: userId,
-    });
+    const companyOid = new mongoose.Types.ObjectId(companyId);
+    const issuer = await resolveIssuerFieldsOrThrow(companyId, options?.billingIssuerId);
+
+    const invoice = await createInvoiceWithSequenceRetry(
+      {
+        companyId: companyOid,
+        ...(issuer.billingIssuerId ? { billingIssuerId: issuer.billingIssuerId } : {}),
+        ...(issuer.issuerCnpj ? { issuerCnpj: issuer.issuerCnpj } : {}),
+        ...(issuer.issuerLabel ? { issuerLabel: issuer.issuerLabel } : {}),
+        rentalId: rental._id,
+        customerId:
+          typeof rental.customerId === "object"
+            ? (rental.customerId as any)._id
+            : rental.customerId,
+        items,
+        subtotal,
+        tax,
+        discount,
+        total,
+        status: "draft",
+        issueDate: new Date(),
+        dueDate: rental.dates.returnScheduled,
+        terms: options?.terms,
+        notes: options?.notes,
+        createdBy: userId,
+      },
+      { sequenceStartMin: issuer.initialInvoiceNumber ?? 1 },
+    );
 
     return invoice;
   }
@@ -154,6 +323,7 @@ class InvoiceService {
     userId: string,
     data: {
       billingIds: string[];
+      billingIssuerId?: string;
       tax?: number;
       discount?: number;
       terms?: string;
@@ -165,16 +335,29 @@ class InvoiceService {
     },
   ): Promise<IInvoice> {
     const ids = [...new Set(data.billingIds)].map((id) => new mongoose.Types.ObjectId(id));
-    const billings = await Billing.find({
+    const billingsFetched = await Billing.find({
       _id: { $in: ids },
       companyId,
-    })
-      .populate("items.itemId", "name")
-      .sort({ billingDate: 1, periodStart: 1 });
+    }).populate("items.itemId", "name");
 
-    if (billings.length !== ids.length) {
+    if (billingsFetched.length !== ids.length) {
       throw new Error("Um ou mais fechamentos não foram encontrados");
     }
+
+    const itemDisplayNameForBilling = (line: any): string => {
+      const itemDoc = line.itemId as unknown as { name?: string } | mongoose.Types.ObjectId;
+      return itemDoc &&
+        typeof itemDoc === "object" &&
+        "name" in itemDoc &&
+        itemDoc.name
+        ? String(itemDoc.name)
+        : "Item";
+    };
+
+    const billings = sortBillingDocumentsFreteClosureGroupLastStable(
+      billingsFetched,
+      itemDisplayNameForBilling,
+    );
 
     const customerId = billings[0].customerId.toString();
     for (const b of billings) {
@@ -216,27 +399,26 @@ class InvoiceService {
         ) || billingTotal;
       const scale = grossLinesTotal > 0 ? basisForInvoice / grossLinesTotal : 1;
 
-      for (const line of bill.items || []) {
-        const itemDoc = line.itemId as unknown as { name?: string } | mongoose.Types.ObjectId;
-        const name =
-          itemDoc && typeof itemDoc === "object" && "name" in itemDoc && itemDoc.name
-            ? String(itemDoc.name)
-            : "Item";
-        items.push({
-          description: name,
-          quantity: line.quantity,
-          unitPrice: Number((line.unitPrice * scale).toFixed(2)),
-          total: Number((line.subtotal * scale).toFixed(2)),
-        });
-      }
+      const orderedBillRows = getBillingCompositionRowsOrdered(bill, itemDisplayNameForBilling);
 
-      for (const svc of bill.services || []) {
-        items.push({
-          description: String(svc.description || "Serviço"),
-          quantity: svc.quantity,
-          unitPrice: Number((svc.price * scale).toFixed(2)),
-          total: Number((svc.subtotal * scale).toFixed(2)),
-        });
+      for (const row of orderedBillRows) {
+        if (row.kind === "item") {
+          const line = row.line as any;
+          items.push({
+            description: itemDisplayNameForBilling(line),
+            quantity: line.quantity,
+            unitPrice: Number((line.unitPrice * scale).toFixed(2)),
+            total: Number((line.subtotal * scale).toFixed(2)),
+          });
+        } else {
+          const svc = row.svc as any;
+          items.push({
+            description: String(svc.description || "Serviço"),
+            quantity: svc.quantity,
+            unitPrice: Number((svc.price * scale).toFixed(2)),
+            total: Number((svc.subtotal * scale).toFixed(2)),
+          });
+        }
       }
 
       if ((!bill.items || bill.items.length === 0) && (!bill.services || bill.services.length === 0)) {
@@ -258,10 +440,12 @@ class InvoiceService {
     const discount = data.discount ?? 0;
     const total = Math.max(0, Number((subtotal + tax - discount).toFixed(2)));
 
-    const issueDate = data.issueDate ? new Date(data.issueDate) : new Date();
+    const issueDate = data.issueDate
+      ? parseCalendarDate(data.issueDate) ?? new Date(data.issueDate)
+      : new Date();
     let dueDate: Date;
     if (data.dueDate) {
-      dueDate = new Date(data.dueDate);
+      dueDate = parseCalendarDate(data.dueDate) ?? new Date(data.dueDate);
     } else {
       dueDate = new Date(issueDate);
       dueDate.setDate(dueDate.getDate() + 30);
@@ -269,27 +453,39 @@ class InvoiceService {
 
     const notesCombined = data.notes ? String(data.notes).trim() : "";
 
-    const invoice = await Invoice.create({
-      companyId,
-      billingIds: ids,
-      rentalId,
-      customerId: billings[0].customerId,
-      items,
-      subtotal,
-      tax,
-      discount,
-      total,
-      status: "draft",
-      issueDate,
-      dueDate,
-      terms: data.terms,
-      notes: notesCombined,
-      paymentMethod: data.paymentMethod || "boleto/PIX",
-      obraDescription: data.obraDescription,
-      createdBy: userId,
-    });
+    const companyOid = new mongoose.Types.ObjectId(companyId);
+    const issuer = await resolveIssuerFieldsOrThrow(companyId, data.billingIssuerId);
 
-    for (const billingId of ids) {
+    /** Ordem gravada nas linhas / PDF: sem frete → com frete; dentro de cada faixa, cronológico. */
+    const billingIdsEmissionOrder = billings.map((b) => b._id as mongoose.Types.ObjectId);
+
+    const invoice = await createInvoiceWithSequenceRetry(
+      {
+        companyId: companyOid,
+        ...(issuer.billingIssuerId ? { billingIssuerId: issuer.billingIssuerId } : {}),
+        ...(issuer.issuerCnpj ? { issuerCnpj: issuer.issuerCnpj } : {}),
+        ...(issuer.issuerLabel ? { issuerLabel: issuer.issuerLabel } : {}),
+        billingIds: billingIdsEmissionOrder,
+        rentalId,
+        customerId: billings[0].customerId,
+        items,
+        subtotal,
+        tax,
+        discount,
+        total,
+        status: "draft",
+        issueDate,
+        dueDate,
+        terms: data.terms,
+        notes: notesCombined,
+        paymentMethod: data.paymentMethod || "boleto/PIX",
+        obraDescription: data.obraDescription,
+        createdBy: userId,
+      },
+      { sequenceStartMin: issuer.initialInvoiceNumber ?? 1 },
+    );
+
+    for (const billingId of billingIdsEmissionOrder) {
       await financialService.attachBillingToInvoice(billingId, invoice._id);
     }
 
@@ -305,6 +501,7 @@ class InvoiceService {
       status?: InvoiceStatus;
       customerId?: string;
       rentalId?: string;
+      billingIssuerId?: string;
       startDate?: Date;
       endDate?: Date;
       page?: number;
@@ -329,6 +526,8 @@ class InvoiceService {
     if (filters.rentalId) {
       query.rentalId = filters.rentalId;
     }
+
+    mergeInvoiceIssuerFilter(query, filters.billingIssuerId);
 
     if (filters.startDate || filters.endDate) {
       query.issueDate = {};
@@ -480,54 +679,88 @@ class InvoiceService {
     }
 
     const ids = invoice.billingIds.map((id) => new mongoose.Types.ObjectId(String(id)));
-    const billings = await Billing.find({
+    const fetchedBillings = await Billing.find({
       _id: { $in: ids },
       companyId,
-    })
-      .populate("items.itemId", "name")
-      .sort({ billingDate: 1, periodStart: 1 });
+    }).populate("items.itemId", "name");
 
-    if (billings.length !== ids.length) {
+    if (fetchedBillings.length !== ids.length) {
       return zipWithLegacyStrip();
     }
 
+    const idPos = new Map(ids.map((oid, i) => [String(oid), i]));
+    const billings = [...fetchedBillings].sort((a, b) => {
+      const ia = idPos.get(String(a._id));
+      const ib = idPos.get(String(b._id));
+      return (ia ?? 9999) - (ib ?? 9999);
+    });
+
     const meta: Array<{ description: string; period: string; tipo: string }> = [];
+    const segmentSizes: number[] = [];
 
     for (const bill of billings) {
-      const periodLabel = `${new Date(bill.periodStart).toLocaleDateString("pt-BR")} a ${new Date(
+      const periodLabel = `${formatDateBrNoTimezoneShift(bill.periodStart)} a ${formatDateBrNoTimezoneShift(
         bill.periodEnd,
-      ).toLocaleDateString("pt-BR")}`;
+      )}`;
       const tipo =
         RENTAL_TYPE_PT_LABEL[String(bill.rentalType || "")] ||
         (bill.rentalType ? String(bill.rentalType) : "—");
 
-      for (const line of bill.items || []) {
+      const invoiceMetaItemName = (line: any): string => {
         const itemDoc = line.itemId as unknown as { name?: string } | mongoose.Types.ObjectId;
-        const name =
-          itemDoc && typeof itemDoc === "object" && "name" in itemDoc && itemDoc.name
-            ? String(itemDoc.name)
-            : "Item";
-        meta.push({ description: name, period: periodLabel, tipo });
-      }
+        return itemDoc &&
+          typeof itemDoc === "object" &&
+          "name" in itemDoc &&
+          itemDoc.name
+          ? String(itemDoc.name)
+          : "Item";
+      };
 
-      for (const svc of bill.services || []) {
-        meta.push({
-          description: String(svc.description || "Serviço"),
-          period: periodLabel,
-          tipo,
-        });
+      const orderedPdfMetaRows = getBillingCompositionRowsOrdered(bill, invoiceMetaItemName);
+
+      let segmentCount = 0;
+
+      for (const row of orderedPdfMetaRows) {
+        if (row.kind === "item") {
+          meta.push({
+            description: invoiceMetaItemName(row.line),
+            period: periodLabel,
+            tipo,
+          });
+        } else {
+          const svc = row.svc as { description?: string };
+          meta.push({
+            description: String(svc.description || "Serviço"),
+            period: periodLabel,
+            tipo,
+          });
+        }
+        segmentCount++;
       }
 
       if ((!bill.items || bill.items.length === 0) && (!bill.services || bill.services.length === 0)) {
         meta.push({ description: "Aluguel", period: periodLabel, tipo });
+        segmentCount++;
       }
+
+      segmentSizes.push(segmentCount);
     }
 
     if (meta.length !== sourceItems.length) {
       return zipWithLegacyStrip();
     }
 
-    return sourceItems.map((it, i) => ({
+    let itemsForPdf = alignInvoiceLineAmountsOrderForBillingPdfSegments(sourceItems, segmentSizes);
+    if (!itemsForPdf && billings.length === 1) {
+      itemsForPdf = sortBillingRowsFreteLastStable([...sourceItems], (it) =>
+        isBillingFreteLine(it.description),
+      );
+    }
+    if (!itemsForPdf) {
+      itemsForPdf = [...sourceItems];
+    }
+
+    return itemsForPdf.map((it, i) => ({
       description: meta[i].description,
       period: meta[i].period,
       tipo: meta[i].tipo,
@@ -575,8 +808,7 @@ class InvoiceService {
     const rental = invoice.rentalId as any;
     const settings = (company?.settings || {}) as Record<string, unknown>;
 
-    const fmtMoney = (n: number) =>
-      new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
+    const fmtMoney = formatCurrencyBr;
 
     const customerAddress = () => {
       const customerAddresses = customer?.addresses || [];
@@ -615,6 +847,10 @@ class InvoiceService {
 
     const pdfRows = await this.buildInvoicePdfRows(companyId, invoice);
 
+    const issuerDisplay = issuerCnpjDisplayForPdf(invoice, company);
+    const headerBrandLines = [...INVOICE_HEADER_BRAND_LINES.slice(0, -1), `CNPJ ${issuerDisplay}`];
+    const footerPixLine = `Chave PIX: CNPJ ${issuerDisplay}`;
+
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ margin: 36, size: "A4" });
       const chunks: Buffer[] = [];
@@ -650,14 +886,14 @@ class InvoiceService {
       // Coluna central: dados institucionais
       let cy = headerTop;
       doc.font("Helvetica-Bold").fontSize(9).fillColor("#000000");
-      doc.text(INVOICE_HEADER_BRAND_LINES[0], colCenterX, cy, {
+      doc.text(headerBrandLines[0], colCenterX, cy, {
         width: colCenterW,
         align: "center",
       });
       cy = doc.y + 3;
       doc.font("Helvetica").fontSize(7.5).fillColor("#333333");
-      for (let i = 1; i < INVOICE_HEADER_BRAND_LINES.length; i++) {
-        const line = INVOICE_HEADER_BRAND_LINES[i];
+      for (let i = 1; i < headerBrandLines.length; i++) {
+        const line = headerBrandLines[i];
         doc.text(line, colCenterX, cy, { width: colCenterW, align: "center" });
         cy = doc.y + (line === "" ? 2 : 3);
       }
@@ -678,14 +914,14 @@ class InvoiceService {
       });
       ry = doc.y + 5;
       doc.text(
-        `Emissão: ${new Date(invoice.issueDate).toLocaleDateString("pt-BR")}`,
+        `Emissão: ${formatDateBrNoTimezoneShift(invoice.issueDate)}`,
         colRightX,
         ry,
         { width: colRightW, align: "right" },
       );
       ry = doc.y + 5;
       doc.text(
-        `Vencimento: ${new Date(invoice.dueDate).toLocaleDateString("pt-BR")}`,
+        `Vencimento: ${formatDateBrNoTimezoneShift(invoice.dueDate)}`,
         colRightX,
         ry,
         { width: colRightW, align: "right" },
@@ -844,7 +1080,7 @@ class InvoiceService {
       doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#000000");
       doc.text("Forma de Pagamento", left, footerTop);
       doc.font("Helvetica").fontSize(8).fillColor("#000000");
-      doc.text(INVOICE_FOOTER_PIX, left, footerTop + 14, { width: leftColW });
+      doc.text(footerPixLine, left, footerTop + 14, { width: leftColW });
       const yLeft = doc.y + 8;
 
       const sicoobPath = resolveSicoobLogoPath();

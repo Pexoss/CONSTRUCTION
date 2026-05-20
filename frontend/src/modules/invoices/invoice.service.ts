@@ -29,6 +29,7 @@ export const invoiceService = {
     if (filters.status) params.append('status', filters.status);
     if (filters.customerId) params.append('customerId', filters.customerId);
     if (filters.rentalId) params.append('rentalId', filters.rentalId);
+    if (filters.billingIssuerId) params.append('billingIssuerId', filters.billingIssuerId);
     if (filters.startDate) params.append('startDate', filters.startDate);
     if (filters.endDate) params.append('endDate', filters.endDate);
     if (filters.page) params.append('page', String(filters.page));

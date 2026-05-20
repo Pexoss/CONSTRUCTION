@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoiceService } from "./invoice.service";
 import Layout from "../../components/Layout";
 import { toast } from "react-toastify";
-import { formatPhoneForDisplay } from "../../utils/formatters";
+import { formatPhoneForDisplay, formatDocumentForDisplay, formatCurrencyBr } from "../../utils/formatters";
 import SortableTh from "../../components/SortableTh";
 import {
   ColumnSort,
@@ -62,14 +62,6 @@ const InvoiceDetails = () => {
 
   const [invoiceItemSort, setInvoiceItemSort] =
     useState<ColumnSort<InvoiceItemSortKey> | null>(null);
-
-  // Utilitários de formatação
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    }).format(value || 0);
-  };
 
   const formatDate = (date: string) => {
     if (!date) return "-";
@@ -280,11 +272,17 @@ const InvoiceDetails = () => {
                 </h3>
                 <div className="space-y-1">
                   <p className="font-semibold text-gray-900 dark:text-white">
-                    Sistema de Locação
+                    {(invoice as any).issuerLabel || "Emitente (CNPJ)"}
                   </p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Contato: suporte@sistema.com
-                  </p>
+                  {(invoice as any).issuerCnpj ? (
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      {formatDocumentForDisplay(String((invoice as any).issuerCnpj))}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                      Não há CNPJ de emitente vinculado (fatura anterior ao cadastro de emissores).
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -451,10 +449,10 @@ const InvoiceDetails = () => {
                         {item.quantity || 1}
                       </td>
                       <td className="text-right py-3 text-gray-600 dark:text-gray-400">
-                        {formatCurrency(item.unitPrice || 0)}
+                        {formatCurrencyBr(item.unitPrice || 0)}
                       </td>
                       <td className="text-right py-3 font-semibold text-gray-900 dark:text-white">
-                        {formatCurrency(item.total || 0)}
+                        {formatCurrencyBr(item.total || 0)}
                       </td>
                     </tr>
                   ))}
@@ -473,7 +471,7 @@ const InvoiceDetails = () => {
                     Subtotal
                   </span>
                   <span className="font-medium text-gray-900 dark:text-white">
-                    {formatCurrency(invoice.subtotal)}
+                    {formatCurrencyBr(invoice.subtotal)}
                   </span>
                 </div>
 
@@ -483,7 +481,7 @@ const InvoiceDetails = () => {
                       Taxa / Impostos
                     </span>
                     <span className="font-medium text-gray-900 dark:text-white">
-                      {formatCurrency(invoice.tax)}
+                      {formatCurrencyBr(invoice.tax)}
                     </span>
                   </div>
                 )}
@@ -494,7 +492,7 @@ const InvoiceDetails = () => {
                       Desconto
                     </span>
                     <span className="font-medium text-green-600 dark:text-green-400">
-                      -{formatCurrency(invoice.discount)}
+                      -{formatCurrencyBr(invoice.discount)}
                     </span>
                   </div>
                 )}
@@ -504,7 +502,7 @@ const InvoiceDetails = () => {
                     Total
                   </span>
                   <span className="text-xl font-bold text-gray-900 dark:text-white">
-                    {formatCurrency(invoice.total)}
+                    {formatCurrencyBr(invoice.total)}
                   </span>
                 </div>
               </div>

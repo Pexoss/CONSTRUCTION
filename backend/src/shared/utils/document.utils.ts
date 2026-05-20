@@ -53,3 +53,10 @@ export const isValidCpfCnpj = (value?: string | null): boolean => {
   return false;
 };
 
+/** CNPJ com 14 dígitos apenas; retorna string vazia se inválido. */
+export const formatCnpjForDisplay = (digitsRaw?: string | null): string => {
+  const d = normalizeDocument(digitsRaw);
+  if (d.length !== 14) return String(digitsRaw || "").trim();
+  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+};
+

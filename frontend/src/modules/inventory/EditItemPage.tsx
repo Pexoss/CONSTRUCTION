@@ -9,6 +9,7 @@ import {
 import { updateItemSchema } from "../../utils/inventory.validation";
 import { EditItemData, ItemUnit } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
+import { formatMoneyInputBr, parseMoneyBr } from "../../utils/formatters";
 
 const EditItemPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +28,29 @@ const EditItemPage: React.FC = () => {
   } as EditItemData);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [units, setUnits] = useState<ItemUnit[]>([]);
+  const [pricingInputs, setPricingInputs] = useState({
+    dailyRate: "",
+    weeklyRate: "",
+    biweeklyRate: "",
+    monthlyRate: "",
+  });
+
+  const handlePricingInputChange = (field: string, value: string) => {
+    setPricingInputs((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handlePricingInputBlur = (field: string, value: string) => {
+    const formatted = formatMoneyInputBr(value);
+    const parsed = parseMoneyBr(formatted);
+    setPricingInputs((prev) => ({ ...prev, [field]: formatted }));
+    setFormData((prev) => ({
+      ...prev,
+      pricing: {
+        ...prev.pricing!,
+        [field]: Number.isFinite(parsed) ? parsed : 0,
+      },
+    }));
+  };
 
   useEffect(() => {
     if (!itemData?.data) return;
@@ -75,6 +99,13 @@ const EditItemPage: React.FC = () => {
           }))
         : [],
     );
+
+    setPricingInputs({
+      dailyRate: formatMoneyInputBr(item.pricing?.dailyRate ?? ""),
+      weeklyRate: formatMoneyInputBr(item.pricing?.weeklyRate ?? ""),
+      biweeklyRate: formatMoneyInputBr(item.pricing?.biweeklyRate ?? ""),
+      monthlyRate: formatMoneyInputBr(item.pricing?.monthlyRate ?? ""),
+    });
   }, [itemData, categoriesData]);
 
   const handleChange = (
@@ -90,18 +121,6 @@ const EditItemPage: React.FC = () => {
         ...prev,
         quantity: {
           ...prev.quantity!,
-          [field]: Number(value) || 0,
-        },
-      }));
-      return;
-    }
-
-    if (name.startsWith("pricing.")) {
-      const field = name.split(".")[1];
-      setFormData((prev) => ({
-        ...prev,
-        pricing: {
-          ...prev.pricing!,
           [field]: Number(value) || 0,
         },
       }));
@@ -133,7 +152,40 @@ const EditItemPage: React.FC = () => {
     setErrors({});
 
     try {
-      const dataToSend: EditItemData = { ...formData };
+      const parsedPricing = {
+        dailyRate: parseMoneyBr(pricingInputs.dailyRate),
+        weeklyRate: pricingInputs.weeklyRate.trim()
+          ? parseMoneyBr(pricingInputs.weeklyRate)
+          : undefined,
+        biweeklyRate: pricingInputs.biweeklyRate.trim()
+          ? parseMoneyBr(pricingInputs.biweeklyRate)
+          : undefined,
+        monthlyRate: pricingInputs.monthlyRate.trim()
+          ? parseMoneyBr(pricingInputs.monthlyRate)
+          : undefined,
+      };
+
+      const dataToSend: EditItemData = {
+        ...formData,
+        pricing: {
+          ...formData.pricing!,
+          dailyRate: Number.isFinite(parsedPricing.dailyRate)
+            ? parsedPricing.dailyRate
+            : formData.pricing?.dailyRate ?? 0,
+          ...(parsedPricing.weeklyRate !== undefined &&
+          Number.isFinite(parsedPricing.weeklyRate)
+            ? { weeklyRate: parsedPricing.weeklyRate }
+            : {}),
+          ...(parsedPricing.biweeklyRate !== undefined &&
+          Number.isFinite(parsedPricing.biweeklyRate)
+            ? { biweeklyRate: parsedPricing.biweeklyRate }
+            : {}),
+          ...(parsedPricing.monthlyRate !== undefined &&
+          Number.isFinite(parsedPricing.monthlyRate)
+            ? { monthlyRate: parsedPricing.monthlyRate }
+            : {}),
+        },
+      };
 
       if (dataToSend.depreciation === null) {
         delete dataToSend.depreciation;
@@ -751,12 +803,17 @@ const EditItemPage: React.FC = () => {
                     <input
                       id="pricing.dailyRate"
                       name="pricing.dailyRate"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.pricing?.dailyRate || 0}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={pricingInputs.dailyRate}
+                      onChange={(e) =>
+                        handlePricingInputChange("dailyRate", e.target.value)
+                      }
+                      onBlur={(e) =>
+                        handlePricingInputBlur("dailyRate", e.target.value)
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                     />
                   </div>
 
@@ -770,12 +827,17 @@ const EditItemPage: React.FC = () => {
                     <input
                       id="pricing.weeklyRate"
                       name="pricing.weeklyRate"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.pricing?.weeklyRate || ""}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={pricingInputs.weeklyRate}
+                      onChange={(e) =>
+                        handlePricingInputChange("weeklyRate", e.target.value)
+                      }
+                      onBlur={(e) =>
+                        handlePricingInputBlur("weeklyRate", e.target.value)
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                     />
                   </div>
 
@@ -789,12 +851,17 @@ const EditItemPage: React.FC = () => {
                     <input
                       id="pricing.biweeklyRate"
                       name="pricing.biweeklyRate"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.pricing?.biweeklyRate || ""}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={pricingInputs.biweeklyRate}
+                      onChange={(e) =>
+                        handlePricingInputChange("biweeklyRate", e.target.value)
+                      }
+                      onBlur={(e) =>
+                        handlePricingInputBlur("biweeklyRate", e.target.value)
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                     />
                   </div>
 
@@ -808,12 +875,17 @@ const EditItemPage: React.FC = () => {
                     <input
                       id="pricing.monthlyRate"
                       name="pricing.monthlyRate"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.pricing?.monthlyRate || ""}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={pricingInputs.monthlyRate}
+                      onChange={(e) =>
+                        handlePricingInputChange("monthlyRate", e.target.value)
+                      }
+                      onBlur={(e) =>
+                        handlePricingInputBlur("monthlyRate", e.target.value)
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                     />
                   </div>
                 </div>

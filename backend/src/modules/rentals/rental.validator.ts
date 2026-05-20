@@ -16,6 +16,7 @@ export const createRentalSchema = z.object({
   fulfillmentMethod: z.enum(['delivery_service', 'store_pickup'], {
     required_error: 'Fulfillment method is required',
   }),
+  pickedUpBy: z.string().trim().optional(),
   items: z
     .array(
       z.object({
@@ -75,6 +76,7 @@ export const createRentalSchema = z.object({
 
 export const updateRentalSchema = z.object({
   notes: z.string().optional(),
+  pickedUpBy: z.string().trim().optional(),
   items: z
     .array(
       z.object({
@@ -157,6 +159,8 @@ export const rejectApprovalSchema = z.object({
 
 export const returnRentalItemsSchema = z.object({
   returnDate: dateOnlyOrDateTime.optional(),
+  /** Data civil apenas informativa (devolução real); não substitui returnDate nos cálculos. */
+  informativeReturnDate: dateOnlyOrDateTime.optional(),
   notes: z.string().optional(),
   items: z
     .array(

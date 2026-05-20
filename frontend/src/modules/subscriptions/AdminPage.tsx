@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { subscriptionService } from "./subscription.service";
 import Layout from "../../components/Layout";
-import { formatDocumentForDisplay } from "../../utils/formatters";
+import { formatDocumentForDisplay, formatCurrencyBr } from "../../utils/formatters";
 
 type Plan = "basic" | "pro" | "enterprise";
 
@@ -369,7 +369,7 @@ const AdminPage: React.FC = () => {
                             )}
                           </div>
                           <div className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
-                            Valor: R$ {payment.amount.toFixed(2)}
+                            Valor: {formatCurrencyBr(payment.amount)}
                           </div>
                         </div>
 
@@ -532,7 +532,7 @@ const AdminPage: React.FC = () => {
                         Receita
                       </span>
                       <span className="text-sm font-semibold text-green-700 dark:text-green-400">
-                        R$ {metrics.revenue.toFixed(2)}
+                        {formatCurrencyBr(metrics.revenue)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-100 dark:border-red-800/30">
@@ -540,7 +540,7 @@ const AdminPage: React.FC = () => {
                         Despesas
                       </span>
                       <span className="text-sm font-semibold text-red-700 dark:text-red-400">
-                        R$ {metrics.expenses.toFixed(2)}
+                        {formatCurrencyBr(metrics.expenses)}
                       </span>
                     </div>
                   </div>

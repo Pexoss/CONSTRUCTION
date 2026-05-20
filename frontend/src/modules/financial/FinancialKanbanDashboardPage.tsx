@@ -9,6 +9,7 @@ import {
   groupBillingsByFinancialStage,
   FinancialBoardUrlFilters,
 } from "./financialBoardFilters";
+import { formatCurrencyBr } from "../../utils/formatters";
 
 const stageLabel: Record<string, string> = {
   pending: "Pendentes",
@@ -168,7 +169,7 @@ const FinancialKanbanDashboardPage: React.FC = () => {
                   <div key={bill._id} className="block border rounded-md p-2 bg-white dark:bg-gray-800">
                     <div className="flex justify-between text-sm">
                       <span className="font-medium">{bill.customerId?.name || "Cliente"}</span>
-                      <span>R$ {(bill.outstandingAmount ?? bill.calculation?.total ?? 0).toFixed(2)}</span>
+                      <span>{formatCurrencyBr(bill.outstandingAmount ?? bill.calculation?.total ?? 0)}</span>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
                       Período:{" "}

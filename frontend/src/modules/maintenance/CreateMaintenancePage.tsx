@@ -5,6 +5,7 @@ import { maintenanceService } from "./maintenance.service";
 import { useItem, useItems } from "../../hooks/useInventory";
 import { CreateMaintenanceData } from "../../types/maintenance.types";
 import Layout from "../../components/Layout";
+import { formatMoneyInputBr, parseMoneyBr } from "../../utils/formatters";
 
 const CreateMaintenancePage: React.FC = () => {
   const navigate = useNavigate();
@@ -19,13 +20,18 @@ const CreateMaintenancePage: React.FC = () => {
     notes: "",
     attachments: [],
   });
+  const [costInput, setCostInput] = useState("");
 
   const { data: itemsData } = useItems({ isActive: true, limit: 500 });
   const { data: selectedItemData } = useItem(formData.itemId || "");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    createMutation.mutate(formData);
+    const parsedCost = parseMoneyBr(costInput);
+    createMutation.mutate({
+      ...formData,
+      cost: Number.isFinite(parsedCost) ? parsedCost : 0,
+    });
   };
 
   const createMutation = useMutation({
@@ -59,6 +65,11 @@ const CreateMaintenancePage: React.FC = () => {
         unitId: "",
         itemUnavailable: prev.itemUnavailable,
       }));
+      return;
+    }
+
+    if (name === "cost") {
+      setCostInput(value);
       return;
     }
 
@@ -378,15 +389,16 @@ const CreateMaintenancePage: React.FC = () => {
                       </span>
                     </div>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       id="cost"
                       name="cost"
                       required
-                      min="0"
-                      step="0.01"
-                      value={formData.cost}
+                      placeholder="0,00"
+                      value={costInput}
                       onChange={handleChange}
-                      className="pl-10 w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      onBlur={(e) => setCostInput(formatMoneyInputBr(e.target.value))}
+                      className="pl-10 w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                     />
                   </div>
                 </div>

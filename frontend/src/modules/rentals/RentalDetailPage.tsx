@@ -23,7 +23,10 @@ import {
   formatDateNoTimezoneShift,
   formatDateTimeForDisplay,
   formatRentalTypeLabel,
+  formatCurrencyBr,
+  formatMoneyInputBr,
   getBillingOutstandingAmount,
+  parseMoneyBr,
   todayDateInputValue,
 } from "../../utils/formatters";
 import {
@@ -37,6 +40,27 @@ import {
   sortedTableRows,
   toggleColumnSort,
 } from "../../utils/tableSort";
+import {
+  getBillingCompositionRowsOrdered,
+  sortBillingDocumentsFreteClosureGroupLastStable,
+} from "../../utils/billingDisplayOrder";
+
+function resolveBillingItemDisplayForFreteGrouping(item: any, rental: any): string {
+  if (item.itemId && typeof item.itemId === "object" && item.itemId.name) {
+    return item.itemId.name;
+  }
+  const billingItemId =
+    typeof item.itemId === "string" ? item.itemId : item.itemId?._id;
+  const rentalItem = rental?.items?.find((ri: any) => {
+    const rentalItemId =
+      typeof ri.itemId === "string" ? ri.itemId : ri.itemId?._id;
+    return rentalItemId === billingItemId;
+  });
+  if (rentalItem && typeof rentalItem.itemId === "object") {
+    return rentalItem.itemId.name || "Item";
+  }
+  return "Item";
+}
 
 type RentalDetailBillingSortKey = "period" | "status" | "total";
 const RentalDetailPage: React.FC = () => {
@@ -187,6 +211,8 @@ const RentalDetailPage: React.FC = () => {
   });
   const [closeItemModal, setCloseItemModal] = useState(false);
   const [closeItemReturnDate, setCloseItemReturnDate] = useState("");
+  const [closeItemReturnTime, setCloseItemReturnTime] = useState("");
+  const [closeItemInformativeDate, setCloseItemInformativeDate] = useState("");
   const [closeItemReturnedQuantity, setCloseItemReturnedQuantity] = useState(1);
   const [closeItemNewRentalType, setCloseItemNewRentalType] = useState<
     "daily" | "weekly" | "biweekly" | "monthly" | ""
@@ -215,6 +241,7 @@ const RentalDetailPage: React.FC = () => {
     notes: "",
     pickupDate: "",
     pickupTime: "",
+    pickedUpBy: "",
     returnDate: "",
     items: [] as Array<{
       itemId: string;
@@ -354,15 +381,24 @@ const RentalDetailPage: React.FC = () => {
 
   const billings = (billingsData?.data?.billings || []) as Billing[];
 
+  const rentalDoc = data?.data;
+  const billingsForClosureTable = useMemo(
+    () =>
+      sortBillingDocumentsFreteClosureGroupLastStable(billings, (it) =>
+        resolveBillingItemDisplayForFreteGrouping(it, rentalDoc),
+      ),
+    [billings, rentalDoc],
+  );
+
   const sortedBillingsForTable = useMemo(
     () =>
-      sortedTableRows(billings, rentalBillingSort, {
+      sortedTableRows(billingsForClosureTable, rentalBillingSort, {
         period: (b) =>
           b.periodStart ? new Date(b.periodStart).getTime() : 0,
         status: (b) => String(b.status || ""),
         total: (b) => Number(b.calculation?.total ?? 0),
       }),
-    [billings, rentalBillingSort],
+    [billingsForClosureTable, rentalBillingSort],
   );
 
   const handleRentalBillingSort = (key: RentalDetailBillingSortKey) =>
@@ -572,14 +608,6 @@ const RentalDetailPage: React.FC = () => {
     return labels[status];
   };
 
-  const formatCurrency = (value?: number) => {
-    if (value === undefined || Number.isNaN(value)) return "-";
-    return new Intl.NumberFormat("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    }).format(value);
-  };
-
   const formatDate = (value?: string) => {
     if (!value) return "-";
     return formatDateNoTimezoneShift(value) || value;
@@ -653,6 +681,10 @@ const RentalDetailPage: React.FC = () => {
         "daily",
     });
     setCloseItemReturnDate(todayDateInputValue());
+    const nowClk = new Date();
+    const nowTimeStr = `${String(nowClk.getHours()).padStart(2, "0")}:${String(nowClk.getMinutes()).padStart(2, "0")}`;
+    setCloseItemReturnTime(toTimeInput(item.pickupScheduled) || nowTimeStr);
+    setCloseItemInformativeDate("");
     setCloseItemReturnedQuantity(Number(item.quantity || 1));
     setCloseItemNewRentalType("");
     setCloseItemBillingRentalType("");
@@ -696,14 +728,13 @@ const RentalDetailPage: React.FC = () => {
       setCloseForm({
         returnDate: today,
         rentalType: response.rentalType ?? "daily",
-        equipmentSubtotal: rental?.pricing?.equipmentSubtotal?.toFixed(2) ?? "",
-        servicesSubtotal: rental?.pricing?.servicesSubtotal?.toFixed(2) ?? "",
-        discount: rental?.pricing?.discount?.toFixed(2) ?? "",
-        lateFee: rental?.pricing?.lateFee?.toFixed(2) ?? "",
-        total:
-          response?.recalculatedTotal?.toFixed?.(2) ??
-          rental?.pricing?.total?.toFixed?.(2) ??
-          "",
+        equipmentSubtotal: formatMoneyInputBr(rental?.pricing?.equipmentSubtotal ?? ""),
+        servicesSubtotal: formatMoneyInputBr(rental?.pricing?.servicesSubtotal ?? ""),
+        discount: formatMoneyInputBr(rental?.pricing?.discount ?? ""),
+        lateFee: formatMoneyInputBr(rental?.pricing?.lateFee ?? ""),
+        total: formatMoneyInputBr(
+          response?.recalculatedTotal ?? rental?.pricing?.total ?? "",
+        ),
         notes: "",
       });
     } catch {
@@ -890,22 +921,7 @@ const RentalDetailPage: React.FC = () => {
 
     return billedTotal > 0 ? billedTotal : Number(item.subtotal || 0);
   };
-  const getBillingItemName = (item: any) => {
-    if (item.itemId && typeof item.itemId === "object" && item.itemId.name) {
-      return item.itemId.name;
-    }
-    const billingItemId =
-      typeof item.itemId === "string" ? item.itemId : item.itemId?._id;
-    const rentalItem = rental.items.find((ri: any) => {
-      const rentalItemId =
-        typeof ri.itemId === "string" ? ri.itemId : ri.itemId?._id;
-      return rentalItemId === billingItemId;
-    });
-    if (rentalItem && typeof rentalItem.itemId === "object") {
-      return rentalItem.itemId.name || "Item";
-    }
-    return "Item";
-  };
+  const getBillingItemName = (item: any) => resolveBillingItemDisplayForFreteGrouping(item, rental);
   const totalPaid = billings
     .filter((billing) => billing.status === "paid")
     .reduce((sum, billing) => sum + (billing.calculation?.total || 0), 0);
@@ -935,7 +951,7 @@ const RentalDetailPage: React.FC = () => {
                 </button>
               </div>
               <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Data de retirada
@@ -980,6 +996,20 @@ const RentalDetailPage: React.FC = () => {
                           })),
                         });
                       }}
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Quem retirou/entregou
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.pickedUpBy}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, pickedUpBy: e.target.value })
+                      }
+                      placeholder="Nome de quem retirou ou entregou"
                       className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     />
                   </div>
@@ -1428,6 +1458,7 @@ const RentalDetailPage: React.FC = () => {
 
                     const payload: {
                       notes?: string;
+                      pickedUpBy?: string;
                       dates?: {
                         pickupScheduled?: string;
                         returnScheduled?: string;
@@ -1449,6 +1480,7 @@ const RentalDetailPage: React.FC = () => {
                       }>;
                     } = {
                       notes: editForm.notes,
+                      pickedUpBy: editForm.pickedUpBy.trim() || undefined,
                     };
 
                     if (editForm.pickupDate) {
@@ -1840,6 +1872,7 @@ const RentalDetailPage: React.FC = () => {
                       notes: rental.notes || "",
                       pickupDate: toDateInput(rental.dates.pickupScheduled),
                       pickupTime: defaultPickupTime,
+                      pickedUpBy: rental.pickedUpBy || "",
                       returnDate: rental.dates.returnScheduled
                         ? toDateInput(rental.dates.returnScheduled)
                         : "",
@@ -2061,6 +2094,16 @@ const RentalDetailPage: React.FC = () => {
                       {fulfillmentMethodLabel}
                     </div>
                   </div>
+                  {rental.pickedUpBy ? (
+                    <div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Quem retirou/entregou
+                      </div>
+                      <div className="text-sm font-medium text-gray-900 dark:text-white">
+                        {rental.pickedUpBy}
+                      </div>
+                    </div>
+                  ) : null}
                   <div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
                       Fechamento
@@ -2133,8 +2176,8 @@ const RentalDetailPage: React.FC = () => {
                             {itemData ? itemData.name : "Item"}
                           </div>
                           <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            Quantidade: {item.quantity} • Preço unitário: R${" "}
-                            {displayUnitPrice.toFixed(2)}
+                            Quantidade: {item.quantity} • Preço unitário:{" "}
+                            {formatCurrencyBr(displayUnitPrice)}
                           </div>
                           <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                             Tipo: {formatRentalTypeLabel(item.rentalType)} • Retirada:{" "}
@@ -2144,11 +2187,31 @@ const RentalDetailPage: React.FC = () => {
                             {formatTimeForDisplay(item.pickupScheduled)
                               ? `às ${formatTimeForDisplay(item.pickupScheduled)} `
                               : ""}
-                            • Devolução:{" "}
+                            • Devolução prevista (contrato):{" "}
                             {item.returnScheduled
                               ? formatDateNoTimezoneShift(item.returnScheduled)
                               : "-"}
                           </div>
+                          {item.returnActual && (
+                            <div className="text-sm text-gray-600 dark:text-gray-400 mt-1 space-y-0.5">
+                              {item.informativeReturnDate ? (
+                                <div>
+                                  <span className="font-medium text-gray-700 dark:text-gray-300">
+                                    Devolução real (informada):{" "}
+                                  </span>
+                                  {formatDateNoTimezoneShift(
+                                    item.informativeReturnDate,
+                                  )}
+                                </div>
+                              ) : null}
+                              <div>
+                                <span className="font-medium text-gray-700 dark:text-gray-300">
+                                  Data para cálculo da cobrança:{" "}
+                                </span>
+                                {formatDateTimeForDisplay(item.returnActual)}
+                              </div>
+                            </div>
+                          )}
                           {!item.returnActual && (
                             <button
                               type="button"
@@ -2161,7 +2224,7 @@ const RentalDetailPage: React.FC = () => {
                         </div>
                         <div className="text-right">
                           <div className="font-semibold text-gray-900 dark:text-white">
-                            R$ {displayedSubtotal.toFixed(2)}
+                            {formatCurrencyBr(displayedSubtotal)}
                           </div>
                         </div>
                       </div>
@@ -2186,13 +2249,13 @@ const RentalDetailPage: React.FC = () => {
                             </div>
                             <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                               Quantidade: {service.quantity} • Preço unitário:
-                              R$ {service.price.toFixed(2)} • Categoria:{" "}
+                              {formatCurrencyBr(service.price)} • Categoria:{" "}
                               {service.category}
                             </div>
                           </div>
                           <div className="text-right">
                             <div className="font-semibold text-gray-900 dark:text-white">
-                              R$ {service.subtotal.toFixed(2)}
+                              {formatCurrencyBr(service.subtotal)}
                             </div>
                           </div>
                         </div>
@@ -2326,7 +2389,7 @@ const RentalDetailPage: React.FC = () => {
                       Subtotal:
                     </span>
                     <span className="text-sm font-medium text-gray-900 dark:text-white">
-                      R$ {rental.pricing.subtotal.toFixed(2)}
+                      {formatCurrencyBr(rental.pricing.subtotal)}
                     </span>
                   </div>
                   {rental.pricing.lateFee > 0 && (
@@ -2335,7 +2398,7 @@ const RentalDetailPage: React.FC = () => {
                         Multa por atraso:
                       </span>
                       <span className="text-sm font-medium text-red-600 dark:text-red-400">
-                        R$ {rental.pricing.lateFee.toFixed(2)}
+                        {formatCurrencyBr(rental.pricing.lateFee)}
                       </span>
                     </div>
                   )}
@@ -2344,7 +2407,7 @@ const RentalDetailPage: React.FC = () => {
                       Total:
                     </span>
                     <span className="text-gray-900 dark:text-white">
-                      R$ {rental.pricing.total.toFixed(2)}
+                      {formatCurrencyBr(rental.pricing.total)}
                     </span>
                   </div>
                 </div>
@@ -2518,13 +2581,13 @@ const RentalDetailPage: React.FC = () => {
                 <span>
                   Pago:{" "}
                   <strong className="text-gray-900 dark:text-white">
-                    {formatCurrency(totalPaid)}
+                    {formatCurrencyBr(totalPaid)}
                   </strong>
                 </span>
                 <span>
                   Em aberto:{" "}
                   <strong className="text-gray-900 dark:text-white">
-                    {formatCurrency(totalOpen)}
+                    {formatCurrencyBr(totalOpen)}
                   </strong>
                 </span>
               </div>
@@ -2595,19 +2658,27 @@ const RentalDetailPage: React.FC = () => {
                                     : "Fechamento previsto"}
                           </td>
                           <td className="px-3 py-2 font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                            {formatCurrency(billing.calculation?.total)}
+                            {formatCurrencyBr(billing.calculation?.total)}
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
-                            {billing.items && billing.items.length > 0 ? (
+                            {(billing.items && billing.items.length > 0) ||
+                            (billing.services && billing.services.length > 0) ? (
                               <div className="space-y-0.5 max-h-24 overflow-y-auto pr-1">
-                                {billing.items.map((item, idx) => (
-                                  <div key={`${billing._id}-${idx}`}>
-                                    • {getBillingItemName(item)} — Qtd:{" "}
-                                    {item.quantity} — Períodos:{" "}
-                                    {item.periodsCharged} — Subtotal:{" "}
-                                    {formatCurrency(item.subtotal)}
-                                  </div>
-                                ))}
+                                {getBillingCompositionRowsOrdered(billing, getBillingItemName).map((row, idx) =>
+                                  row.kind === "item" ? (
+                                    <div key={`${billing._id}-row-${idx}`}>
+                                      • {getBillingItemName(row.item)} — Qtd: {row.item.quantity} —
+                                      Períodos: {row.item.periodsCharged} — Subtotal:{" "}
+                                      {formatCurrencyBr(row.item.subtotal)}
+                                    </div>
+                                  ) : (
+                                    <div key={`${billing._id}-row-${idx}`}>
+                                      • {row.service.description || "Serviço"} — Serviço — Qtd:{" "}
+                                      {row.service.quantity || 1} — Subtotal:{" "}
+                                      {formatCurrencyBr(row.service.subtotal)}
+                                    </div>
+                                  ),
+                                )}
                               </div>
                             ) : (
                               <span className="text-gray-400">Sem itens</span>
@@ -3355,9 +3426,8 @@ const RentalDetailPage: React.FC = () => {
                         Valor original:
                       </span>
                       <span className="font-medium text-gray-900 dark:text-white">
-                        R${" "}
-                        {closePreview?.originalTotal?.toFixed
-                          ? closePreview.originalTotal.toFixed(2)
+                        {closePreview?.originalTotal != null
+                          ? formatCurrencyBr(closePreview.originalTotal)
                           : "-"}
                       </span>
                     </div>
@@ -3371,9 +3441,8 @@ const RentalDetailPage: React.FC = () => {
                         Valor final:
                       </span>
                       <span className="text-green-600 dark:text-green-400 font-semibold">
-                        R${" "}
-                        {closePreview?.recalculatedTotal?.toFixed
-                          ? closePreview.recalculatedTotal.toFixed(2)
+                        {closePreview?.recalculatedTotal != null
+                          ? formatCurrencyBr(closePreview.recalculatedTotal)
                           : "-"}
                       </span>
                     </div>
@@ -3424,7 +3493,9 @@ const RentalDetailPage: React.FC = () => {
                           Subtotal equipamentos
                         </label>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="0,00"
                           value={closeForm.equipmentSubtotal}
                           onChange={(e) =>
                             setCloseForm({
@@ -3432,7 +3503,13 @@ const RentalDetailPage: React.FC = () => {
                               equipmentSubtotal: e.target.value,
                             })
                           }
-                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          onBlur={(e) =>
+                            setCloseForm((prev) => ({
+                              ...prev,
+                              equipmentSubtotal: formatMoneyInputBr(e.target.value),
+                            }))
+                          }
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                         />
                       </div>
                       <div>
@@ -3440,7 +3517,9 @@ const RentalDetailPage: React.FC = () => {
                           Subtotal serviços
                         </label>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="0,00"
                           value={closeForm.servicesSubtotal}
                           onChange={(e) =>
                             setCloseForm({
@@ -3448,7 +3527,13 @@ const RentalDetailPage: React.FC = () => {
                               servicesSubtotal: e.target.value,
                             })
                           }
-                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          onBlur={(e) =>
+                            setCloseForm((prev) => ({
+                              ...prev,
+                              servicesSubtotal: formatMoneyInputBr(e.target.value),
+                            }))
+                          }
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                         />
                       </div>
                       <div>
@@ -3456,7 +3541,9 @@ const RentalDetailPage: React.FC = () => {
                           Desconto
                         </label>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="0,00"
                           value={closeForm.discount}
                           onChange={(e) =>
                             setCloseForm({
@@ -3464,7 +3551,13 @@ const RentalDetailPage: React.FC = () => {
                               discount: e.target.value,
                             })
                           }
-                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          onBlur={(e) =>
+                            setCloseForm((prev) => ({
+                              ...prev,
+                              discount: formatMoneyInputBr(e.target.value),
+                            }))
+                          }
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                         />
                       </div>
                       <div>
@@ -3472,7 +3565,9 @@ const RentalDetailPage: React.FC = () => {
                           Multa
                         </label>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="0,00"
                           value={closeForm.lateFee}
                           onChange={(e) =>
                             setCloseForm({
@@ -3480,7 +3575,13 @@ const RentalDetailPage: React.FC = () => {
                               lateFee: e.target.value,
                             })
                           }
-                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                          onBlur={(e) =>
+                            setCloseForm((prev) => ({
+                              ...prev,
+                              lateFee: formatMoneyInputBr(e.target.value),
+                            }))
+                          }
+                          className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                         />
                       </div>
                     </div>
@@ -3490,12 +3591,20 @@ const RentalDetailPage: React.FC = () => {
                         Total
                       </label>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0,00"
                         value={closeForm.total}
                         onChange={(e) =>
                           setCloseForm({ ...closeForm, total: e.target.value })
                         }
-                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                        onBlur={(e) =>
+                          setCloseForm((prev) => ({
+                            ...prev,
+                            total: formatMoneyInputBr(e.target.value),
+                          }))
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                       />
                     </div>
 
@@ -3594,7 +3703,7 @@ const RentalDetailPage: React.FC = () => {
                       Valor original:
                     </span>
                     <span className="font-medium text-gray-900 dark:text-white">
-                      R$ {closeItemPreview.originalTotal.toFixed(2)}
+                      {formatCurrencyBr(closeItemPreview.originalTotal)}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -3602,7 +3711,7 @@ const RentalDetailPage: React.FC = () => {
                       Valor recalculado:
                     </span>
                     <span className="font-medium text-gray-900 dark:text-white">
-                      R$ {closeItemPreview.recalculatedTotal.toFixed(2)}
+                      {formatCurrencyBr(closeItemPreview.recalculatedTotal)}
                     </span>
                   </div>
                   <div className="border-t border-gray-300 dark:border-gray-600 pt-2 mt-2">
@@ -3611,22 +3720,59 @@ const RentalDetailPage: React.FC = () => {
                         Total do aluguel:
                       </span>
                       <span className="font-bold text-gray-900 dark:text-white text-base">
-                        R$ {closeItemPreview.rentalTotalAfterClose.toFixed(2)}
+                        {formatCurrencyBr(closeItemPreview.rentalTotalAfterClose)}
                       </span>
                     </div>
                   </div>
                 </div>
               ) : null}
 
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Data real da devolução
-              </label>
-              <input
-                type="date"
-                value={closeItemReturnDate}
-                onChange={(e) => setCloseItemReturnDate(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm mb-4"
-              />
+              <div className="mb-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Data real da devolução (somente informativa)
+                  </label>
+                  <input
+                    type="date"
+                    value={closeItemInformativeDate}
+                    onChange={(e) =>
+                      setCloseItemInformativeDate(e.target.value)
+                    }
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  />
+                  <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    Opcional — registro histórico quando a entrega física foi em
+                    outro dia do que o usado nos cálculos abaixo.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Data e hora para cálculo da cobrança
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <input
+                      type="date"
+                      value={closeItemReturnDate}
+                      onChange={(e) =>
+                        setCloseItemReturnDate(e.target.value)
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                    <input
+                      type="time"
+                      value={closeItemReturnTime}
+                      onChange={(e) =>
+                        setCloseItemReturnTime(e.target.value)
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                  <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    Usada nos fechamentos e períodos cobrados (ex.: diária por relógio a
+                    partir deste instante).
+                  </p>
+                </div>
+              </div>
               {selectedCloseItem &&
                 !rentalLineHasUnitTracked(selectedCloseItem.unitId) &&
                 selectedCloseItem.quantity > 1 && (
@@ -3721,7 +3867,17 @@ const RentalDetailPage: React.FC = () => {
                   onClick={async () => {
                     if (!selectedCloseItem || !id) return;
                     try {
-                      const returnDateIso = closeItemReturnDate || undefined;
+                      const returnDateIso =
+                        closeItemReturnDate.trim() !== ""
+                          ? toLocalDateTimeIso(
+                              closeItemReturnDate,
+                              closeItemReturnTime.trim() || "00:00",
+                            )
+                          : undefined;
+                      const informativeReturnDatePayload =
+                        closeItemInformativeDate.trim() !== ""
+                          ? closeItemInformativeDate.trim()
+                          : undefined;
                       const isUnitLine = rentalLineHasUnitTracked(
                         selectedCloseItem.unitId,
                       );
@@ -3734,6 +3890,12 @@ const RentalDetailPage: React.FC = () => {
                       if (useReturnsEndpoint) {
                         await rentalService.returnRentalItems(id, {
                           returnDate: returnDateIso,
+                          ...(informativeReturnDatePayload
+                            ? {
+                                informativeReturnDate:
+                                  informativeReturnDatePayload,
+                              }
+                            : {}),
                           items: [
                             {
                               itemId: selectedCloseItem.itemId,
@@ -3770,6 +3932,12 @@ const RentalDetailPage: React.FC = () => {
                           selectedCloseItem.itemId,
                           {
                             returnDate: returnDateIso,
+                            ...(informativeReturnDatePayload
+                              ? {
+                                  informativeReturnDate:
+                                    informativeReturnDatePayload,
+                                }
+                              : {}),
                             unitId: selectedCloseItem.unitId,
                             ...(selectedCloseItem.lineId
                               ? { lineId: selectedCloseItem.lineId }

@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { chargeService } from "./charge.service";
+import { parseCalendarDate } from "../../shared/utils/date-display.util";
 
 const createChargeSchema = z.object({
   billingIds: z.array(z.string()).min(1),
@@ -24,13 +25,26 @@ const updateChargeSchema = z.object({
   billingIds: z.array(z.string()).min(1).optional(),
 });
 
+function resolveDueDateFromBody(
+  raw: unknown,
+  parsed?: Date,
+): Date | undefined {
+  if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) {
+    return parseCalendarDate(raw.trim());
+  }
+  return parsed;
+}
+
 class ChargeController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const companyId = req.companyId!;
       const userId = req.user!._id.toString();
       const payload = createChargeSchema.parse(req.body);
-      const charge = await chargeService.createCharge(companyId, userId, payload);
+      const charge = await chargeService.createCharge(companyId, userId, {
+        ...payload,
+        dueDate: resolveDueDateFromBody(req.body.dueDate, payload.dueDate),
+      });
       res.status(201).json({ success: true, data: charge });
     } catch (error) {
       next(error);
@@ -87,7 +101,10 @@ class ChargeController {
     try {
       const companyId = req.companyId!;
       const data = updateChargeSchema.parse(req.body);
-      const charge = await chargeService.updateCharge(companyId, req.params.id, data);
+      const charge = await chargeService.updateCharge(companyId, req.params.id, {
+        ...data,
+        dueDate: resolveDueDateFromBody(req.body.dueDate, data.dueDate),
+      });
       res.json({ success: true, data: charge });
     } catch (error) {
       next(error);

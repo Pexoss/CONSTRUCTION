@@ -20,6 +20,8 @@ export interface IBillingItem {
 // Interface para serviços do fechamento
 export interface IBillingService {
   description: string;
+  /** Ex.: "frete" — opcional em documentos antigos. */
+  category?: string;
   price: number;
   quantity: number;
   subtotal: number;

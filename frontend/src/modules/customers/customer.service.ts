@@ -1,6 +1,12 @@
 import api from '../../config/api';
 import { Customer, CreateCustomerData, CustomerFilters, CustomerAddress } from '../../types/customer.types';
 
+/** Resumo para alertas na tela de novo aluguel */
+export type CustomerRentalFinancialAlerts = {
+  overdueCharges: { count: number; totalOutstanding: number };
+  overdueBillingsWithoutCharge: { count: number; totalOutstanding: number };
+};
+
 export const customerService = {
   getCustomers: async (filters: CustomerFilters = {}) => {
     const params = new URLSearchParams();
@@ -20,6 +26,13 @@ export const customerService = {
   getCustomerById: async (id: string) => {
     const response = await api.get<{ success: boolean; data: Customer }>(`/customers/${id}`);
     return response.data;
+  },
+
+  getRentalFinancialAlerts: async (customerId: string): Promise<CustomerRentalFinancialAlerts> => {
+    const response = await api.get<{ success: boolean; data: CustomerRentalFinancialAlerts }>(
+      `/customers/${customerId}/rental-financial-alerts`,
+    );
+    return response.data.data;
   },
 
   async createCustomer(data: CreateCustomerData): Promise<Customer> {

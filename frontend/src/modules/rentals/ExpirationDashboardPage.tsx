@@ -5,7 +5,7 @@ import { rentalService } from "./rental.service";
 import Layout from "../../components/Layout";
 import Skeleton from "../../components/Skeleton";
 import { Rental } from "../../types/rental.types";
-import { formatDateNoTimezoneShift } from "../../utils/formatters";
+import { formatDateNoTimezoneShift, formatCurrencyBr } from "../../utils/formatters";
 import SortableTh from "../../components/SortableTh";
 import {
   ColumnSort,
@@ -324,7 +324,7 @@ const ExpirationDashboardPage: React.FC = () => {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className="text-sm font-medium text-gray-900 dark:text-white">
-                              R$ {rental.pricing.total.toFixed(2)}
+                              {formatCurrencyBr(rental.pricing.total)}
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-right">

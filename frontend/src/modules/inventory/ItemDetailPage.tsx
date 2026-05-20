@@ -10,6 +10,7 @@ import {
 import { adjustQuantitySchema } from "../../utils/inventory.validation";
 import { inventoryService } from "./inventory.service";
 import Layout from "../../components/Layout";
+import { formatCurrencyBr } from "../../utils/formatters";
 import SortableTh from "../../components/SortableTh";
 import {
   ColumnSort,
@@ -571,7 +572,7 @@ const ItemDetailPage: React.FC = () => {
                         Diário
                       </p>
                       <p className="text-lg font-bold text-gray-900 dark:text-white">
-                        R$ {item.pricing.dailyRate.toFixed(2)}
+                        {formatCurrencyBr(item.pricing.dailyRate)}
                       </p>
                     </div>
                   </div>
@@ -583,7 +584,7 @@ const ItemDetailPage: React.FC = () => {
                           Semanal
                         </p>
                         <p className="text-lg font-bold text-gray-900 dark:text-white">
-                          R$ {item.pricing.weeklyRate.toFixed(2)}
+                          {formatCurrencyBr(item.pricing.weeklyRate)}
                         </p>
                       </div>
                     </div>
@@ -596,7 +597,7 @@ const ItemDetailPage: React.FC = () => {
                           Quinzenal
                         </p>
                         <p className="text-lg font-bold text-gray-900 dark:text-white">
-                          R$ {item.pricing.biweeklyRate.toFixed(2)}
+                          {formatCurrencyBr(item.pricing.biweeklyRate)}
                         </p>
                       </div>
                     </div>
@@ -609,7 +610,7 @@ const ItemDetailPage: React.FC = () => {
                           Mensal
                         </p>
                         <p className="text-lg font-bold text-gray-900 dark:text-white">
-                          R$ {item.pricing.monthlyRate.toFixed(2)}
+                          {formatCurrencyBr(item.pricing.monthlyRate)}
                         </p>
                       </div>
                     </div>
@@ -697,7 +698,7 @@ const ItemDetailPage: React.FC = () => {
                         Valor Inicial
                       </p>
                       <p className="text-sm font-medium text-gray-900 dark:text-white">
-                        R$ {item.depreciation.initialValue?.toFixed(2)}
+                        {formatCurrencyBr(item.depreciation.initialValue)}
                       </p>
                     </div>
 
@@ -707,7 +708,7 @@ const ItemDetailPage: React.FC = () => {
                       </p>
                       <p className="text-sm font-semibold text-gray-900 dark:text-white">
                         {item.depreciation.currentValue ? (
-                          `R$ ${item.depreciation.currentValue.toFixed(2)}`
+                          formatCurrencyBr(item.depreciation.currentValue)
                         ) : (
                           <span className="text-gray-400">Não calculado</span>
                         )}
@@ -893,7 +894,7 @@ const ItemDetailPage: React.FC = () => {
                               Custo
                             </span>
                             <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                              R$ {operationalStatus.cost}
+                              {formatCurrencyBr(operationalStatus.cost)}
                             </span>
                           </div>
                         )}

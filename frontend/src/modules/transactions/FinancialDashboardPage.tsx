@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { transactionService } from "./transaction.service";
+import { formatCurrencyBr } from "../../utils/formatters";
 import Layout from "../../components/Layout";
 
 const FinancialDashboardPage: React.FC = () => {
@@ -81,7 +82,7 @@ const FinancialDashboardPage: React.FC = () => {
                     Receitas
                   </h3>
                   <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                    R$ {dashboard.totalIncome.toFixed(2)}
+                    {formatCurrencyBr(dashboard.totalIncome)}
                   </p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
@@ -89,7 +90,7 @@ const FinancialDashboardPage: React.FC = () => {
                     Despesas
                   </h3>
                   <p className="text-2xl font-bold text-red-600 dark:text-red-400">
-                    R$ {dashboard.totalExpenses.toFixed(2)}
+                    {formatCurrencyBr(dashboard.totalExpenses)}
                   </p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
@@ -103,7 +104,7 @@ const FinancialDashboardPage: React.FC = () => {
                         : "text-red-600 dark:text-red-400"
                     }`}
                   >
-                    R$ {dashboard.profit.toFixed(2)}
+                    {formatCurrencyBr(dashboard.profit)}
                   </p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
@@ -111,7 +112,7 @@ const FinancialDashboardPage: React.FC = () => {
                     A Receber
                   </h3>
                   <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                    R$ {dashboard.accountsReceivable.toFixed(2)}
+                    {formatCurrencyBr(dashboard.accountsReceivable)}
                   </p>
                 </div>
               </div>
@@ -142,7 +143,7 @@ const FinancialDashboardPage: React.FC = () => {
                             </div>
                           </div>
                           <div className="font-semibold text-gray-900 dark:text-white">
-                            R$ {transaction.amount.toFixed(2)}
+                            {formatCurrencyBr(transaction.amount)}
                           </div>
                         </div>
                       ))
@@ -178,7 +179,7 @@ const FinancialDashboardPage: React.FC = () => {
                             </div>
                           </div>
                           <div className="font-semibold text-gray-900 dark:text-white">
-                            R$ {transaction.amount.toFixed(2)}
+                            {formatCurrencyBr(transaction.amount)}
                           </div>
                         </div>
                       ))

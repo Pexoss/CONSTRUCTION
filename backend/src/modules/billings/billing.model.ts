@@ -42,6 +42,10 @@ const BillingItemSchema = new Schema<IBillingItem>(
 
 const BillingServiceSchema = new Schema<IBillingService>(
   {
+    category: {
+      type: String,
+      trim: true,
+    },
     description: {
       type: String,
       required: true,

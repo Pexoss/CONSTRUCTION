@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import { customerService } from "./customer.service";
 import {
   createCustomerSchema,
@@ -120,6 +121,37 @@ export class CustomerController {
         data: customer,
       });
     } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /api/customers/:id/rental-financial-alerts
+   * Pendências financeiras (cobranças vencidas; fechamentos vencidos sem cobrança/fatura) para decisão ao novo aluguel.
+   */
+  async getRentalFinancialAlerts(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const customerId = req.params.id;
+      if (!mongoose.isValidObjectId(customerId)) {
+        res.status(400).json({ success: false, message: "ID de cliente inválido" });
+        return;
+      }
+      const data = await customerService.getFinancialAlertsForNewRental(
+        companyId,
+        customerId,
+      );
+      res.json({ success: true, data });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "";
+      if (msg === "Customer not found") {
+        res.status(404).json({ success: false, message: "Cliente não encontrado" });
+        return;
+      }
       next(error);
     }
   }

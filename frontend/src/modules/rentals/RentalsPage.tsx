@@ -6,7 +6,7 @@ import { RentalFilters, RentalStatus } from "../../types/rental.types";
 import { CheckCircle } from "lucide-react";
 import Layout from "../../components/Layout";
 import { rentalStatusLabel } from "../../utils/statusLabels";
-import { formatDateNoTimezoneShift } from "../../utils/formatters";
+import { formatDateNoTimezoneShift, formatCurrencyBr } from "../../utils/formatters";
 import SortableTh from "../../components/SortableTh";
 import {
   ColumnSort,
@@ -16,6 +16,7 @@ import {
 
 type RentalSortKey =
   | "number"
+  | "createdAt"
   | "customer"
   | "itemsCount"
   | "period"
@@ -32,10 +33,12 @@ const RentalsPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showModal, setShowModal] = useState(false);
   const [newRentalId, setNewRentalId] = useState<string | null>(null);
-  const [rentalSort, setRentalSort] = useState<ColumnSort<RentalSortKey> | null>({
-    key: "period",
-    dir: "desc",
-  });
+  const [rentalSort, setRentalSort] = useState<ColumnSort<RentalSortKey> | null>(
+    {
+      key: "createdAt",
+      dir: "desc",
+    },
+  );
 
   useEffect(() => {
     if (location.state?.showSuccessModal) {
@@ -112,6 +115,11 @@ const RentalsPage: React.FC = () => {
           typeof r.rentalNumber === "number"
             ? r.rentalNumber
             : String(r.rentalNumber ?? ""),
+        createdAt: (r) => {
+          if (!r.createdAt) return 0;
+          const t = new Date(r.createdAt).getTime();
+          return Number.isFinite(t) ? t : 0;
+        },
         customer: (r) =>
           (typeof r.customerId === "object" && r.customerId?.name
             ? r.customerId.name
@@ -366,6 +374,13 @@ const RentalsPage: React.FC = () => {
                         thClassName="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap"
                       />
                       <SortableTh<RentalSortKey>
+                        columnKey="createdAt"
+                        label="Cadastro"
+                        sort={rentalSort}
+                        onSort={handleRentalSort}
+                        thClassName="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                      />
+                      <SortableTh<RentalSortKey>
                         columnKey="customer"
                         label="Cliente"
                         sort={rentalSort}
@@ -409,7 +424,7 @@ const RentalsPage: React.FC = () => {
                     {sortedRentalsList.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={7}
+                          colSpan={8}
                           className="px-4 sm:px-6 py-8 text-center text-gray-500 dark:text-gray-400"
                         >
                           Nenhum aluguel encontrado
@@ -435,6 +450,13 @@ const RentalsPage: React.FC = () => {
                               </div>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="text-sm text-gray-600 dark:text-gray-300">
+                                {rental.createdAt
+                                  ? formatDateNoTimezoneShift(rental.createdAt)
+                                  : "—"}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap">
                               <div className="text-sm text-gray-900 dark:text-white">
                                 {customer.name}
                               </div>
@@ -453,7 +475,7 @@ const RentalsPage: React.FC = () => {
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
                               <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                R$ {rental.pricing.total.toFixed(2)}
+                                {formatCurrencyBr(rental.pricing.total)}
                               </div>
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">

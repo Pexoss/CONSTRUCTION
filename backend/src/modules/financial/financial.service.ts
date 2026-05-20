@@ -3,6 +3,7 @@ import { Billing } from "../billings/billing.model";
 import { FinancialPaymentEntry, FinancialStage } from "./financial.types";
 import { Charge } from "../charges/charge.model";
 import { Invoice } from "../invoices/invoice.model";
+import { mergeInvoiceIssuerFilter } from "../invoices/invoiceIssuerQuery.util";
 
 class FinancialService {
   async moveBillingStage(billingId: mongoose.Types.ObjectId | string, stage: FinancialStage) {
@@ -83,7 +84,13 @@ class FinancialService {
 
   async getUnifiedBoard(
     companyId: string,
-    filters: { customerId?: string; status?: string; startDate?: Date; endDate?: Date },
+    filters: {
+      customerId?: string;
+      status?: string;
+      startDate?: Date;
+      endDate?: Date;
+      billingIssuerId?: string;
+    },
   ) {
     const billingQuery: any = { companyId };
     if (filters.customerId) billingQuery.customerId = filters.customerId;
@@ -93,6 +100,9 @@ class FinancialService {
       if (filters.startDate) billingQuery.billingDate.$gte = filters.startDate;
       if (filters.endDate) billingQuery.billingDate.$lte = filters.endDate;
     }
+
+    const invoiceQuery: Record<string, unknown> = { companyId };
+    mergeInvoiceIssuerFilter(invoiceQuery, filters.billingIssuerId);
 
     const [billings, charges, invoices] = await Promise.all([
       Billing.find(billingQuery)
@@ -110,7 +120,7 @@ class FinancialService {
           ],
         })
         .sort({ createdAt: -1 }),
-      Invoice.find({ companyId })
+      Invoice.find(invoiceQuery)
         .populate("customerId", "name")
         .populate({
           path: "billingIds",

@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { invoiceStatusLabel } from "../../utils/statusLabels";
 import SortableTh from "../../components/SortableTh";
+import { formatDocumentForDisplay, formatCurrencyBr } from "../../utils/formatters";
+import { companyService } from "../company/company.service";
 import {
   ColumnSort,
   sortedTableRows,
@@ -25,6 +27,7 @@ import {
 
 type InvoiceSortKey =
   | "number"
+  | "emitter"
   | "customer"
   | "issue"
   | "due"
@@ -40,6 +43,11 @@ const InvoicesPage: React.FC = () => {
   const [invSort, setInvSort] = useState<ColumnSort<InvoiceSortKey> | null>({
     key: "issue",
     dir: "desc",
+  });
+
+  const { data: invoiceIssuerFilterOptions = [] } = useQuery({
+    queryKey: ["company-invoice-issuers-invoices-page"],
+    queryFn: () => companyService.getInvoiceIssuers(),
   });
 
   const { data, isLoading } = useQuery({
@@ -91,14 +99,7 @@ const InvoicesPage: React.FC = () => {
 
     return icons[status];
   };
-  // Formatação de valores
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    }).format(value || 0);
-  };
-
+  // Formatação de datas
   const formatDate = (date: string) => {
     if (!date) return "-";
     return new Date(date).toLocaleDateString("pt-BR");
@@ -155,6 +156,10 @@ const InvoicesPage: React.FC = () => {
     () =>
       sortedTableRows(filteredInvoices, invSort, {
         number: (i: any) => String(i.invoiceNumber ?? "").toLowerCase(),
+        emitter: (i: any) =>
+          `${i.issuerLabel || ""} ${i.issuerCnpj || ""}`
+            .trim()
+            .toLowerCase(),
         customer: (i: any) =>
           String(
             typeof i.customerId === "object"
@@ -239,7 +244,7 @@ const InvoicesPage: React.FC = () => {
                     Valor Total
                   </p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-                    {formatCurrency(totals.total)}
+                    {formatCurrencyBr(totals.total)}
                   </p>
                 </div>
                 <DollarSign className="w-7 h-7 text-green-500" />
@@ -254,7 +259,7 @@ const InvoicesPage: React.FC = () => {
                     Pendentes
                   </p>
                   <p className="text-2xl font-bold text-orange-600 dark:text-orange-400 mt-1">
-                    {formatCurrency(totals.pending)}
+                    {formatCurrencyBr(totals.pending)}
                   </p>
                 </div>
                 <Clock className="w-7 h-7 text-orange-500" />
@@ -269,7 +274,7 @@ const InvoicesPage: React.FC = () => {
                     Pagas
                   </p>
                   <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">
-                    {formatCurrency(totals.paid)}
+                    {formatCurrencyBr(totals.paid)}
                   </p>
                 </div>
                 <CheckCircle className="w-7 h-7 text-green-500" />
@@ -304,6 +309,25 @@ const InvoicesPage: React.FC = () => {
                 <option value="paid">Paga</option>
                 <option value="cancelled">Cancelada</option>
               </select>
+              <select
+                value={filters.billingIssuerId || ""}
+                onChange={(e) =>
+                  setFilters((f) => ({
+                    ...f,
+                    page: 1,
+                    billingIssuerId: e.target.value || undefined,
+                  }))
+                }
+                className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm min-w-[200px]"
+              >
+                <option value="">CNPJ emitente · todos</option>
+                <option value="legacy">Sem emitente (antigas)</option>
+                {invoiceIssuerFilterOptions.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.label} · {formatDocumentForDisplay(row.cnpj)}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
@@ -317,11 +341,11 @@ const InvoicesPage: React.FC = () => {
                 Nenhuma fatura encontrada
               </h3>
               <p className="text-gray-600 dark:text-gray-400">
-                {searchTerm || statusFilter
+                {searchTerm || statusFilter || filters.billingIssuerId
                   ? "Tente ajustar seus filtros"
                   : "Comece criando uma nova fatura a partir dos fechamentos."}
               </p>
-              {!searchTerm && !statusFilter && (
+              {!searchTerm && !statusFilter && !filters.billingIssuerId && (
                 <Link
                   to="/invoices/new"
                   className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
@@ -340,6 +364,13 @@ const InvoicesPage: React.FC = () => {
                       <SortableTh<InvoiceSortKey>
                         columnKey="number"
                         label="Número"
+                        sort={invSort}
+                        onSort={handleInvoiceSort}
+                        thClassName="px-6 py-4 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider"
+                      />
+                      <SortableTh<InvoiceSortKey>
+                        columnKey="emitter"
+                        label="Emitente (CNPJ)"
                         sort={invSort}
                         onSort={handleInvoiceSort}
                         thClassName="px-6 py-4 text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider"
@@ -409,6 +440,23 @@ const InvoicesPage: React.FC = () => {
                             </span>
                           </td>
 
+                          <td className="px-6 py-4">
+                            {invoice.issuerLabel || invoice.issuerCnpj ? (
+                              <div>
+                                <div className="text-sm text-gray-900 dark:text-white">
+                                  {invoice.issuerLabel || "—"}
+                                </div>
+                                {invoice.issuerCnpj ? (
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                    {formatDocumentForDisplay(invoice.issuerCnpj)}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">Antigo / não definido</span>
+                            )}
+                          </td>
+
                           {/* Cliente */}
                           <td className="px-6 py-4">
                             <span className="text-sm text-gray-700 dark:text-gray-300">
@@ -446,7 +494,7 @@ const InvoicesPage: React.FC = () => {
                           {/* Valor */}
                           <td className="px-6 py-4">
                             <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                              {formatCurrency(invoice.total)}
+                              {formatCurrencyBr(invoice.total)}
                             </span>
                           </td>
 

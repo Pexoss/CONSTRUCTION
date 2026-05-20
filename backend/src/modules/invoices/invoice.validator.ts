@@ -4,6 +4,7 @@ const dateOnlyOrDateTime = z.string().datetime().or(z.string().regex(/^\d{4}-\d{
 
 export const createInvoiceFromRentalSchema = z.object({
   rentalId: z.string().min(1, 'Rental ID is required'),
+  billingIssuerId: z.string().min(1).optional(),
   tax: z.number().min(0).optional(),
   discount: z.number().min(0).optional(),
   terms: z.string().optional(),
@@ -12,6 +13,7 @@ export const createInvoiceFromRentalSchema = z.object({
 
 export const createInvoiceFromBillingsSchema = z.object({
   billingIds: z.array(z.string().min(1)).min(1, 'Selecione ao menos um fechamento'),
+  billingIssuerId: z.string().min(1).optional(),
   tax: z.number().min(0).optional(),
   discount: z.number().min(0).optional(),
   terms: z.string().optional(),

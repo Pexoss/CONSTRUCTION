@@ -18,7 +18,15 @@ import {
   formatDocumentForDisplay,
   isValidCpfCnpj,
   todayDateInputValue,
+  formatCurrencyBr,
+  formatMoneyInputBr,
+  parseMoneyBr,
 } from "../../utils/formatters";
+import {
+  formatBrazilZipCodeDigits,
+  lookupBrazilZipViaCep,
+  normalizeBrazilZipDigits,
+} from "../../utils/viacep";
 import { toast } from "react-toastify";
 import axios from "axios";
 
@@ -40,6 +48,10 @@ interface SelectedItem {
   historicalDelivery?: boolean;
   item: Item;
 }
+interface ServiceFormRow extends RentalService {
+  priceInput: string;
+}
+
 interface Totals {
   equipmentSubtotal: number;
   servicesSubtotal: number;
@@ -83,7 +95,7 @@ const CreateRentalPage: React.FC = () => {
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
-  const [services, setServices] = useState<RentalService[]>([]);
+  const [services, setServices] = useState<ServiceFormRow[]>([]);
   const [workAddress, setWorkAddress] = useState<RentalWorkAddress | null>(
     null,
   );
@@ -95,7 +107,9 @@ const CreateRentalPage: React.FC = () => {
   const [customerCpf, setCustomerCpf] = useState("");
   const [fulfillmentMethod, setFulfillmentMethod] =
     useState<RentalFulfillmentMethod | "">("");
+  const [pickedUpBy, setPickedUpBy] = useState("");
   const [discount, setDiscount] = useState(0);
+  const [discountValueInput, setDiscountValueInput] = useState("");
   const [discountType, setDiscountType] = useState<"value" | "percentage">("value");
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
@@ -103,6 +117,8 @@ const CreateRentalPage: React.FC = () => {
     "diario" | "semanal" | "quinzenal" | "mensal"
   >("diario");
   const [serverError, setServerError] = useState<string | null>(null);
+  const [workZipLookupLoading, setWorkZipLookupLoading] = useState(false);
+  const [workZipLookupMessage, setWorkZipLookupMessage] = useState("");
 
   const [sort, setSort] = useState<
     "name" | "name_desc" | "price" | "price_desc" | "available"
@@ -142,6 +158,19 @@ const CreateRentalPage: React.FC = () => {
     [allCustomers, selectedCustomer],
   );
 
+  const financialAlertsQuery = useQuery({
+    queryKey: ["customer-rental-financial-alerts", selectedCustomer],
+    queryFn: () => customerService.getRentalFinancialAlerts(selectedCustomer),
+    enabled: Boolean(selectedCustomer),
+    staleTime: 30_000,
+  });
+
+  const financialAlerts = financialAlertsQuery.data;
+  const hasFinancialAlerts =
+    !!financialAlerts &&
+    (financialAlerts.overdueCharges.count > 0 ||
+      financialAlerts.overdueBillingsWithoutCharge.count > 0);
+
   function normalizeDocument(value: string) {
     return value.replace(/\D/g, "");
   }
@@ -166,7 +195,47 @@ const CreateRentalPage: React.FC = () => {
   );
   const rentalDocumentDigits = normalizeDocument(customerCpf);
   const customerHasValidDocument = isValidCpfCnpj(selectedCustomerDocumentDigits);
-  
+
+  const mergeWorkAddress = (partial: Partial<RentalWorkAddress>) => {
+    setWorkAddress((prev) =>
+      ({
+        ...(prev ?? ({} as RentalWorkAddress)),
+        ...partial,
+      }) as RentalWorkAddress,
+    );
+  };
+
+  const lookupWorkAddressFromCep = async (digitsFromInput?: string) => {
+    const digits =
+      digitsFromInput !== undefined
+        ? normalizeBrazilZipDigits(digitsFromInput)
+        : normalizeBrazilZipDigits(workAddress?.zipCode ?? "");
+    if (digits.length !== 8) {
+      setWorkZipLookupMessage("Digite um CEP com 8 dígitos para buscar.");
+      return;
+    }
+    setWorkZipLookupLoading(true);
+    setWorkZipLookupMessage("");
+    const result = await lookupBrazilZipViaCep(digits);
+    setWorkZipLookupLoading(false);
+    if (!result.ok) {
+      setWorkZipLookupMessage(result.message);
+      return;
+    }
+    const { data } = result;
+    setWorkAddress((prev) =>
+      ({
+        ...(prev ?? ({} as RentalWorkAddress)),
+        zipCode: data.zipFormatted,
+        street: data.street || prev?.street || "",
+        neighborhood: data.neighborhood || prev?.neighborhood || "",
+        city: data.city || prev?.city || "",
+        state: data.state || prev?.state || "",
+      }) as RentalWorkAddress,
+    );
+    setWorkZipLookupMessage("Endereço preenchido automaticamente pelo CEP.");
+  };
+
   const createMutation = useMutation({
     mutationFn: (data: CreateRentalData) => rentalService.createRental(data),
   });
@@ -268,9 +337,10 @@ const CreateRentalPage: React.FC = () => {
     });
 
     const subtotal = equipmentSubtotal + servicesSubtotal;
-    const discountAmount = discountType === "percentage" 
-      ? (subtotal * discount) / 100 
-      : discount;
+    const discountAmount =
+      discountType === "percentage"
+        ? (subtotal * discount) / 100
+        : discount;
     const total = subtotal - discountAmount;
 
     //evitar toISOString (bug de fuso)
@@ -398,6 +468,7 @@ const CreateRentalPage: React.FC = () => {
       {
         description: "",
         price: 0,
+        priceInput: "",
         quantity: 1,
         subtotal: 0,
         category: "",
@@ -407,18 +478,30 @@ const CreateRentalPage: React.FC = () => {
 
   const updateService = (
     index: number,
-    field: keyof RentalService,
-    value: any,
+    field: keyof ServiceFormRow,
+    value: string | number,
   ) => {
     const newServices = [...services];
     newServices[index] = { ...newServices[index], [field]: value };
 
-    // Recalcular subtotal
     if (field === "price" || field === "quantity") {
       newServices[index].subtotal =
         newServices[index].price * newServices[index].quantity;
     }
 
+    setServices(newServices);
+  };
+
+  const handleServicePriceBlur = (index: number, rawValue: string) => {
+    const parsed = parseMoneyBr(rawValue);
+    const price = Number.isFinite(parsed) ? parsed : 0;
+    const newServices = [...services];
+    newServices[index] = {
+      ...newServices[index],
+      price,
+      priceInput: formatMoneyInputBr(price),
+      subtotal: price * newServices[index].quantity,
+    };
     setServices(newServices);
   };
 
@@ -561,6 +644,7 @@ const CreateRentalPage: React.FC = () => {
       customerId: selectedCustomer,
       customerCpf: documentToSubmit,
       fulfillmentMethod: fulfillmentMethod as RentalFulfillmentMethod,
+      pickedUpBy: pickedUpBy.trim() || undefined,
       items: refreshedSelectedItems.map((si) => {
         const uiType = si.rentalType ?? rentalType; // fallback da tela
         const row: CreateRentalData["items"][number] = {
@@ -918,6 +1002,58 @@ const CreateRentalPage: React.FC = () => {
                     </p>
                   </div>
                 )}
+                {selectedCustomer && selectedCustomerData && financialAlertsQuery.isLoading && (
+                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                    Verificando pendências financeiras…
+                  </p>
+                )}
+                {selectedCustomer && selectedCustomerData && financialAlertsQuery.isError && (
+                  <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
+                    Não foi possível carregar as pendências financeiras deste cliente.
+                  </p>
+                )}
+                {selectedCustomer && selectedCustomerData && hasFinancialAlerts && financialAlerts && (
+                  <div
+                    role="alert"
+                    className="mt-4 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-4 py-3 text-sm text-red-800 dark:text-red-200"
+                  >
+                    <p className="font-semibold mb-2">
+                      Atenção: há pendências financeiras neste cliente
+                    </p>
+                    <ul className="list-disc list-inside space-y-1">
+                      {financialAlerts.overdueCharges.count > 0 ? (
+                        <li>
+                          {financialAlerts.overdueCharges.count}{" "}
+                          {financialAlerts.overdueCharges.count === 1
+                            ? "cobrança vencida em aberto"
+                            : "cobranças vencidas em aberto"}
+                          {" — total "}
+                          <strong>
+                            {formatCurrencyBr(financialAlerts.overdueCharges.totalOutstanding)}
+                          </strong>
+                        </li>
+                      ) : null}
+                      {financialAlerts.overdueBillingsWithoutCharge.count > 0 ? (
+                        <li>
+                          {financialAlerts.overdueBillingsWithoutCharge.count}{" "}
+                          {financialAlerts.overdueBillingsWithoutCharge.count === 1
+                            ? "fechamento já vencido sem cobrança nem fatura gerada"
+                            : "fechamentos já vencidos sem cobrança nem fatura geradas"}
+                          {" — total "}
+                          <strong>
+                            {formatCurrencyBr(
+                              financialAlerts.overdueBillingsWithoutCharge.totalOutstanding,
+                            )}
+                          </strong>
+                        </li>
+                      ) : null}
+                    </ul>
+                    <p className="mt-2 text-xs opacity-90">
+                      Use essas informações para decidir se convém regularizar o financeiro antes
+                      de novos aluguéis.
+                    </p>
+                  </div>
+                )}
                 {selectedCustomer && selectedCustomerData && (
                   <div className="mt-4">
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -990,7 +1126,8 @@ const CreateRentalPage: React.FC = () => {
 
                                 <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                                   {selectedItem.pickupDate
-                                    ? `R$ ${calculatePrice(
+                                    ? `${formatCurrencyBr(
+                                        calculatePrice(
                                         selectedItem.item,
                                         1,
                                         new Date(selectedItem.pickupDate),
@@ -1001,8 +1138,9 @@ const CreateRentalPage: React.FC = () => {
                                           ? rentalTypeMap[
                                               selectedItem.rentalType
                                             ]
-                                          : "daily", // fallback caso undefined
-                                      ).toFixed(2)}/un`
+                                          : "daily",
+                                      ),
+                                    )}/un`
                                     : "Defina a retirada"}
                                 </span>
                               </div>
@@ -1377,7 +1515,7 @@ const CreateRentalPage: React.FC = () => {
                                 Subtotal
                               </label>
                               <div className="px-3 py-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/50 rounded-md text-sm font-medium text-gray-900 dark:text-white">
-                                R$ {service.subtotal.toFixed(2)}
+                                {formatCurrencyBr(service.subtotal)}
                               </div>
                             </div>
                           </div>
@@ -1395,18 +1533,21 @@ const CreateRentalPage: React.FC = () => {
                                   </span>
                                 </div>
                                 <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={service.price}
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="0,00"
+                                  value={service.priceInput}
                                   onChange={(e) =>
                                     updateService(
                                       index,
-                                      "price",
-                                      parseFloat(e.target.value) || 0,
+                                      "priceInput",
+                                      e.target.value,
                                     )
                                   }
-                                  className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                  onBlur={(e) =>
+                                    handleServicePriceBlur(index, e.target.value)
+                                  }
+                                  className="w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                                 />
                               </div>
                             </div>
@@ -1437,9 +1578,9 @@ const CreateRentalPage: React.FC = () => {
                                     Cálculo:
                                   </div>
                                   <div className="text-xs text-gray-600 dark:text-gray-300 font-medium">
-                                    R$ {service.price.toFixed(2)} ×{" "}
-                                    {service.quantity} = R${" "}
-                                    {service.subtotal.toFixed(2)}
+                                    {formatCurrencyBr(service.price)} ×{" "}
+                                    {service.quantity} ={" "}
+                                    {formatCurrencyBr(service.subtotal)}
                                   </div>
                                 </div>
 
@@ -1552,21 +1693,48 @@ const CreateRentalPage: React.FC = () => {
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                           />
                         </div>
-                        <div>
+                        <div className="md:col-span-1">
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                             CEP
                           </label>
-                          <input
-                            type="text"
-                            value={workAddress?.zipCode || ""}
-                            onChange={(e) =>
-                              setWorkAddress({
-                                ...(workAddress || ({} as RentalWorkAddress)),
-                                zipCode: e.target.value,
-                              } as RentalWorkAddress)
-                            }
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                          />
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              autoComplete="postal-code"
+                              placeholder="00000-000"
+                              maxLength={9}
+                              value={workAddress?.zipCode || ""}
+                              onChange={(e) => {
+                                mergeWorkAddress({
+                                  zipCode: formatBrazilZipCodeDigits(e.target.value),
+                                });
+                                setWorkZipLookupMessage("");
+                              }}
+                              onBlur={(e) => {
+                                const d = normalizeBrazilZipDigits(e.target.value);
+                                if (d.length === 8) {
+                                  void lookupWorkAddressFromCep(d);
+                                }
+                              }}
+                              className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                            />
+                            <button
+                              type="button"
+                              disabled={workZipLookupLoading}
+                              onClick={() => void lookupWorkAddressFromCep()}
+                              className="shrink-0 px-3 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-50 whitespace-nowrap"
+                            >
+                              {workZipLookupLoading ? "Buscando…" : "Buscar CEP"}
+                            </button>
+                          </div>
+                          {workZipLookupMessage ? (
+                            <p
+                              className={`mt-1 text-xs ${workZipLookupMessage.includes("preenchido") ? "text-green-700 dark:text-green-400" : "text-amber-800 dark:text-amber-300"}`}
+                            >
+                              {workZipLookupMessage}
+                            </p>
+                          ) : null}
                         </div>
                       </div>
 
@@ -1672,6 +1840,93 @@ const CreateRentalPage: React.FC = () => {
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Observações
+                    </label>
+                    <textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      rows={3}
+                      placeholder="Instruções especiais, detalhes da obra, etc."
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                      Desconto
+                    </label>
+                    <div className="flex gap-2 mb-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDiscountType("value");
+                          setDiscountValueInput(
+                            discount > 0 ? formatMoneyInputBr(discount) : "",
+                          );
+                        }}
+                        className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+                          discountType === "value"
+                            ? "bg-gray-900 dark:bg-gray-700 text-white"
+                            : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                        }`}
+                      >
+                        R$ (Valor)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDiscountType("percentage")}
+                        className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
+                          discountType === "percentage"
+                            ? "bg-gray-900 dark:bg-gray-700 text-white"
+                            : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                        }`}
+                      >
+                        % (Porcentagem)
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={discountType === "percentage" ? "number" : "text"}
+                        inputMode={
+                          discountType === "percentage" ? undefined : "decimal"
+                        }
+                        min={discountType === "percentage" ? 0 : undefined}
+                        max={discountType === "percentage" ? 100 : undefined}
+                        step={discountType === "percentage" ? "0.1" : undefined}
+                        value={
+                          discountType === "percentage"
+                            ? discount
+                            : discountValueInput
+                        }
+                        onChange={(e) => {
+                          if (discountType === "percentage") {
+                            setDiscount(
+                              e.target.value === "" ? 0 : Number(e.target.value),
+                            );
+                            return;
+                          }
+                          setDiscountValueInput(e.target.value);
+                        }}
+                        onBlur={(e) => {
+                          if (discountType !== "value") return;
+                          const parsed = parseMoneyBr(e.target.value);
+                          const next = Number.isFinite(parsed) ? parsed : 0;
+                          setDiscount(next);
+                          setDiscountValueInput(formatMoneyInputBr(next));
+                        }}
+                        placeholder={
+                          discountType === "percentage" ? "Ex: 10" : "0,00"
+                        }
+                        className="w-full px-4 py-3 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
+                      />
+                      <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 dark:text-gray-400 font-medium">
+                        {discountType === "percentage" ? "%" : "R$"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                       Entrega dos itens *
                     </label>
@@ -1703,69 +1958,16 @@ const CreateRentalPage: React.FC = () => {
                         </span>
                       </label>
                     </div>
-                  </div>
-
-                  {/* Inputs de desconto e observações */}
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                        Desconto
-                      </label>
-                      <div className="flex gap-2 mb-3">
-                        <button
-                          type="button"
-                          onClick={() => setDiscountType("value")}
-                          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
-                            discountType === "value"
-                              ? "bg-gray-900 dark:bg-gray-700 text-white"
-                              : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
-                          }`}
-                        >
-                          R$ (Valor)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDiscountType("percentage")}
-                          className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors ${
-                            discountType === "percentage"
-                              ? "bg-gray-900 dark:bg-gray-700 text-white"
-                              : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
-                          }`}
-                        >
-                          % (Porcentagem)
-                        </button>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          min="0"
-                          max={discountType === "percentage" ? 100 : undefined}
-                          step={discountType === "percentage" ? "0.1" : "0.01"}
-                          value={discount}
-                          onChange={(e) =>
-                            setDiscount(
-                              e.target.value === "" ? 0 : Number(e.target.value),
-                            )
-                          }
-                          placeholder={discountType === "percentage" ? "Ex: 10" : "Ex: 100.00"}
-                          className="w-full px-4 py-3 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                        />
-                        <span className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 dark:text-gray-400 font-medium">
-                          {discountType === "percentage" ? "%" : "R$"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div>
+                    <div className="mt-3">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Observações
+                        Quem retirou/entregou
                       </label>
-                      <textarea
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        rows={3}
-                        placeholder="Instruções especiais, detalhes da obra, etc."
-                        className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none"
+                      <input
+                        type="text"
+                        value={pickedUpBy}
+                        onChange={(e) => setPickedUpBy(e.target.value)}
+                        placeholder="Nome de quem retirou ou entregou"
+                        className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
                     </div>
                   </div>
@@ -1777,7 +1979,7 @@ const CreateRentalPage: React.FC = () => {
                         Equipamentos:
                       </span>
                       <span className="font-medium text-gray-900 dark:text-white">
-                        R$ {totalsWithRentalType.equipmentSubtotal.toFixed(2)}
+                        {formatCurrencyBr(totalsWithRentalType.equipmentSubtotal)}
                       </span>
                     </div>
 
@@ -1787,7 +1989,7 @@ const CreateRentalPage: React.FC = () => {
                           Serviços:
                         </span>
                         <span className="font-medium text-gray-900 dark:text-white">
-                          R$ {totalsWithRentalType.servicesSubtotal.toFixed(2)}
+                          {formatCurrencyBr(totalsWithRentalType.servicesSubtotal)}
                         </span>
                       </div>
                     )}
@@ -1797,23 +1999,25 @@ const CreateRentalPage: React.FC = () => {
                         Subtotal:
                       </span>
                       <span className="font-medium text-gray-900 dark:text-white">
-                        R$ {totalsWithRentalType.subtotal.toFixed(2)}
+                        {formatCurrencyBr(totalsWithRentalType.subtotal)}
                       </span>
                     </div>
 
                     {discount > 0 && (
                       <div className="flex justify-between items-center text-red-600 dark:text-red-400">
                         <span>
-                          Desconto {discountType === "percentage" ? `(${discount}%)` : "(R$)"}:
+                          Desconto{" "}
+                          {discountType === "percentage"
+                            ? `(${discount}%)`
+                            : "(R$)"}
+                          :
                         </span>
                         <span className="font-medium">
                           {discountType === "percentage"
-                            ? "- R$ " +
-                              (
-                                (totalsWithRentalType.subtotal * discount) /
-                                100
-                              ).toFixed(2)
-                            : "- R$ " + discount.toFixed(2)}
+                            ? `- ${formatCurrencyBr(
+                                (totalsWithRentalType.subtotal * discount) / 100,
+                              )}`
+                            : `- ${formatCurrencyBr(discount)}`}
                         </span>
                       </div>
                     )}
@@ -1823,18 +2027,8 @@ const CreateRentalPage: React.FC = () => {
                         Total:
                       </span>
                       <span className="text-lg font-bold text-gray-900 dark:text-white">
-                        R$ {totalsWithRentalType.total.toFixed(2)}
+                        {formatCurrencyBr(totalsWithRentalType.total)}
                       </span>
-                    </div>
-
-                    {/* Período total estimado */}
-                    <div className="mt-2">
-                      <small className="text-gray-500 dark:text-gray-400 text-xs">
-                        ⚠️ Período estimado: {totals.rentalPeriod.start} a{" "}
-                        {totals.rentalPeriod.end}. O valor final será calculado
-                        no fechamento do aluguel com base na devolução real de
-                        cada item.
-                      </small>
                     </div>
                   </div>
 
@@ -1855,7 +2049,7 @@ const CreateRentalPage: React.FC = () => {
                         ? "Criando aluguel..."
                         : selectedItems.length === 0
                           ? "Selecione pelo menos 1 item"
-                          : `Criar Aluguel • R$ ${totalsWithRentalType.total.toFixed(2)}`}
+                          : `Criar Aluguel • ${formatCurrencyBr(totalsWithRentalType.total)}`}
                     </button>
                   </div>
                 </form>
@@ -1914,7 +2108,7 @@ const CreateRentalPage: React.FC = () => {
                     <div>
                       <div className="font-medium text-gray-900 dark:text-white">{item.name}</div>
                       <div className="text-sm text-gray-600 dark:text-gray-400">
-                        R$ {item.pricing.dailyRate}/dia • Disponível: {item.quantity.available}
+                        {formatCurrencyBr(item.pricing.dailyRate)}/dia • Disponível: {item.quantity.available}
                       </div>
                     </div>
                     <button

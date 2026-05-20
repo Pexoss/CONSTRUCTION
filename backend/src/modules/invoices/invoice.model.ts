@@ -37,7 +37,18 @@ const InvoiceSchema = new Schema<IInvoice>(
     invoiceNumber: {
       type: String,
       required: [true, 'Invoice number is required'],
-      unique: true,
+    },
+    billingIssuerId: {
+      type: Schema.Types.ObjectId,
+      index: true,
+    },
+    issuerCnpj: {
+      type: String,
+      trim: true,
+    },
+    issuerLabel: {
+      type: String,
+      trim: true,
     },
     rentalId: {
       type: Schema.Types.ObjectId,
@@ -146,20 +157,11 @@ InvoiceSchema.index({ companyId: 1, status: 1 });
 InvoiceSchema.index({ companyId: 1, customerId: 1 });
 InvoiceSchema.index({ companyId: 1, rentalId: 1 });
 InvoiceSchema.index({ companyId: 1, issueDate: 1 });
-// invoiceNumber index is automatically created by unique: true
+InvoiceSchema.index(
+  { companyId: 1, billingIssuerId: 1, invoiceNumber: 1 },
+  { unique: true },
+);
 
-// Gera número antes da validação (validate roda antes de save; pre('save') era tarde demais)
-InvoiceSchema.pre('validate', async function (next) {
-  if (!this.invoiceNumber && this.companyId) {
-    try {
-      const InvoiceModel = mongoose.model<IInvoice>('Invoice');
-      const count = await InvoiceModel.countDocuments({ companyId: this.companyId });
-      this.invoiceNumber = String(count + 1).padStart(4, '0');
-    } catch {
-      this.invoiceNumber = String(Math.floor(Date.now() % 10000)).padStart(4, "0");
-    }
-  }
-  next();
-});
+// Geração de número movida para invoice.service (sequência por emitente + retry).
 
 export const Invoice: Model<IInvoice> = mongoose.model<IInvoice>('Invoice', InvoiceSchema);

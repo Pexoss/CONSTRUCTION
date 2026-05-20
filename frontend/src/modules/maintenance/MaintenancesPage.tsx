@@ -8,6 +8,7 @@ import {
   MaintenanceStatus,
 } from "../../types/maintenance.types";
 import Layout from "../../components/Layout";
+import { formatCurrencyBr } from "../../utils/formatters";
 import SortableTh from "../../components/SortableTh";
 import {
   ColumnSort,
@@ -456,7 +457,7 @@ const MaintenancesPage: React.FC = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                R$ {maintenance.cost.toFixed(2)}
+                                {formatCurrencyBr(maintenance.cost)}
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">

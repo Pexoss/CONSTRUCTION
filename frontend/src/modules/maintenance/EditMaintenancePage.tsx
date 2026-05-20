@@ -8,6 +8,7 @@ import {
   MaintenanceType,
 } from "../../types/maintenance.types";
 import { useItem, useItems } from "../../hooks/useInventory";
+import { formatMoneyInputBr, parseMoneyBr } from "../../utils/formatters";
 
 const EditMaintenancePage: React.FC = () => {
   const navigate = useNavigate();
@@ -31,6 +32,7 @@ const EditMaintenancePage: React.FC = () => {
     performedBy: "",
     notes: "",
   });
+  const [costInput, setCostInput] = useState("");
 
   const { data: itemsData } = useItems({ isActive: true, limit: 500 });
   const { data: selectedItemData } = useItem(formData.itemId || "");
@@ -51,6 +53,7 @@ const EditMaintenancePage: React.FC = () => {
         performedBy: m.performedBy || "",
         notes: m.notes || "",
       });
+      setCostInput(formatMoneyInputBr(m.cost ?? ""));
     }
   }, [data]);
 
@@ -77,15 +80,23 @@ const EditMaintenancePage: React.FC = () => {
       }));
       return;
     }
+    if (name === "cost") {
+      setCostInput(value);
+      return;
+    }
     setFormData((prev) => ({
       ...prev,
-      [name]: name === "cost" ? Number(value) : value,
+      [name]: value,
     }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    updateMutation.mutate(formData);
+    const parsedCost = parseMoneyBr(costInput);
+    updateMutation.mutate({
+      ...formData,
+      cost: Number.isFinite(parsedCost) ? parsedCost : 0,
+    });
   };
 
   const items = itemsData?.data || [];
@@ -360,14 +371,15 @@ const EditMaintenancePage: React.FC = () => {
                   </div>
                   <input
                     id="cost"
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     name="cost"
-                    step="0.01"
-                    min="0"
-                    value={formData.cost}
+                    placeholder="0,00"
+                    value={costInput}
                     onChange={handleChange}
+                    onBlur={(e) => setCostInput(formatMoneyInputBr(e.target.value))}
                     required
-                    className="pl-10 w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    className="pl-10 w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
                   />
                 </div>
               </div>

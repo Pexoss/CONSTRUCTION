@@ -39,6 +39,8 @@ export interface InvoicesGeneratedReport {
   invoices: Array<{
     id: string;
     invoiceNumber: string;
+    issuerCnpjDisplay: string;
+    issuerLabel: string | null;
     customerName: string;
     rentalNumber?: string;
     issueDate: string;
@@ -69,6 +71,8 @@ export interface RentalItemsPeriodsReport {
     periodsCharged: number;
     subtotal: number;
     status: string;
+    equipmentSituationLabel: string;
+    equipmentSituationSortKey: string;
   }>;
 }
 

@@ -128,6 +128,67 @@ export const getBillingOutstandingAmount = (billing: {
   calculation?: { total?: number | null } | null;
 }): number => Number(billing?.outstandingAmount ?? billing?.calculation?.total ?? 0);
 
+const brMoneyNumberFormatter = new Intl.NumberFormat("pt-BR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const brCurrencyFormatter = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+});
+
+/** Converte texto monetário pt-BR (ex.: 1.234,56) ou en-US (1234.56) em número. */
+export const parseMoneyBr = (
+  value: string | number | null | undefined,
+): number => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return 0;
+  let normalized = trimmed.replace(/\s/g, "").replace(/^R\$\s?/i, "");
+  if (normalized.includes(",")) {
+    normalized = normalized.replace(/\./g, "").replace(",", ".");
+  }
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : NaN;
+};
+
+/** Formata número como moeda sem símbolo: 1.234,56 */
+export const formatMoneyBr = (
+  value: number | string | null | undefined,
+): string => {
+  const num =
+    typeof value === "string" ? parseMoneyBr(value) : Number(value ?? 0);
+  if (!Number.isFinite(num)) return brMoneyNumberFormatter.format(0);
+  return brMoneyNumberFormatter.format(num);
+};
+
+/** Formata número como moeda brasileira: R$ 1.234,56 */
+export const formatCurrencyBr = (
+  value: number | string | null | undefined,
+): string => {
+  const num =
+    typeof value === "string" ? parseMoneyBr(value) : Number(value ?? 0);
+  if (!Number.isFinite(num)) return brCurrencyFormatter.format(0);
+  return brCurrencyFormatter.format(num);
+};
+
+/** Normaliza valor para inputs monetários editáveis (sempre 2 casas, vírgula decimal). */
+export const formatMoneyInputBr = (
+  value: number | string | null | undefined,
+): string => {
+  if (value === "" || value === null || value === undefined) return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    const num = parseMoneyBr(trimmed);
+    if (!Number.isFinite(num)) return trimmed;
+    return formatMoneyBr(num);
+  }
+  if (!Number.isFinite(value)) return "";
+  return formatMoneyBr(value);
+};
+
 export const formatRentalTypeLabel = (value?: string | null): string => {
   const key = (value || "").toLowerCase();
   const labels: Record<string, string> = {

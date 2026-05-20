@@ -20,7 +20,12 @@ import {
   sortedTableRows,
   toggleColumnSort,
 } from "../../utils/tableSort";
-import { todayDateInputValue } from "../../utils/formatters";
+import {
+  formatCurrencyBr,
+  todayDateInputValue,
+  formatDocumentForDisplay,
+} from "../../utils/formatters";
+import { companyService } from "../company/company.service";
 
 type InventoryMostUsedSortKey = "itemName" | "quantity" | "totalValue";
 
@@ -42,6 +47,7 @@ type RentalItemsPeriodSortKey =
   | "periodStart"
   | "rentalType"
   | "quantity"
+  | "equipmentSituation"
   | "subtotal";
 
 type ReceivablesPaidSortKey =
@@ -87,6 +93,7 @@ const ReportsPage: React.FC = () => {
     })(),
   );
   const [endDate, setEndDate] = useState(todayDateInputValue());
+  const [invoiceReportIssuerFilter, setInvoiceReportIssuerFilter] = useState("");
 
   const [inventoryMostUsedSort, setInventoryMostUsedSort] = useState<
     ColumnSort<InventoryMostUsedSortKey> | null
@@ -110,8 +117,10 @@ const ReportsPage: React.FC = () => {
     ColumnSort<TopCustomersSortKey> | null
   >(null);
 
-  const formatCurrency = (value?: number | null) =>
-    `R$ ${Number(value || 0).toFixed(2)}`;
+  const { data: invoiceIssuerRowsForReport = [] } = useQuery({
+    queryKey: ["company-invoice-issuers-reports"],
+    queryFn: () => companyService.getInvoiceIssuers(),
+  });
 
   const { data: rentalsReport } = useQuery({
     queryKey: ["rentals-report", startDate, endDate],
@@ -126,9 +135,13 @@ const ReportsPage: React.FC = () => {
   });
 
   const { data: invoicesGeneratedReport } = useQuery({
-    queryKey: ["invoices-generated-report", startDate, endDate],
+    queryKey: ["invoices-generated-report", startDate, endDate, invoiceReportIssuerFilter],
     queryFn: () =>
-      reportService.getInvoicesGeneratedReport(startDate, endDate),
+      reportService.getInvoicesGeneratedReport(
+        startDate,
+        endDate,
+        invoiceReportIssuerFilter || undefined,
+      ),
     enabled: reportType === "invoices",
   });
 
@@ -191,6 +204,7 @@ const ReportsPage: React.FC = () => {
           blob = await reportService.exportInvoicesGeneratedReport(
             startDate,
             endDate,
+            invoiceReportIssuerFilter || undefined,
           );
           break;
 
@@ -293,6 +307,8 @@ const ReportsPage: React.FC = () => {
       rentalType: (r) =>
         getRentalTypeLabel(r.rentalType).toLowerCase(),
       quantity: (r) => Number(r.quantity ?? 0),
+      equipmentSituation: (r) =>
+        `${r.equipmentSituationSortKey || ""} ${r.equipmentSituationLabel || ""}`.toLowerCase(),
       subtotal: (r) => Number(r.subtotal ?? 0),
     });
   }, [rentalItemsPeriodsReport?.data?.items, rentalItemsPeriodSort]);
@@ -357,6 +373,7 @@ const ReportsPage: React.FC = () => {
           blob = await reportService.exportInvoicesGeneratedReportPdf(
             startDate,
             endDate,
+            invoiceReportIssuerFilter || undefined,
           );
           break;
         case "maintenance":
@@ -481,6 +498,26 @@ const ReportsPage: React.FC = () => {
                 </button>
               </div>
             </div>
+            {reportType === "invoices" && (
+              <div className="mt-4 max-w-xl">
+                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                  CNPJ emissor (filtrar faturas do relatório)
+                </label>
+                <select
+                  value={invoiceReportIssuerFilter}
+                  onChange={(e) => setInvoiceReportIssuerFilter(e.target.value)}
+                  className="w-full sm:w-auto min-w-[260px] px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                >
+                  <option value="">Todos os emissores</option>
+                  <option value="legacy">Sem emitente (antigas)</option>
+                  {invoiceIssuerRowsForReport.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.label} · {formatDocumentForDisplay(row.cnpj)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Inventory Report */}
@@ -511,7 +548,7 @@ const ReportsPage: React.FC = () => {
                       Valor do Patrimônio
                     </h3>
                     <p className="text-3xl font-bold text-gray-900 dark:text-white">
-                      {formatCurrency(inventoryReport.data.totalInventoryValue ?? inventoryReport.data.totalValue)}
+                      {formatCurrencyBr(inventoryReport.data.totalInventoryValue ?? inventoryReport.data.totalValue)}
                     </p>
                   </div>
                 </div>
@@ -621,7 +658,7 @@ const ReportsPage: React.FC = () => {
                                 {item.quantity}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 dark:text-green-400">
-                                R$ {item.totalValue.toFixed(2)}
+                                {formatCurrencyBr(item.totalValue)}
                               </td>
                             </tr>
                           ))}
@@ -650,11 +687,11 @@ const ReportsPage: React.FC = () => {
                     Receita faturada
                   </h3>
                   <p className="text-3xl font-bold text-green-600 dark:text-green-400">
-                    {formatCurrency(rentalsReport.data.billedRevenue ?? rentalsReport.data.totalRevenue)}
+                    {formatCurrencyBr(rentalsReport.data.billedRevenue ?? rentalsReport.data.totalRevenue)}
                   </p>
                   <p className="text-xs text-gray-500 mt-2">
                     Contratado:{" "}
-                    {formatCurrency(rentalsReport.data.contractedRevenue)}
+                    {formatCurrencyBr(rentalsReport.data.contractedRevenue)}
                   </p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
@@ -662,7 +699,7 @@ const ReportsPage: React.FC = () => {
                     Saldo pendente
                   </h3>
                   <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">
-                    {formatCurrency(rentalsReport.data.pendingRevenue)}
+                    {formatCurrencyBr(rentalsReport.data.pendingRevenue)}
                   </p>
                 </div>
               </div>
@@ -759,7 +796,7 @@ const ReportsPage: React.FC = () => {
                               {item.rentalCount}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 dark:text-green-400">
-                              R$ {item.totalRevenue.toFixed(2)}
+                              {formatCurrencyBr(item.totalRevenue)}
                             </td>
                           </tr>
                         ))}
@@ -780,7 +817,7 @@ const ReportsPage: React.FC = () => {
                     Receitas
                   </h3>
                   <p className="text-3xl font-bold text-green-600 dark:text-green-400">
-                    {formatCurrency(financialReport.data.receivedInPeriod ?? financialReport.data.totalIncome)}
+                    {formatCurrencyBr(financialReport.data.receivedInPeriod ?? financialReport.data.totalIncome)}
                   </p>
                   <p className="text-xs text-gray-500 mt-2">
                     Lançamentos recebidos no período
@@ -791,7 +828,7 @@ const ReportsPage: React.FC = () => {
                     Despesas
                   </h3>
                   <p className="text-3xl font-bold text-red-600 dark:text-red-400">
-                    {formatCurrency(financialReport.data.totalExpenses)}
+                    {formatCurrencyBr(financialReport.data.totalExpenses)}
                   </p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
@@ -805,7 +842,7 @@ const ReportsPage: React.FC = () => {
                         : "text-red-600 dark:text-red-400"
                     }`}
                   >
-                    {formatCurrency(financialReport.data.profit)}
+                    {formatCurrencyBr(financialReport.data.profit)}
                   </p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
@@ -813,10 +850,10 @@ const ReportsPage: React.FC = () => {
                     Fechamentos faturados / pendentes
                   </h3>
                   <p className="text-lg font-semibold text-gray-900 dark:text-white">
-                    {formatCurrency(financialReport.data.billedInPeriod)}
+                    {formatCurrencyBr(financialReport.data.billedInPeriod)}
                   </p>
                   <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                    Pendente total: {formatCurrency(financialReport.data.pendingTotal)}
+                    Pendente total: {formatCurrencyBr(financialReport.data.pendingTotal)}
                   </p>
                 </div>
               </div>
@@ -883,7 +920,7 @@ const ReportsPage: React.FC = () => {
                     Valor gerado
                   </h3>
                   <p className="text-3xl font-bold text-gray-900 dark:text-white">
-                    {formatCurrency(invoicesGeneratedReport.data.totalAmount)}
+                    {formatCurrencyBr(invoicesGeneratedReport.data.totalAmount)}
                   </p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-green-200 dark:border-green-800 shadow-sm p-6">
@@ -891,7 +928,7 @@ const ReportsPage: React.FC = () => {
                     Pago
                   </h3>
                   <p className="text-3xl font-bold text-green-600 dark:text-green-400">
-                    {formatCurrency(invoicesGeneratedReport.data.paidAmount)}
+                    {formatCurrencyBr(invoicesGeneratedReport.data.paidAmount)}
                   </p>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg border border-amber-200 dark:border-amber-800 shadow-sm p-6">
@@ -899,7 +936,7 @@ const ReportsPage: React.FC = () => {
                     Pendente
                   </h3>
                   <p className="text-3xl font-bold text-amber-600 dark:text-amber-400">
-                    {formatCurrency(invoicesGeneratedReport.data.pendingAmount)}
+                    {formatCurrencyBr(invoicesGeneratedReport.data.pendingAmount)}
                   </p>
                 </div>
               </div>
@@ -930,6 +967,9 @@ const ReportsPage: React.FC = () => {
                           }
                           thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
                         />
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">
+                          Emitente
+                        </th>
                         <SortableTh<
                           | "invoiceNumber"
                           | "customerName"
@@ -1027,7 +1067,7 @@ const ReportsPage: React.FC = () => {
                       {invoicesGeneratedReport.data.invoices.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={6}
+                            colSpan={7}
                             className="px-4 py-6 text-sm text-gray-500 text-center"
                           >
                             Nenhuma fatura gerada no período selecionado.
@@ -1038,6 +1078,13 @@ const ReportsPage: React.FC = () => {
                           <tr key={invoice.id}>
                             <td className="px-4 py-2 text-sm font-medium text-gray-900 dark:text-white">
                               {invoice.invoiceNumber}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                              <div>{invoice.issuerLabel?.trim() || "—"}</div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                {invoice.issuerCnpjDisplay?.trim() ||
+                                  "sem CNPJ no cadastro"}
+                              </div>
                             </td>
                             <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
                               {invoice.customerName}
@@ -1052,7 +1099,7 @@ const ReportsPage: React.FC = () => {
                               {getBillingStatusLabel(invoice.status)}
                             </td>
                             <td className="px-4 py-2 text-sm text-right font-medium text-gray-900 dark:text-white">
-                              {formatCurrency(invoice.total)}
+                              {formatCurrencyBr(invoice.total)}
                             </td>
                           </tr>
                         ))
@@ -1088,7 +1135,7 @@ const ReportsPage: React.FC = () => {
                     Valor dos itens
                   </h3>
                   <p className="text-3xl font-bold text-green-600 dark:text-green-400">
-                    {formatCurrency(rentalItemsPeriodsReport.data.totalAmount)}
+                    {formatCurrencyBr(rentalItemsPeriodsReport.data.totalAmount)}
                   </p>
                 </div>
               </div>
@@ -1180,6 +1227,17 @@ const ReportsPage: React.FC = () => {
                           thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
                         />
                         <SortableTh<RentalItemsPeriodSortKey>
+                          columnKey="equipmentSituation"
+                          label="Equipamento"
+                          sort={rentalItemsPeriodSort}
+                          onSort={(k) =>
+                            setRentalItemsPeriodSort((p) =>
+                              toggleColumnSort(p, k),
+                            )
+                          }
+                          thClassName="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase"
+                        />
+                        <SortableTh<RentalItemsPeriodSortKey>
                           columnKey="subtotal"
                           label="Subtotal"
                           sort={rentalItemsPeriodSort}
@@ -1197,7 +1255,7 @@ const ReportsPage: React.FC = () => {
                       {rentalItemsPeriodsReport.data.items.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={8}
+                            colSpan={9}
                             className="px-4 py-6 text-sm text-gray-500 text-center"
                           >
                             Nenhum item faturado no período selecionado.
@@ -1229,8 +1287,11 @@ const ReportsPage: React.FC = () => {
                             <td className="px-4 py-2 text-sm text-right text-gray-700 dark:text-gray-300">
                               {item.quantity}
                             </td>
+                            <td className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-normal max-w-[14rem]">
+                              {item.equipmentSituationLabel}
+                            </td>
                             <td className="px-4 py-2 text-sm text-right font-medium text-gray-900 dark:text-white">
-                              {formatCurrency(item.subtotal)}
+                              {formatCurrencyBr(item.subtotal)}
                             </td>
                           </tr>
                         ))
@@ -1266,7 +1327,7 @@ const ReportsPage: React.FC = () => {
                     {maintenanceReport.data.byStatus.scheduled}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
-                    R$ {maintenanceReport.data.scheduledCost.toFixed(2)}
+                    {formatCurrencyBr(maintenanceReport.data.scheduledCost)}
                   </p>
                 </div>
 
@@ -1279,7 +1340,7 @@ const ReportsPage: React.FC = () => {
                     {maintenanceReport.data.byStatus.in_progress}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
-                    R$ {maintenanceReport.data.inProgressCost.toFixed(2)}
+                    {formatCurrencyBr(maintenanceReport.data.inProgressCost)}
                   </p>
                 </div>
 
@@ -1292,7 +1353,7 @@ const ReportsPage: React.FC = () => {
                     {maintenanceReport.data.byStatus.completed}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
-                    R$ {maintenanceReport.data.completedCost.toFixed(2)}
+                    {formatCurrencyBr(maintenanceReport.data.completedCost)}
                   </p>
                 </div>
               </div>
@@ -1744,7 +1805,7 @@ const ReportsPage: React.FC = () => {
                           {customer.rentalCount}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 dark:text-green-400">
-                          R$ {customer.totalSpent.toFixed(2)}
+                          {formatCurrencyBr(customer.totalSpent)}
                         </td>
                       </tr>
                     ))}

@@ -1,5 +1,13 @@
 import api from '../../config/api';
 
+export interface CompanyInvoiceIssuerRow {
+  id: string;
+  label: string;
+  cnpj: string;
+  /** Primeiro número da série para este CNPJ emissor. */
+  initialInvoiceNumber: number;
+}
+
 export interface CompanyCpfCnpjSettings {
   tokenConfigured: boolean;
   cpfPackageId: string;
@@ -23,6 +31,24 @@ export const companyService = {
       '/company/settings/cpfcnpj',
       payload
     );
+    return response.data;
+  },
+
+  getInvoiceIssuers: async (): Promise<CompanyInvoiceIssuerRow[]> => {
+    const response = await api.get<{ success: boolean; data: CompanyInvoiceIssuerRow[] }>(
+      '/company/invoice-issuers',
+    );
+    return response.data.data;
+  },
+
+  updateInvoiceIssuers: async (payload: {
+    issuers: Array<{ id?: string; label: string; cnpj: string; initialInvoiceNumber?: number }>;
+  }) => {
+    const response = await api.put<{
+      success: boolean;
+      data: CompanyInvoiceIssuerRow[];
+      message: string;
+    }>('/company/invoice-issuers', payload);
     return response.data;
   },
 };

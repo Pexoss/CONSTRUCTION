@@ -151,6 +151,9 @@ export class RentalController {
       const returnDate = req.body?.returnDate
         ? parseCalendarDateBody(req.body.returnDate as string | Date)
         : undefined;
+      const informativeReturnDate = req.body?.informativeReturnDate
+        ? parseCalendarDateBody(req.body.informativeReturnDate as string | Date)
+        : undefined;
       const unitId = req.body?.unitId as string | undefined;
       const lineId = req.body?.lineId as string | undefined;
 
@@ -162,6 +165,7 @@ export class RentalController {
         returnDate,
         unitId,
         lineId,
+        informativeReturnDate,
       );
 
       res.json({
@@ -192,6 +196,9 @@ export class RentalController {
         {
           returnDate: data.returnDate
             ? parseCalendarDateBody(data.returnDate as string | Date)
+            : undefined,
+          informativeReturnDate: data.informativeReturnDate
+            ? parseCalendarDateBody(data.informativeReturnDate as string | Date)
             : undefined,
           notes: data.notes,
           items: data.items,

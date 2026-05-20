@@ -43,6 +43,9 @@ const RentalItemSchema = new Schema<IRentalItem>(
     returnActual: {
       type: Date,
     },
+    informativeReturnDate: {
+      type: Date,
+    },
     retroactiveOpenBilling: {
       type: Boolean,
     },
@@ -343,6 +346,10 @@ const RentalSchema = new Schema<IRental>(
       enum: ['delivery_service', 'store_pickup'],
       required: true,
       default: 'store_pickup',
+    },
+    pickedUpBy: {
+      type: String,
+      trim: true,
     },
     
     dates: {

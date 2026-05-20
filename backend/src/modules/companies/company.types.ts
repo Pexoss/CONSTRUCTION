@@ -1,3 +1,12 @@
+export interface CompanyInvoiceIssuer {
+  _id?: string;
+  label: string;
+  /** Apenas dígitos (14) */
+  cnpj: string;
+  /** Início da numeração para este emissor (ex.: 1000); próximo = max(configurado, maior já usado + 1). */
+  initialInvoiceNumber?: number;
+}
+
 export interface ICompany {
   _id?: string;
   name: string;
@@ -22,6 +31,8 @@ export interface ICompany {
   cpfCnpjCpfPackageId?: string;
   cpfCnpjCnpjPackageId?: string;
   settings?: Record<string, any>;
+  /** Emitentes cadastrados para numeração e PDF das faturas (CNPJ da empresa locadora). */
+  invoiceIssuers?: CompanyInvoiceIssuer[];
   createdAt?: Date;
   updatedAt?: Date;
 }

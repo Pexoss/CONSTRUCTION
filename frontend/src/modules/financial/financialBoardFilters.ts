@@ -1,4 +1,4 @@
-/** Filtros do quadro financeiro (query params: customer, item, obra, start, end). */
+/** Filtros do quadro financeiro (query params: customer, item, obra, start, end, semcobranca). */
 
 export type FinancialBoardUrlFilters = {
   customerId: string;
@@ -6,6 +6,8 @@ export type FinancialBoardUrlFilters = {
   obraText: string;
   periodStart: string;
   periodEnd: string;
+  /** Apenas fechamentos ainda sem cobrança vinculada (`chargeId` vazio). */
+  withoutChargeOnly?: boolean;
 };
 
 export function billingMatchesBoardFilters(billing: any, f: FinancialBoardUrlFilters): boolean {
@@ -38,7 +40,10 @@ export function billingMatchesBoardFilters(billing: any, f: FinancialBoardUrlFil
     (!filterStart || (periodEnd && periodEnd >= filterStart)) &&
     (!filterEnd || (periodStart && periodStart <= filterEnd));
 
-  return matchesCustomer && matchesItem && matchesObra && matchesPeriod;
+  const hasChargeId = !!(billing.chargeId && String(billing.chargeId?._id || billing.chargeId || "").length);
+  const matchesWithoutChargeOnly = !f.withoutChargeOnly || !hasChargeId;
+
+  return matchesCustomer && matchesItem && matchesObra && matchesPeriod && matchesWithoutChargeOnly;
 }
 
 export function groupBillingsByFinancialStage(billings: any[]) {

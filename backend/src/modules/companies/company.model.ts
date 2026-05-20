@@ -1,5 +1,35 @@
 import mongoose, { Schema, Model } from 'mongoose';
 import { ICompany } from './company.types';
+import { isValidCnpj, normalizeDocument } from '../../shared/utils/document.utils';
+
+const CompanyInvoiceIssuerSchema = new Schema(
+  {
+    label: {
+      type: String,
+      trim: true,
+      default: 'Matriz',
+    },
+    cnpj: {
+      type: String,
+      required: [true, 'CNPJ é obrigatório'],
+      trim: true,
+      validate: {
+        validator(v: string) {
+          const d = normalizeDocument(v || '');
+          return d.length === 14 && isValidCnpj(d);
+        },
+        message: 'CNPJ inválido para emissor de fatura',
+      },
+    },
+    /** Primeiro número da série numérica para este CNPJ emissor (depois segue maxexistente+1). */
+    initialInvoiceNumber: {
+      type: Number,
+      default: 1,
+      min: 1,
+    },
+  },
+  { _id: true },
+);
 
 const CompanySchema = new Schema<ICompany>(
   {
@@ -79,6 +109,10 @@ const CompanySchema = new Schema<ICompany>(
     cpfCnpjCnpjPackageId: {
       type: String,
       trim: true,
+    },
+    invoiceIssuers: {
+      type: [CompanyInvoiceIssuerSchema],
+      default: [],
     },
   },
   {

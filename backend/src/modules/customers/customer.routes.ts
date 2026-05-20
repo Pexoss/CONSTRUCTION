@@ -12,6 +12,10 @@ router.use(tenantMiddleware);
 // Customer routes
 router.post('/customers', customerController.createCustomer.bind(customerController));
 router.get('/customers', customerController.getCustomers.bind(customerController));
+router.get(
+  '/customers/:id/rental-financial-alerts',
+  customerController.getRentalFinancialAlerts.bind(customerController),
+);
 router.get('/customers/:id', customerController.getCustomerById.bind(customerController));
 router.put('/customers/:id', customerController.updateCustomer.bind(customerController));
 router.delete('/customers/:id', customerController.deleteCustomer.bind(customerController));

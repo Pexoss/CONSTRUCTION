@@ -123,10 +123,13 @@ export class ReportController {
         return;
       }
 
+      const billingIssuerId = req.query.billingIssuerId as string | undefined;
+
       const report = await reportService.getInvoicesGeneratedReport(
         companyId,
         startDate,
         endDate,
+        billingIssuerId,
       );
 
       res.json({
@@ -495,17 +498,22 @@ export class ReportController {
         return;
       }
 
+      const billingIssuerId = req.query.billingIssuerId as string | undefined;
+
       const report = await reportService.getInvoicesGeneratedReport(
         companyId,
         startDate,
         endDate,
+        billingIssuerId,
       );
 
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet("Faturas Geradas");
 
       worksheet.columns = [
-        { header: "Número", key: "invoiceNumber", width: 20 },
+        { header: "Número", key: "invoiceNumber", width: 14 },
+        { header: "CNPJ emitente", key: "issuerCnpjDisplay", width: 22 },
+        { header: "Emissor", key: "issuerLabel", width: 28 },
         { header: "Cliente", key: "customerName", width: 35 },
         { header: "Contrato", key: "rentalNumber", width: 20 },
         { header: "Emissão", key: "issueDate", width: 15 },
@@ -518,6 +526,10 @@ export class ReportController {
       report.invoices.forEach((invoice) => {
         worksheet.addRow({
           invoiceNumber: invoice.invoiceNumber,
+          issuerCnpjDisplay:
+            invoice.issuerCnpjDisplay?.trim() || "—",
+          issuerLabel:
+            invoice.issuerLabel?.trim() || "—",
           customerName: invoice.customerName,
           rentalNumber: invoice.rentalNumber || "—",
           issueDate: new Date(invoice.issueDate).toLocaleDateString("pt-BR"),
@@ -583,6 +595,7 @@ export class ReportController {
         { header: "Fim", key: "periodEnd", width: 15 },
         { header: "Tipo", key: "rentalType", width: 15 },
         { header: "Quantidade", key: "quantity", width: 15 },
+        { header: "Situação equipamento", key: "equipmentSituationLabel", width: 42 },
         { header: "Períodos", key: "periodsCharged", width: 15 },
         { header: "Valor Unit.", key: "unitPrice", width: 15 },
         { header: "Subtotal", key: "subtotal", width: 15 },
@@ -600,6 +613,7 @@ export class ReportController {
           periodEnd: new Date(item.periodEnd).toLocaleDateString("pt-BR"),
           rentalType: this.getRentalTypeLabel(item.rentalType),
           quantity: item.quantity,
+          equipmentSituationLabel: item.equipmentSituationLabel,
           periodsCharged: item.periodsCharged,
           unitPrice: item.unitPrice,
           subtotal: item.subtotal,
@@ -1275,10 +1289,13 @@ export class ReportController {
         return;
       }
 
+      const billingIssuerId = req.query.billingIssuerId as string | undefined;
+
       const report = await reportService.getInvoicesGeneratedReport(
         companyId,
         startDate,
         endDate,
+        billingIssuerId,
       );
 
       const money = (n: number) =>
@@ -1306,9 +1323,10 @@ export class ReportController {
           },
           {
             title: "Faturas",
-            headers: ["Número", "Cliente", "Emissão", "Vencimento", "Status", "Valor (R$)"],
+            headers: ["Número", "CNPJ emitente", "Cliente", "Emissão", "Vencimento", "Status", "Valor (R$)"],
             rows: report.invoices.map((invoice) => [
               invoice.invoiceNumber,
+              invoice.issuerCnpjDisplay?.trim() || "—",
               invoice.customerName,
               new Date(invoice.issueDate).toLocaleDateString("pt-BR"),
               new Date(invoice.dueDate).toLocaleDateString("pt-BR"),
@@ -1377,7 +1395,17 @@ export class ReportController {
           },
           {
             title: "Itens por período",
-            headers: ["Fech.", "Contrato", "Cliente", "Item", "Período", "Tipo", "Qtd", "Subtotal"],
+            headers: [
+              "Fech.",
+              "Contrato",
+              "Cliente",
+              "Item",
+              "Período",
+              "Tipo",
+              "Qtd",
+              "Situação equip.",
+              "Subtotal",
+            ],
             rows: report.items.map((item) => [
               item.billingNumber,
               item.rentalNumber || "—",
@@ -1386,6 +1414,7 @@ export class ReportController {
               `${new Date(item.periodStart).toLocaleDateString("pt-BR")} a ${new Date(item.periodEnd).toLocaleDateString("pt-BR")}`,
               this.getRentalTypeLabel(item.rentalType),
               String(item.quantity),
+              item.equipmentSituationLabel,
               money(item.subtotal),
             ]),
           },

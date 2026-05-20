@@ -25,6 +25,7 @@ export class InvoiceController {
           discount: validatedData.discount,
           terms: validatedData.terms,
           notes: validatedData.notes,
+          billingIssuerId: validatedData.billingIssuerId,
         }
       );
 
@@ -70,6 +71,7 @@ export class InvoiceController {
         status: req.query.status as any,
         customerId: req.query.customerId as string,
         rentalId: req.query.rentalId as string,
+        billingIssuerId: req.query.billingIssuerId as string,
         startDate: req.query.startDate ? new Date(req.query.startDate as string) : undefined,
         endDate: req.query.endDate ? new Date(req.query.endDate as string) : undefined,
         page: req.query.page ? parseInt(req.query.page as string) : 1,

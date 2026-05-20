@@ -6,6 +6,7 @@ import { RentalPendingApproval } from "../../types/rental.types";
 import {
   formatDateNoTimezoneShift,
   formatRentalTypeLabel,
+  formatCurrencyBr,
 } from "../../utils/formatters";
 
 const formatRequestLabel = (type: string) => {
@@ -19,14 +20,6 @@ const formatRequestLabel = (type: string) => {
     rental_update: "Edição de aluguel",
   };
   return map[type] || type;
-};
-
-const formatCurrency = (value?: number) => {
-  if (value === undefined || Number.isNaN(value)) return "-";
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
 };
 
 const formatDate = (value?: string) => {
@@ -61,7 +54,7 @@ const renderRequestDetails = (type: string, details: Record<string, any>) => {
     case "discount":
       return (
         <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1">
-          <div>Desconto: {formatCurrency(details.discount)}</div>
+          <div>Desconto: {formatCurrencyBr(details.discount)}</div>
           <div>Motivo: {details.reason || "-"}</div>
         </div>
       );
@@ -77,8 +70,8 @@ const renderRequestDetails = (type: string, details: Record<string, any>) => {
           <div>Serviço: {details.service?.description || "-"}</div>
           <div>Categoria: {details.service?.category || "-"}</div>
           <div>Quantidade: {details.service?.quantity ?? 1}</div>
-          <div>Preço: {formatCurrency(details.service?.price)}</div>
-          <div>Subtotal: {formatCurrency(details.service?.subtotal)}</div>
+          <div>Preço: {formatCurrencyBr(details.service?.price)}</div>
+          <div>Subtotal: {formatCurrencyBr(details.service?.subtotal)}</div>
         </div>
       );
     case "close_adjustment":
@@ -94,26 +87,26 @@ const renderRequestDetails = (type: string, details: Record<string, any>) => {
           </div>
           <div>
             Subtotal equipamentos:{" "}
-            {formatCurrency(
+            {formatCurrencyBr(
               details.adjustments?.pricingOverride?.equipmentSubtotal,
             )}
           </div>
           <div>
             Subtotal serviços:{" "}
-            {formatCurrency(
+            {formatCurrencyBr(
               details.adjustments?.pricingOverride?.servicesSubtotal,
             )}
           </div>
           <div>
             Desconto:{" "}
-            {formatCurrency(details.adjustments?.pricingOverride?.discount)}
+            {formatCurrencyBr(details.adjustments?.pricingOverride?.discount)}
           </div>
           <div>
             Multa:{" "}
-            {formatCurrency(details.adjustments?.pricingOverride?.lateFee)}
+            {formatCurrencyBr(details.adjustments?.pricingOverride?.lateFee)}
           </div>
           <div>
-            Total: {formatCurrency(details.adjustments?.pricingOverride?.total)}
+            Total: {formatCurrencyBr(details.adjustments?.pricingOverride?.total)}
           </div>
           <div>Observações: {details.adjustments?.notes || "-"}</div>
         </div>
@@ -125,8 +118,8 @@ const renderRequestDetails = (type: string, details: Record<string, any>) => {
             Notas: {details.previousNotes || "-"} → {details.newNotes || "-"}
           </div>
           <div>
-            Desconto: {formatCurrency(details.previousDiscount)} →{" "}
-            {formatCurrency(details.newDiscount)}
+            Desconto: {formatCurrencyBr(details.previousDiscount)} →{" "}
+            {formatCurrencyBr(details.newDiscount)}
           </div>
           <div>
             Retirada: {formatDate(details.previousPickupScheduled)} →{" "}

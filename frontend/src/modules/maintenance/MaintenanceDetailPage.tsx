@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { maintenanceService } from "./maintenance.service";
 import { MaintenanceStatus } from "../../types/maintenance.types";
 import Layout from "../../components/Layout";
+import { formatCurrencyBr } from "../../utils/formatters";
 
 const MaintenanceDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -288,7 +289,7 @@ const MaintenanceDetailPage: React.FC = () => {
                       Custo
                     </p>
                     <p className="font-medium text-gray-900 dark:text-white">
-                      R$ {maintenance.cost.toFixed(2)}
+                      {formatCurrencyBr(maintenance.cost)}
                     </p>
                   </div>
                   {maintenance.performedBy && (

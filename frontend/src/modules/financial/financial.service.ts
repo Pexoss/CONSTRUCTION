@@ -6,6 +6,7 @@ export const financialService = {
     status?: string;
     startDate?: string;
     endDate?: string;
+    billingIssuerId?: string;
   }) => {
     const query = new URLSearchParams();
     Object.entries(params || {}).forEach(([key, value]) => {

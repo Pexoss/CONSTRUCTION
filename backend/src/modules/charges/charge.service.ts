@@ -7,6 +7,8 @@ import { Charge } from "./charge.model";
 import { ICharge } from "./charge.types";
 import { financialService } from "../financial/financial.service";
 import { transactionService } from "../transactions/transaction.service";
+import { formatDateBrNoTimezoneShift } from "../../shared/utils/date-display.util";
+import { formatCurrencyBr } from "../../shared/utils/money-display.util";
 
 const DOC_HEADER_BRAND_LINES = [
   "ALUGUE EQUIPAMENTOS PARA CONSTRUÇÃO CIVIL",
@@ -309,6 +311,7 @@ class ChargeService {
       const nextIds = new Set(nextBillingIds.map((id) => String(id)));
       const removedIds = [...currentIds].filter((id) => !nextIds.has(id));
       const addedIds = [...nextIds].filter((id) => !currentIds.has(id));
+      const billingSetChanged = removedIds.length > 0 || addedIds.length > 0;
 
       if (removedIds.length > 0) {
         await Billing.updateMany(
@@ -322,25 +325,33 @@ class ChargeService {
       }
 
       charge.billingIds = nextBillingIds as any;
-      if (typeof data.total !== "number") {
-        const recalculatedTotal = billings.reduce(
-          (acc, b) => acc + (b.outstandingAmount ?? b.calculation.total),
-          0,
-        );
+
+      const recalculatedTotal = Number(
+        billings
+          .reduce((acc, b) => acc + Number(b.outstandingAmount ?? b.calculation?.total ?? 0), 0)
+          .toFixed(2),
+      );
+
+      /** Inclusão/remoção de fechamentos: sempre somar abertos dos fechamentos (ignora total stale do cliente). */
+      if (billingSetChanged) {
+        charge.total = recalculatedTotal;
+      } else if (typeof data.total === "number" && data.total >= charge.paidAmount) {
+        charge.total = data.total;
+      } else {
         charge.total = recalculatedTotal;
       }
     }
 
     if (data.dueDate) charge.dueDate = data.dueDate;
     if (typeof data.notes === "string") charge.notes = data.notes;
-    if (typeof data.total === "number" && data.total >= charge.paidAmount) {
+    /** Ajuste de total manual sem mexer nos fechamentos. */
+    if (!data.billingIds && typeof data.total === "number" && data.total >= charge.paidAmount) {
       charge.total = data.total;
-      charge.outstandingAmount = Math.max(0, data.total - charge.paidAmount);
-      charge.status = charge.outstandingAmount === 0 ? "paid" : charge.paidAmount > 0 ? "partial" : "pending";
-    } else if (data.billingIds) {
-      charge.outstandingAmount = Math.max(0, charge.total - charge.paidAmount);
-      charge.status = charge.outstandingAmount === 0 ? "paid" : charge.paidAmount > 0 ? "partial" : "pending";
     }
+
+    charge.outstandingAmount = Math.max(0, Number((charge.total - charge.paidAmount).toFixed(2)));
+    charge.status =
+      charge.outstandingAmount === 0 ? "paid" : charge.paidAmount > 0 ? "partial" : "pending";
     await charge.save();
     return charge;
   }
@@ -422,7 +433,7 @@ class ChargeService {
       );
       ry = doc.y + 5;
       doc.text(
-        `Vencimento: ${charge.dueDate ? new Date(charge.dueDate).toLocaleDateString("pt-BR") : "-"}`,
+        `Vencimento: ${charge.dueDate ? formatDateBrNoTimezoneShift(charge.dueDate) : "-"}`,
         colRightX,
         ry,
         { width: colRightW, align: "right" },
@@ -470,7 +481,7 @@ class ChargeService {
       doc.font("Helvetica").fontSize(7.5);
 
       for (const bill of billings) {
-        const period = `${new Date(bill.periodStart).toLocaleDateString("pt-BR")} a ${new Date(bill.periodEnd).toLocaleDateString("pt-BR")}`;
+        const period = `${formatDateBrNoTimezoneShift(bill.periodStart)} a ${formatDateBrNoTimezoneShift(bill.periodEnd)}`;
         for (const item of bill.items || []) {
           const itemName = item.itemId?.name || "Item";
           const rowH = Math.max(14, doc.heightOfString(itemName, { width: descW }) + 2);
@@ -483,7 +494,7 @@ class ChargeService {
           const rentalTypeLabel = RENTAL_TYPE_PT_LABEL[String(bill.rentalType || "")] || String(bill.rentalType || "-");
           doc.text(rentalTypeLabel, colType, y, { width: 55 });
           doc.text(String(item.quantity || 1), colQ, y, { width: 35 });
-          doc.text(`R$ ${Number(item.subtotal).toFixed(2)}`, colTot, y, { width: 70, align: "right" });
+          doc.text(formatCurrencyBr(item.subtotal), colTot, y, { width: 70, align: "right" });
           y += rowH;
           if (y > 760) {
             doc.addPage();
@@ -502,7 +513,7 @@ class ChargeService {
           doc.text(period, colPeriod, y, { width: 120 });
           doc.text("Serviço", colType, y, { width: 55 });
           doc.text(String(service.quantity || 1), colQ, y, { width: 35 });
-          doc.text(`R$ ${Number(service.subtotal ?? 0).toFixed(2)}`, colTot, y, {
+          doc.text(formatCurrencyBr(service.subtotal ?? 0), colTot, y, {
             width: 70,
             align: "right",
           });
@@ -520,10 +531,10 @@ class ChargeService {
 
       doc.font("Helvetica").fontSize(8.5);
       doc.text("Valor Total:", colDesc, y, { width: colTot - colDesc - 8, align: "right" });
-      doc.text(`R$ ${charge.total.toFixed(2)}`, colTot, y, { width: 70, align: "right" });
+      doc.text(formatCurrencyBr(charge.total), colTot, y, { width: 70, align: "right" });
       y += 12;
       doc.text("Saldo em Aberto:", colDesc, y, { width: colTot - colDesc - 8, align: "right" });
-      doc.text(`R$ ${charge.outstandingAmount.toFixed(2)}`, colTot, y, { width: 70, align: "right" });
+      doc.text(formatCurrencyBr(charge.outstandingAmount), colTot, y, { width: 70, align: "right" });
 
       y += 16;
       const sicoobPath = resolveSicoobLogoPath();

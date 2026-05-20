@@ -10,6 +10,7 @@ class FinancialController {
         status: req.query.status as string | undefined,
         startDate: req.query.startDate ? new Date(req.query.startDate as string) : undefined,
         endDate: req.query.endDate ? new Date(req.query.endDate as string) : undefined,
+        billingIssuerId: req.query.billingIssuerId as string | undefined,
       });
       res.json({ success: true, data });
     } catch (error) {

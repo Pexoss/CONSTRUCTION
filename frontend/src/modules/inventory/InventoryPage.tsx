@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useItems, useLowStockItems } from "../../hooks/useInventory";
 import { Item, ItemFilters } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
+import { formatCurrencyBr } from "../../utils/formatters";
 import { inventoryService } from "./inventory.service";
 
 const InventoryPage: React.FC = () => {
@@ -475,7 +476,7 @@ const InventoryPage: React.FC = () => {
                           <div className="flex items-center space-x-6 ml-6">
                             <div className="text-right">
                               <p className="text-lg font-bold text-gray-900 dark:text-white">
-                                R$ {item.pricing.dailyRate.toFixed(2)}
+                                {formatCurrencyBr(item.pricing.dailyRate)}
                               </p>
                               <p className="text-sm text-gray-500 dark:text-gray-400">
                                 por dia

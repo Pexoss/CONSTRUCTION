@@ -10,6 +10,8 @@ import {
 } from "./rental-billing-simulation";
 
 const d = (y: number, m: number, day: number) => new Date(y, m - 1, day);
+const dt = (y: number, m: number, day: number, h: number, min: number) =>
+  new Date(y, m - 1, day, h, min, 0, 0);
 
 describe("rental billing — cálculo único (billing.service)", () => {
   it("periodRateFromInventory: valor quinzenal cadastrado prevalece sobre derivação semanal/mensal", () => {
@@ -54,6 +56,41 @@ describe("rental billing — cálculo único (billing.service)", () => {
     expect(period.daysPassed).toBe(3);
     const { amount } = calculateRentalLineAmount({ dailyRate: 10 }, "daily", period);
     expect(amount).toBe(30);
+  });
+
+  describe("diária com horário (24h + 2h tolerância por diária extra)", () => {
+    it("Ex.1 — 01/05 10h → 02/05 09h (23h, dois dias de calendário) = 1 diária", () => {
+      const period = calculateBillingPeriod(
+        dt(2026, 5, 1, 10, 0),
+        dt(2026, 5, 2, 9, 0),
+        "daily",
+      );
+      expect(period.daysPassed).toBe(1);
+      const { amount } = calculateRentalLineAmount({ dailyRate: 100 }, "daily", period);
+      expect(amount).toBe(100);
+    });
+
+    it("Ex.2 — 01/05 08h30 → 03/05 10h (~49,5h) = 2 diárias", () => {
+      const period = calculateBillingPeriod(
+        dt(2026, 5, 1, 8, 30),
+        dt(2026, 5, 3, 10, 0),
+        "daily",
+      );
+      expect(period.daysPassed).toBe(2);
+      const { amount } = calculateRentalLineAmount({ dailyRate: 50 }, "daily", period);
+      expect(amount).toBe(100);
+    });
+
+    it("Ex.3 — 01/05 14h → 03/05 17h (27h após marca de 48h da retirada) = 3 diárias", () => {
+      const period = calculateBillingPeriod(
+        dt(2026, 5, 1, 14, 0),
+        dt(2026, 5, 3, 17, 0),
+        "daily",
+      );
+      expect(period.daysPassed).toBe(3);
+      const { amount } = calculateRentalLineAmount({ dailyRate: 40 }, "daily", period);
+      expect(amount).toBe(120);
+    });
   });
 
   it("quinzenal exige tarifa quinzenal explícita no cadastro (não deriva só da semanal)", () => {

@@ -93,7 +93,12 @@ export const rentalService = {
   closeRentalItem: async (
     rentalId: string,
     itemId: string,
-    data: { returnDate?: string; unitId?: string; lineId?: string },
+    data: {
+      returnDate?: string;
+      informativeReturnDate?: string;
+      unitId?: string;
+      lineId?: string;
+    },
   ) => {
     const response = await api.post<{
       success: boolean;
@@ -107,6 +112,7 @@ export const rentalService = {
     rentalId: string,
     data: {
       returnDate?: string;
+      informativeReturnDate?: string;
       notes?: string;
       items: Array<{
         itemId: string;
@@ -139,6 +145,7 @@ export const rentalService = {
     id: string,
     data: {
       notes?: string;
+      pickedUpBy?: string;
       dates?: { pickupScheduled?: string; returnScheduled?: string };
       items?: Array<{
         itemId: string;

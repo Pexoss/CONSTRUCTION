@@ -7,7 +7,11 @@ import { customerService } from "../customers/customer.service";
 import { Billing, BillingStatus } from "../../types/billing.types";
 import { toast } from "react-toastify";
 import { billingStatusLabel } from "../../utils/statusLabels";
-import { formatDateNoTimezoneShift } from "../../utils/formatters";
+import {
+  formatCurrencyBr,
+  formatDateNoTimezoneShift,
+  formatDocumentForDisplay,
+} from "../../utils/formatters";
 import SortableTh from "../../components/SortableTh";
 import {
   ColumnSort,
@@ -29,6 +33,9 @@ const BillingsPage: React.FC = () => {
 
   const [status, setStatus] = useState<BillingStatus | "">("");
   const [customerId, setCustomerId] = useState("");
+  const [billingCustomerSearch, setBillingCustomerSearch] = useState("");
+  const [showBillingCustomerDropdown, setShowBillingCustomerDropdown] =
+    useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [onlyOverdue, setOnlyOverdue] = useState(false);
@@ -40,9 +47,9 @@ const BillingsPage: React.FC = () => {
     dir: "desc",
   });
 
-  const { data: customersData } = useQuery({
+  const { data: customersData, isLoading: customersCatalogLoading } = useQuery({
     queryKey: ["customers", "billing-list"],
-    queryFn: () => customerService.getCustomers({ limit: 200 }),
+    queryFn: () => customerService.getCustomers({ limit: 500, page: 1 }),
   });
 
   const { data, isLoading } = useQuery({
@@ -86,6 +93,71 @@ const BillingsPage: React.FC = () => {
   const total = data?.data?.total || 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
+  const customerPickerOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; cpfCnpj?: string }>();
+    for (const c of customersData?.data ?? []) {
+      map.set(String(c._id), {
+        id: String(c._id),
+        name: (c.name || "").trim() || "Cliente",
+        cpfCnpj: c.cpfCnpj,
+      });
+    }
+    for (const b of billings) {
+      const cid = b.customerId as unknown;
+      const id =
+        typeof cid === "object" &&
+        cid !== null &&
+        "_id" in (cid as Record<string, unknown>)
+          ? String((cid as { _id?: string })._id ?? "")
+          : String(cid ?? "");
+      const name =
+        typeof cid === "object" &&
+        cid !== null &&
+        "name" in (cid as Record<string, unknown>)
+          ? String((cid as { name?: string }).name || "").trim() || "Cliente"
+          : "Cliente";
+      if (id && !map.has(id)) {
+        map.set(id, { id, name });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, "pt-BR"),
+    );
+  }, [customersData?.data, billings]);
+
+  const selectedBillingCustomerLabel = useMemo(() => {
+    if (!customerId) return "";
+    const found = customerPickerOptions.find((o) => o.id === customerId);
+    return found?.name ?? `Cliente (${customerId.slice(-8)})`;
+  }, [customerId, customerPickerOptions]);
+
+  const filteredBillingCustomers = useMemo(() => {
+    const raw = billingCustomerSearch.trim().toLowerCase();
+    const qDigits = raw.replace(/\D/g, "");
+    if (!raw && qDigits.length === 0) return [];
+    return customerPickerOptions.filter((c) => {
+      const name = c.name.toLowerCase();
+      const docDigits = String(c.cpfCnpj || "").replace(/\D/g, "");
+      const matchesName = name.includes(raw);
+      const matchesDoc = qDigits.length > 0 && docDigits.includes(qDigits);
+      return matchesName || matchesDoc;
+    });
+  }, [billingCustomerSearch, customerPickerOptions]);
+
+  const selectBillingCustomerFilter = (id: string) => {
+    setCustomerId(id);
+    setBillingCustomerSearch("");
+    setShowBillingCustomerDropdown(false);
+    setPage(1);
+  };
+
+  const clearBillingCustomerFilter = () => {
+    setCustomerId("");
+    setBillingCustomerSearch("");
+    setShowBillingCustomerDropdown(false);
+    setPage(1);
+  };
+
   const handleWeekFilter = () => {
     const now = new Date();
     const weekStart = new Date(now);
@@ -104,12 +176,6 @@ const BillingsPage: React.FC = () => {
     if (!dateString) return "-";
     return formatDateNoTimezoneShift(dateString) || "-";
   };
-
-  const formatCurrency = (value?: number) =>
-    (value || 0).toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    });
 
   const billingOriginLabel = (notes?: string) => {
     const text = (notes || "").toLowerCase();
@@ -284,25 +350,70 @@ const BillingsPage: React.FC = () => {
                   <option value="cancelled">Cancelado</option>
                 </select>
               </div>
-              <div>
+              <div className="relative min-w-0">
                 <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
                   Cliente
                 </label>
-                <select
-                  value={customerId}
-                  onChange={(e) => {
-                    setCustomerId(e.target.value);
-                    setPage(1);
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="">Todos</option>
-                  {(customersData?.data || []).map((customer) => (
-                    <option key={customer._id} value={customer._id}>
-                      {customer.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    placeholder={
+                      customersCatalogLoading
+                        ? "Carregando clientes..."
+                        : "Nome ou documento — digite para filtrar"
+                    }
+                    disabled={customersCatalogLoading}
+                    value={customerId ? selectedBillingCustomerLabel : billingCustomerSearch}
+                    onChange={(e) => {
+                      if (customerId) return;
+                      setBillingCustomerSearch(e.target.value);
+                      setShowBillingCustomerDropdown(true);
+                    }}
+                    onFocus={() => {
+                      if (!customerId) setShowBillingCustomerDropdown(true);
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => setShowBillingCustomerDropdown(false), 200);
+                    }}
+                    className="w-full px-3 py-2 pr-9 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                  {customerId ? (
+                    <button
+                      type="button"
+                      aria-label="Limpar filtro de cliente"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={clearBillingCustomerFilter}
+                    >
+                      ✕
+                    </button>
+                  ) : null}
+                  {showBillingCustomerDropdown &&
+                  !customerId &&
+                  filteredBillingCustomers.length > 0 ? (
+                    <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800">
+                      {filteredBillingCustomers.slice(0, 25).map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => selectBillingCustomerFilter(c.id)}
+                        >
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
+                            {c.name}
+                          </span>
+                          {c.cpfCnpj ? (
+                            <span className="mt-0.5 block text-[11px] text-gray-500 dark:text-gray-400">
+                              {formatDocumentForDisplay(String(c.cpfCnpj))}
+                            </span>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
               <div>
                 <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
@@ -468,10 +579,10 @@ const BillingsPage: React.FC = () => {
                             </div>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-200">
-                            {formatCurrency(billing.calculation?.total)}
+                            {formatCurrencyBr(billing.calculation?.total)}
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-800 dark:text-gray-200">
-                            {formatCurrency(
+                            {formatCurrencyBr(
                               Number(
                                 billing.outstandingAmount ??
                                   billing.calculation?.total ??

@@ -1,6 +1,8 @@
 import { Customer } from "./customer.model";
 import { ICustomer } from "./customer.types";
 import mongoose from "mongoose";
+import { Billing } from "../billings/billing.model";
+import { Charge } from "../charges/charge.model";
 import { cpfCnpjService } from "../../shared/services/cpfcnpj.service";
 import { Company } from "../companies/company.model";
 import {
@@ -564,6 +566,138 @@ class CustomerService {
     await customer.save();
 
     return customer;
+  }
+
+  /**
+   * Resumo de pendências ao criar novo aluguel: cobranças em aberto já vencidas
+   * (por data de vencimento da cobrança ou, se ausente, pelo último fim de período dos fechamentos vinculados);
+   * fechamentos com período encerrado, sem cobrança nem fatura, ainda em aberto.
+   */
+  async getFinancialAlertsForNewRental(
+    companyId: string,
+    customerId: string,
+  ): Promise<{
+    overdueCharges: { count: number; totalOutstanding: number };
+    overdueBillingsWithoutCharge: { count: number; totalOutstanding: number };
+  }> {
+    const companyOid = new mongoose.Types.ObjectId(companyId);
+    const cid = new mongoose.Types.ObjectId(customerId);
+
+    const exists = await Customer.exists({ _id: cid, companyId: companyOid });
+    if (!exists) {
+      throw new Error("Customer not found");
+    }
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const chargeCandidates = await Charge.find({
+      companyId: companyOid,
+      customerId: cid,
+      status: { $in: ["pending", "partial"] },
+      outstandingAmount: { $gt: 0.01 },
+    })
+      .select("dueDate billingIds outstandingAmount")
+      .lean();
+
+    const billingIdsForFallbackDue = new Set<string>();
+    for (const c of chargeCandidates) {
+      const hasDueDate = c.dueDate != null;
+      if (!hasDueDate && Array.isArray(c.billingIds) && c.billingIds.length > 0) {
+        for (const bid of c.billingIds) {
+          if (bid) billingIdsForFallbackDue.add(String(bid));
+        }
+      }
+    }
+
+    const billingPeriodEndById = new Map<string, Date>();
+    if (billingIdsForFallbackDue.size > 0) {
+      const oidList = [...billingIdsForFallbackDue].filter((id) =>
+        mongoose.isValidObjectId(id),
+      );
+      if (oidList.length > 0) {
+        const linkedBillings = await Billing.find({
+          companyId: companyOid,
+          _id: { $in: oidList.map((id) => new mongoose.Types.ObjectId(id)) },
+        })
+          .select("periodEnd")
+          .lean();
+        for (const b of linkedBillings) {
+          if (b.periodEnd) {
+            billingPeriodEndById.set(String(b._id), new Date(b.periodEnd));
+          }
+        }
+      }
+    }
+
+    const isOpenChargeOverdue = (c: (typeof chargeCandidates)[number]): boolean => {
+      if (c.dueDate != null && c.dueDate !== undefined) {
+        const due = new Date(c.dueDate as Date);
+        if (Number.isNaN(due.getTime())) return false;
+        const dueDayStart = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+        return dueDayStart < todayStart;
+      }
+
+      const ids = Array.isArray(c.billingIds) ? c.billingIds : [];
+      let maxPeriodEnd: Date | null = null;
+      for (const bid of ids) {
+        if (!bid) continue;
+        const pe = billingPeriodEndById.get(String(bid));
+        if (!pe || Number.isNaN(pe.getTime())) continue;
+        if (!maxPeriodEnd || pe.getTime() > maxPeriodEnd.getTime()) maxPeriodEnd = pe;
+      }
+      if (!maxPeriodEnd) return false;
+      const endDayStart = new Date(
+        maxPeriodEnd.getFullYear(),
+        maxPeriodEnd.getMonth(),
+        maxPeriodEnd.getDate(),
+      );
+      return endDayStart < todayStart;
+    };
+
+    let overdueChargesCount = 0;
+    let overdueChargesTotal = 0;
+    for (const c of chargeCandidates) {
+      if (isOpenChargeOverdue(c)) {
+        overdueChargesCount += 1;
+        overdueChargesTotal += Number(c.outstandingAmount ?? 0);
+      }
+    }
+
+    const billingCandidates = await Billing.find({
+      companyId: companyOid,
+      customerId: cid,
+      status: { $nin: ["paid", "cancelled"] },
+      periodEnd: { $lt: now },
+      $and: [
+        { $or: [{ chargeId: null }, { chargeId: { $exists: false } }] },
+        { $or: [{ invoiceId: null }, { invoiceId: { $exists: false } }] },
+      ],
+    })
+      .select("outstandingAmount calculation.total")
+      .lean();
+
+    let billingsCount = 0;
+    let billingsTotal = 0;
+    for (const b of billingCandidates) {
+      const outstanding = Number(b.outstandingAmount ?? b.calculation?.total ?? 0);
+      if (outstanding <= 0.01) continue;
+      billingsCount += 1;
+      billingsTotal += outstanding;
+    }
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    return {
+      overdueCharges: {
+        count: overdueChargesCount,
+        totalOutstanding: round2(overdueChargesTotal),
+      },
+      overdueBillingsWithoutCharge: {
+        count: billingsCount,
+        totalOutstanding: round2(billingsTotal),
+      },
+    };
   }
 }
 

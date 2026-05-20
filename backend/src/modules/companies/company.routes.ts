@@ -14,4 +14,7 @@ router.use(requireRoles([UserRole.ADMIN, UserRole.SUPERADMIN]));
 router.get('/settings/cpfcnpj', companyController.getCpfCnpjSettings.bind(companyController));
 router.patch('/settings/cpfcnpj', companyController.updateCpfCnpjSettings.bind(companyController));
 
+router.get('/invoice-issuers', companyController.getInvoiceIssuers.bind(companyController));
+router.put('/invoice-issuers', companyController.updateInvoiceIssuers.bind(companyController));
+
 export default router;

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-toastify";
 import { Link, useSearchParams } from "react-router-dom";
@@ -8,16 +8,22 @@ import { financialService } from "./financial.service";
 import { chargeService } from "../charges/charge.service";
 import { invoiceService } from "../invoices/invoice.service";
 import { billingService } from "../billings/billing.service";
+import { customerService } from "../customers/customer.service";
 import {
   billingMatchesBoardFilters,
-  groupBillingsByFinancialStage,
   FinancialBoardUrlFilters,
 } from "./financialBoardFilters";
 import { RentalDeliveryQuickModal } from "./RentalDeliveryQuickModal";
+import { companyService } from "../company/company.service";
 import { rentalTypeLabel } from "../../utils/statusLabels";
 import {
   formatDateNoTimezoneShift,
+  formatDateTimeForDisplay,
+  formatDocumentForDisplay,
+  formatCurrencyBr,
+  formatMoneyInputBr,
   getBillingOutstandingAmount,
+  parseMoneyBr,
   toDateInputValue,
 } from "../../utils/formatters";
 import SortableTh from "../../components/SortableTh";
@@ -26,6 +32,7 @@ import {
   sortedTableRows,
   toggleColumnSort,
 } from "../../utils/tableSort";
+import { getBillingCompositionRowsOrdered } from "../../utils/billingDisplayOrder";
 
 const stageLabel: Record<string, string> = {
   pending: "Pendentes",
@@ -42,6 +49,24 @@ const chargeStatusLabel: Record<string, string> = {
   cancelled: "Cancelado",
 };
 
+/** Maior `paidAt` entre as baixas registradas na cobrança (para lista). */
+const getChargeLatestPaymentPaidAtIso = (charge: any): string | undefined => {
+  const list = charge?.payments;
+  if (!Array.isArray(list) || list.length === 0) return undefined;
+  let bestMs = 0;
+  let bestIso: string | undefined;
+  for (const p of list) {
+    if (!p?.paidAt) continue;
+    const t = new Date(p.paidAt).getTime();
+    if (!Number.isFinite(t)) continue;
+    if (t >= bestMs) {
+      bestMs = t;
+      bestIso = String(p.paidAt);
+    }
+  }
+  return bestIso;
+};
+
 const isChargeEditLocked = (charge: any): boolean =>
   charge?.status === "paid" || charge?.status === "cancelled";
 
@@ -50,6 +75,17 @@ const invoiceStatusLabel: Record<string, string> = {
   sent: "Enviada",
   paid: "Paga",
   cancelled: "Cancelada",
+};
+
+const formatInvoiceHeading = (invoice: {
+  invoiceNumber?: string;
+  issuerCnpj?: string;
+}): string => {
+  const number = invoice.invoiceNumber?.trim() || "—";
+  const cnpj = invoice.issuerCnpj?.trim()
+    ? formatDocumentForDisplay(invoice.issuerCnpj)
+    : "";
+  return cnpj ? `${cnpj} · Fatura ${number}` : `Fatura ${number}`;
 };
 
 const getBillingOutstanding = getBillingOutstandingAmount;
@@ -92,17 +128,16 @@ const FinancialCenterPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedBillingIds, setSelectedBillingIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"billings" | "charges" | "invoices">("billings");
-  const [billingsSubView, setBillingsSubView] = useState<"lista" | "quadro">("lista");
   const [finBillSort, setFinBillSort] = useState<ColumnSort<FinBillSortKey> | null>({
     key: "period",
     dir: "desc",
   });
   const [deliveryModalRentalId, setDeliveryModalRentalId] = useState<string | null>(null);
-  /** Baixa parcial no modal da cobrança (fluxo centralizado na aba Cobranças). */
+  const [boardCustomerSearch, setBoardCustomerSearch] = useState("");
+  const [showBoardCustomerDropdown, setShowBoardCustomerDropdown] = useState(false);
+  /** Campos para registrar baixa no modal da cobrança (aba Cobranças). */
   const [chargePartialAmount, setChargePartialAmount] = useState<string>("");
   const [chargePartialDiscount, setChargePartialDiscount] = useState<string>("");
-  /** Desconto na quitação total (saldo quitado = valor recebido + desconto). */
-  const [chargeFullSettleDiscount, setChargeFullSettleDiscount] = useState<string>("");
   const [chargePartialMethod, setChargePartialMethod] = useState<string>("manual");
   const [invoiceDueDate, setInvoiceDueDate] = useState<string>("");
   const [invoicePaymentMethod, setInvoicePaymentMethod] = useState<string>("boleto/PIX");
@@ -128,6 +163,10 @@ const FinancialCenterPage: React.FC = () => {
   const obraFilter = searchParams.get("obra") || "";
   const periodStartFilter = searchParams.get("start") || "";
   const periodEndFilter = searchParams.get("end") || "";
+  const withoutChargeOnlyFilter = searchParams.get("semcobranca") === "1";
+  const emitenteInvoiceBoardFilter = searchParams.get("emitente") || "";
+
+  const [invoiceBillingIssuerForCreate, setInvoiceBillingIssuerForCreate] = useState<string>("");
 
   const filterParams: FinancialBoardUrlFilters = useMemo(
     () => ({
@@ -136,8 +175,16 @@ const FinancialCenterPage: React.FC = () => {
       obraText: obraFilter,
       periodStart: periodStartFilter,
       periodEnd: periodEndFilter,
+      withoutChargeOnly: withoutChargeOnlyFilter,
     }),
-    [customerFilter, itemFilter, obraFilter, periodStartFilter, periodEndFilter],
+    [
+      customerFilter,
+      itemFilter,
+      obraFilter,
+      periodStartFilter,
+      periodEndFilter,
+      withoutChargeOnlyFilter,
+    ],
   );
 
   const updateFilterParam = (key: string, value: string) => {
@@ -149,22 +196,92 @@ const FinancialCenterPage: React.FC = () => {
     }
     setSearchParams(next, { replace: true });
   };
+
+  const { data: invoiceIssuerBoardOptions = [] } = useQuery({
+    queryKey: ["company-invoice-issuers"],
+    queryFn: () => companyService.getInvoiceIssuers(),
+    enabled: features.financialUnifiedModule,
+  });
+
+  useEffect(() => {
+    if (invoiceIssuerBoardOptions.length > 0 && !invoiceBillingIssuerForCreate) {
+      setInvoiceBillingIssuerForCreate(invoiceIssuerBoardOptions[0].id);
+    }
+  }, [invoiceIssuerBoardOptions, invoiceBillingIssuerForCreate]);
+
   const boardQuery = useQuery({
-    queryKey: ["financial-board"],
-    queryFn: () => financialService.getBoard(),
+    queryKey: [
+      "financial-board",
+      customerFilter,
+      itemFilter,
+      obraFilter,
+      periodStartFilter,
+      periodEndFilter,
+      emitenteInvoiceBoardFilter,
+    ],
+    queryFn: () =>
+      financialService.getBoard({
+        customerId: customerFilter || undefined,
+        startDate: periodStartFilter || undefined,
+        endDate: periodEndFilter || undefined,
+        billingIssuerId: emitenteInvoiceBoardFilter || undefined,
+      }),
     enabled: features.financialUnifiedModule,
   });
   const boardData = boardQuery.data?.data;
 
-  const dashboardQuery = useQuery({
-    queryKey: ["financial-dashboard-unified"],
-    queryFn: () => financialService.getDashboard(),
-    enabled: features.financialUnifiedModule,
-  });
-
   const billings = useMemo(() => boardData?.billings || [], [boardData]);
   const charges = useMemo(() => boardData?.charges || [], [boardData]);
   const invoices = useMemo(() => boardData?.invoices || [], [boardData]);
+
+  const {
+    data: boardCustomersCatalog,
+    isLoading: boardCustomersCatalogLoading,
+  } = useQuery({
+    queryKey: ["financial-board-customers-catalog"],
+    queryFn: () => customerService.getCustomers({ limit: 500, page: 1 }),
+    enabled: features.financialUnifiedModule,
+  });
+
+  const customerPickerOptions = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; cpfCnpj?: string }>();
+    for (const c of boardCustomersCatalog?.data ?? []) {
+      map.set(String(c._id), {
+        id: String(c._id),
+        name: c.name?.trim() || "Cliente",
+        cpfCnpj: c.cpfCnpj,
+      });
+    }
+    for (const billing of billings) {
+      const id = String(billing.customerId?._id || billing.customerId || "");
+      const name = String(billing.customerId?.name || "Cliente").trim() || "Cliente";
+      if (id && !map.has(id)) {
+        map.set(id, { id, name });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  }, [boardCustomersCatalog, billings]);
+
+  const selectedBoardCustomerLabel = useMemo(() => {
+    if (!customerFilter) return "";
+    const found = customerPickerOptions.find((o) => o.id === customerFilter);
+    return found?.name ?? `Cliente (${customerFilter.slice(-8)})`;
+  }, [customerFilter, customerPickerOptions]);
+
+  const filteredBoardCustomers = useMemo(() => {
+    const raw = boardCustomerSearch.trim().toLowerCase();
+    const qDigits = raw.replace(/\D/g, "");
+    if (!raw.trim() && qDigits.length === 0) {
+      return [];
+    }
+    return customerPickerOptions.filter((c) => {
+      const name = c.name.toLowerCase();
+      const docDigits = String(c.cpfCnpj || "").replace(/\D/g, "");
+      const matchesName = name.includes(raw);
+      const matchesDoc = qDigits.length > 0 && docDigits.includes(qDigits);
+      return matchesName || matchesDoc;
+    });
+  }, [boardCustomerSearch, customerPickerOptions]);
   const selectedBillings = billings.filter((bill: any) => selectedBillingIds.includes(bill._id));
   const selectedEligibleBillingIds = selectedBillings
     .filter(isBillingEligibleForCharge)
@@ -211,10 +328,8 @@ const FinancialCenterPage: React.FC = () => {
     onSuccess: () => {
       setChargePartialAmount("");
       setChargePartialDiscount("");
-      setChargeFullSettleDiscount("");
       toast.success("Baixa registrada com sucesso.");
       queryClient.invalidateQueries({ queryKey: ["financial-board"] });
-      queryClient.invalidateQueries({ queryKey: ["financial-dashboard-unified"] });
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message || "Não foi possível registrar a baixa.";
@@ -228,12 +343,15 @@ const FinancialCenterPage: React.FC = () => {
         billingIds,
         dueDate: invoiceDueDate || undefined,
         paymentMethod: invoicePaymentMethod || undefined,
+        billingIssuerId:
+          invoiceIssuerBoardOptions.length > 0
+            ? invoiceBillingIssuerForCreate || undefined
+            : undefined,
       });
     },
     onSuccess: (response) => {
       toast.success(`Fatura ${response.data.invoiceNumber} gerada com sucesso.`);
       queryClient.invalidateQueries({ queryKey: ["financial-board"] });
-      queryClient.invalidateQueries({ queryKey: ["financial-dashboard-unified"] });
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message || "Não foi possível gerar a fatura.";
@@ -300,7 +418,6 @@ const FinancialCenterPage: React.FC = () => {
     onSuccess: () => {
       toast.success("Fechamento atualizado com os dados atuais do aluguel.");
       queryClient.invalidateQueries({ queryKey: ["financial-board"] });
-      queryClient.invalidateQueries({ queryKey: ["financial-dashboard-unified"] });
     },
     onError: (error: any) =>
       toast.error(error?.response?.data?.message || "Falha ao atualizar fechamento."),
@@ -380,11 +497,6 @@ const FinancialCenterPage: React.FC = () => {
     onError: (error: any) => toast.error(error?.response?.data?.message || "Falha ao cancelar fatura."),
   });
 
-  const columns = useMemo(() => {
-    const filteredBillings = billings.filter((b: any) => billingMatchesBoardFilters(b, filterParams));
-    return groupBillingsByFinancialStage(filteredBillings);
-  }, [billings, filterParams]);
-
   const handleFinBillSort = (key: FinBillSortKey) =>
     setFinBillSort((prev) => toggleColumnSort(prev, key));
 
@@ -457,16 +569,6 @@ const FinancialCenterPage: React.FC = () => {
     });
   }, [invoices, customerFilter, itemFilter, obraFilter, periodStartFilter, periodEndFilter, billingMatchesGlobalFilter]);
 
-  const customerOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const billing of billings) {
-      const id = String(billing.customerId?._id || billing.customerId || "");
-      const name = String(billing.customerId?.name || "Cliente");
-      if (id && !map.has(id)) map.set(id, name);
-    }
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
-  }, [billings]);
-
   const availableBillingsForChargeModal = useMemo(() => {
     if (!chargeModal) return [];
     const customerId = String(chargeModal.customerId?._id || chargeModal.customerId || "");
@@ -500,8 +602,8 @@ const FinancialCenterPage: React.FC = () => {
   const handlePayChargePartialFromModal = () => {
     if (!chargeModal) return;
     const outstanding = Number(chargeModal.outstandingAmount || 0);
-    const amount = Number(chargePartialAmount || 0);
-    const discount = Number(chargePartialDiscount || 0);
+    const amount = parseMoneyBr(chargePartialAmount);
+    const discount = parseMoneyBr(chargePartialDiscount);
     if (!Number.isFinite(amount) || amount < 0) {
       toast.warning("Informe um valor de baixa válido.");
       return;
@@ -526,32 +628,11 @@ const FinancialCenterPage: React.FC = () => {
     });
   };
 
-  const handleSettleCharge = (charge: any) => {
-    const outstanding = Number(charge.outstandingAmount || 0);
-    if (outstanding <= 0.01) {
-      toast.info("Essa cobrança já está quitada.");
-      return;
-    }
-    const discountParsed = Number(String(chargeFullSettleDiscount || "").replace(",", "."));
-    if (!Number.isFinite(discountParsed) || discountParsed < 0) {
-      toast.warning("Informe um desconto válido ou deixe em branco/zero.");
-      return;
-    }
-    const discount = Number(discountParsed.toFixed(2));
-    if (discount - outstanding > 0.01) {
-      toast.warning("O desconto não pode ser maior que o saldo em aberto.");
-      return;
-    }
-    const amount = Number((outstanding - discount).toFixed(2));
-    payChargeMutation.mutate({
-      chargeId: charge._id,
-      amount,
-      discount: discount > 0 ? discount : undefined,
-      method: "manual",
-    });
-  };
-
   const handleGenerateInvoiceFromCharge = (charge: any) => {
+    if (invoiceIssuerBoardOptions.length > 0 && !invoiceBillingIssuerForCreate.trim()) {
+      toast.warning("Selecione o CNPJ emissor da fatura.");
+      return;
+    }
     const relatedBillings = (charge.billingIds || []).filter((billing: any) => !!billing);
     const eligibleBillings = relatedBillings.filter((billing: any) =>
       typeof billing === "string" ? true : isBillingEligibleForInvoiceDocument(billing),
@@ -573,11 +654,10 @@ const FinancialCenterPage: React.FC = () => {
     setChargeModal(charge);
     setChargeModalNotes(String(charge.notes || ""));
     setChargeModalDueDate(toDateInputValue(charge.dueDate));
-    setChargeModalTotal(String(Number(charge.total || 0)));
+    setChargeModalTotal(formatMoneyInputBr(Number(charge.total || 0)));
     setChargeModalBillingIds((charge.billingIds || []).map((b: any) => String(b?._id || b)));
-    setChargePartialAmount("");
-    setChargePartialDiscount("");
-    setChargeFullSettleDiscount("");
+    setChargePartialAmount(formatMoneyInputBr(Number(charge.total || 0)));
+    setChargePartialDiscount(formatMoneyInputBr(0));
     setChargePartialMethod("manual");
   };
 
@@ -601,7 +681,7 @@ const FinancialCenterPage: React.FC = () => {
         chargeId: chargeModal._id,
         notes: chargeModalNotes,
         dueDate: chargeModalDueDate || undefined,
-        total: Number(chargeModalTotal),
+        total: parseMoneyBr(chargeModalTotal),
         billingIds: chargeModalBillingIds,
       } as any,
       {
@@ -628,20 +708,31 @@ const FinancialCenterPage: React.FC = () => {
     chargeModal && chargeModal.status !== "cancelled",
   );
 
-  const chargeModalFullSettlePreview = useMemo(() => {
-    if (!chargeModal) {
-      return { outstanding: 0, discount: 0, received: 0 };
-    }
-    const os = Number(chargeModal.outstandingAmount || 0);
-    const parsed = Number(String(chargeFullSettleDiscount || "").replace(",", "."));
-    const discount =
-      Number.isFinite(parsed) && parsed >= 0 ? Number(parsed.toFixed(2)) : 0;
-    return {
-      outstanding: os,
-      discount,
-      received: Math.max(0, Number((os - discount).toFixed(2))),
-    };
-  }, [chargeModal, chargeFullSettleDiscount]);
+  /** Soma dos fechamentos marcados no modal da cobrança — atualiza o valor total antes de salvar. */
+  const chargeModalSelectedBillingsTotal = useMemo(() => {
+    if (!chargeModal) return 0;
+    const idSet = new Set(chargeModalBillingIds);
+    return billings
+      .filter((b: any) => idSet.has(String(b._id)))
+      .reduce((acc: number, b: any) => acc + getBillingOutstanding(b), 0);
+  }, [billings, chargeModal, chargeModalBillingIds]);
+
+  useEffect(() => {
+    if (!chargeModal || chargeModalViewOnly) return;
+    setChargeModalTotal(formatMoneyInputBr(chargeModalSelectedBillingsTotal));
+  }, [chargeModal, chargeModalSelectedBillingsTotal, chargeModalViewOnly]);
+
+  const selectBoardCustomerFilter = (id: string) => {
+    updateFilterParam("customer", id);
+    setBoardCustomerSearch("");
+    setShowBoardCustomerDropdown(false);
+  };
+
+  const clearBoardCustomerFilter = () => {
+    updateFilterParam("customer", "");
+    setBoardCustomerSearch("");
+    setShowBoardCustomerDropdown(false);
+  };
 
   if (!features.financialUnifiedModule) {
     return (
@@ -654,63 +745,86 @@ const FinancialCenterPage: React.FC = () => {
   return (
     <Layout title="Financeiro" backTo="/dashboard">
       <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="border rounded-md p-4">
-            <p className="text-xs text-gray-500">Pendente</p>
-            <p className="text-xl font-semibold">
-              R$ {(dashboardQuery.data?.data?.totals?.pending || 0).toFixed(2)}
-            </p>
-          </div>
-          <div className="border rounded-md p-4">
-            <p className="text-xs text-gray-500">Pago</p>
-            <p className="text-xl font-semibold">
-              R$ {(dashboardQuery.data?.data?.totals?.paid || 0).toFixed(2)}
-            </p>
-          </div>
-          <div className="border rounded-md p-4">
-            <p className="text-xs text-gray-500">Atalhos</p>
-            <div className="flex flex-wrap gap-2 mt-2">
-              <Link
-                to="/rentals?status=active"
-                className="px-3 py-1.5 bg-amber-600 text-white rounded-md text-sm"
-              >
-                Devoluções pendentes
-              </Link>
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 leading-relaxed">
-              Baixas e recebimentos ficam na aba <strong>Cobranças</strong> (abra a cobrança com duplo clique ou em
-              &quot;Abrir&quot;).
-            </p>
-          </div>
-        </div>
-
         <details className="border rounded-md p-4 bg-white dark:bg-gray-800">
-          <summary className="cursor-pointer font-semibold">Filtros do Kanban</summary>
+          <summary className="cursor-pointer font-semibold">
+            Filtros (fechamentos, cobranças e lista de faturas)
+          </summary>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-            <select
-              value={customerFilter}
-              onChange={(e) => updateFilterParam("customer", e.target.value)}
-              className="border rounded-md px-2 py-2 text-sm"
-            >
-              <option value="">Todos os clientes</option>
-              {customerOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.name}
-                </option>
-              ))}
-            </select>
+            <div className="relative min-w-0">
+              <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+                Cliente
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  autoComplete="off"
+                  placeholder={
+                    boardCustomersCatalogLoading
+                      ? "Carregando clientes..."
+                      : "Nome ou documento — digite para filtrar"
+                  }
+                  disabled={boardCustomersCatalogLoading}
+                  value={customerFilter ? selectedBoardCustomerLabel : boardCustomerSearch}
+                  onChange={(e) => {
+                    if (customerFilter) return;
+                    setBoardCustomerSearch(e.target.value);
+                    setShowBoardCustomerDropdown(true);
+                  }}
+                  onFocus={() => {
+                    if (!customerFilter) setShowBoardCustomerDropdown(true);
+                  }}
+                  onBlur={() => {
+                    window.setTimeout(() => setShowBoardCustomerDropdown(false), 200);
+                  }}
+                  className="w-full border rounded-md px-2 py-2 pr-9 text-sm bg-white dark:bg-gray-900"
+                />
+                {customerFilter ? (
+                  <button
+                    type="button"
+                    aria-label="Limpar filtro de cliente"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1.5 text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={clearBoardCustomerFilter}
+                  >
+                    ✕
+                  </button>
+                ) : null}
+                {showBoardCustomerDropdown &&
+                !customerFilter &&
+                filteredBoardCustomers.length > 0 ? (
+                  <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800">
+                    {filteredBoardCustomers.slice(0, 25).map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => selectBoardCustomerFilter(c.id)}
+                      >
+                        <span className="font-medium text-gray-900 dark:text-gray-100">{c.name}</span>
+                        {c.cpfCnpj ? (
+                          <span className="mt-0.5 block text-[11px] text-gray-500 dark:text-gray-400">
+                            {formatDocumentForDisplay(String(c.cpfCnpj))}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
 
             <input
               value={itemFilter}
               onChange={(e) => updateFilterParam("item", e.target.value)}
-              className="border rounded-md px-2 py-2 text-sm"
+              className="border rounded-md px-2 py-2 text-sm bg-white dark:bg-gray-900"
               placeholder="Filtrar por item"
             />
 
             <input
               value={obraFilter}
               onChange={(e) => updateFilterParam("obra", e.target.value)}
-              className="border rounded-md px-2 py-2 text-sm"
+              className="border rounded-md px-2 py-2 text-sm bg-white dark:bg-gray-900"
               placeholder="Filtrar por obra"
             />
 
@@ -718,21 +832,35 @@ const FinancialCenterPage: React.FC = () => {
               type="date"
               value={periodStartFilter}
               onChange={(e) => updateFilterParam("start", e.target.value)}
-              className="border rounded-md px-2 py-2 text-sm"
+              className="border rounded-md px-2 py-2 text-sm bg-white dark:bg-gray-900"
             />
 
             <input
               type="date"
               value={periodEndFilter}
               onChange={(e) => updateFilterParam("end", e.target.value)}
-              className="border rounded-md px-2 py-2 text-sm"
+              className="border rounded-md px-2 py-2 text-sm bg-white dark:bg-gray-900"
             />
           </div>
+          <label className="mt-4 flex items-center gap-2 text-sm cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="rounded border-gray-300"
+              checked={withoutChargeOnlyFilter}
+              onChange={(e) => updateFilterParam("semcobranca", e.target.checked ? "1" : "")}
+            />
+            <span>Apenas fechamentos sem cobrança gerada</span>
+          </label>
+
           <div className="mt-3">
             <button
               type="button"
-              onClick={() => setSearchParams({}, { replace: true })}
-              className="px-3 py-1.5 border border-gray-300 rounded-md text-sm"
+              onClick={() => {
+                setBoardCustomerSearch("");
+                setShowBoardCustomerDropdown(false);
+                setSearchParams({}, { replace: true });
+              }}
+              className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm"
             >
               Limpar filtros
             </button>
@@ -759,34 +887,16 @@ const FinancialCenterPage: React.FC = () => {
             >
               Faturas
             </button>
-            {activeTab === "billings" && (
-              <Link
-                to={{ pathname: "/finance/dashboard-kanban", search: searchParams.toString() }}
-                className="ml-auto text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
-              >
-                Abrir quadro somente leitura (dashboard)
-              </Link>
-            )}
           </div>
 
           {activeTab === "billings" && (
             <div className="space-y-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className={`px-3 py-1.5 rounded-md text-sm ${billingsSubView === "lista" ? "bg-slate-700 text-white" : "border border-gray-300 dark:border-gray-600"}`}
-                    onClick={() => setBillingsSubView("lista")}
-                  >
-                    Lista (cobranças)
-                  </button>
-                  <button
-                    type="button"
-                    className={`px-3 py-1.5 rounded-md text-sm ${billingsSubView === "quadro" ? "bg-slate-700 text-white" : "border border-gray-300 dark:border-gray-600"}`}
-                    onClick={() => setBillingsSubView("quadro")}
-                  >
-                    Quadro (kanban)
-                  </button>
+                <div className="flex flex-col gap-1 min-w-[200px]">
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Lista de fechamentos</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    Marque linhas elegíveis e use <strong>Criar cobrança</strong>.
+                  </p>
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
                   <button
@@ -812,8 +922,7 @@ const FinancialCenterPage: React.FC = () => {
                 </div>
               </div>
 
-              {billingsSubView === "lista" && (
-                <div className="overflow-x-auto rounded-md border border-gray-200 dark:border-gray-700">
+              <div className="overflow-x-auto rounded-md border border-gray-200 dark:border-gray-700">
                   <table className="min-w-[960px] w-full text-sm text-left">
                     <thead className="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200">
                       <tr>
@@ -883,11 +992,29 @@ const FinancialCenterPage: React.FC = () => {
                       ) : (
                         tableBillings.map((bill: any) => {
                           const rentalIdStr = String(bill.rentalId?._id || bill.rentalId || "");
-                          const itemNames =
-                            (bill.items || []).length > 0
-                              ? bill.items
-                                  .map((item: any) => item?.itemId?.name || "Item")
-                                  .filter((name: string, index: number, arr: string[]) => arr.indexOf(name) === index)
+                          const compositionRows = getBillingCompositionRowsOrdered(
+                            { items: bill.items ?? [], services: bill.services ?? [] },
+                            (it: any) =>
+                              typeof it.itemId === "object" && it.itemId?.name ? it.itemId.name : "Item",
+                          );
+                          const itemNames: string[] =
+                            compositionRows.length > 0
+                              ? (() => {
+                                  const seen = new Set<string>();
+                                  const out: string[] = [];
+                                  for (const row of compositionRows) {
+                                    const label =
+                                      row.kind === "item"
+                                        ? typeof row.item.itemId === "object" && row.item.itemId?.name
+                                          ? row.item.itemId.name
+                                          : "Item"
+                                        : row.service.description || "Serviço";
+                                    if (seen.has(label)) continue;
+                                    seen.add(label);
+                                    out.push(label);
+                                  }
+                                  return out;
+                                })()
                               : [];
                           const tipo =
                             rentalTypeLabel[String(bill.rentalType || "")] || bill.rentalType || "—";
@@ -943,7 +1070,7 @@ const FinancialCenterPage: React.FC = () => {
                                 {stageLabel[String(bill.financialStage)] || bill.financialStage || "—"}
                               </td>
                               <td className="px-2 py-2 text-right whitespace-nowrap">
-                                R$ {getBillingOutstanding(bill).toFixed(2)}
+                                {formatCurrencyBr(getBillingOutstanding(bill))}
                               </td>
                               <td className="px-2 py-2">
                                 <div className="flex flex-wrap gap-1">
@@ -1006,99 +1133,6 @@ const FinancialCenterPage: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
-              )}
-
-              {billingsSubView === "quadro" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                  {Object.entries(columns).map(([stage, items]) => (
-                    <div key={stage} className="border rounded-md p-3 bg-gray-50 dark:bg-gray-900/40">
-                      <h3 className="font-semibold mb-3">{stageLabel[stage]}</h3>
-                      <div className="space-y-2">
-                        {(items as any[]).map((bill) => (
-                          <label key={bill._id} className="block border rounded-md p-2 bg-white dark:bg-gray-800">
-                            <div className="flex justify-between text-sm">
-                              <span className="font-medium">{bill.customerId?.name || "Cliente"}</span>
-                              <span>R$ {getBillingOutstanding(bill).toFixed(2)}</span>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-1">
-                              Período:{" "}
-                              {bill.periodStart ? formatDateNoTimezoneShift(bill.periodStart) : "-"} até{" "}
-                              {bill.periodEnd ? formatDateNoTimezoneShift(bill.periodEnd) : "-"}
-                            </p>
-                            <div className="text-[11px] text-gray-500">
-                              <span className="font-medium">Itens:</span>
-                              {(bill.items || []).length > 0 ? (
-                                <div className="mt-0.5 max-h-16 overflow-y-auto pr-1 space-y-0.5">
-                                  {bill.items
-                                    .map((item: any) => item?.itemId?.name || "Item")
-                                    .filter((name: string, index: number, arr: string[]) => arr.indexOf(name) === index)
-                                    .map((name: string) => (
-                                      <div key={name} className="truncate" title={name}>
-                                        {name}
-                                      </div>
-                                    ))}
-                                </div>
-                              ) : (
-                                <span> -</span>
-                              )}
-                            </div>
-                            <p className="text-xs text-gray-500">Obra: {bill.rentalId?.workAddress?.workName || "-"}</p>
-                            <p className="text-[11px] text-gray-400 mt-1">Fechamento: {bill.billingNumber || bill._id}</p>
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              <button
-                                type="button"
-                                className="px-2 py-1 border rounded text-xs"
-                                onClick={() => printBillingMutation.mutate(bill._id)}
-                              >
-                                Imprimir
-                              </button>
-                              <button
-                                type="button"
-                                className="px-2 py-1 border rounded text-xs"
-                                onClick={() => {
-                                  const notes = window.prompt("Editar observações do fechamento:", bill.notes || "");
-                                  if (notes !== null) editBillingMutation.mutate({ billingId: bill._id, notes });
-                                }}
-                              >
-                                Editar
-                              </button>
-                              <button
-                                type="button"
-                                className="px-2 py-1 border rounded text-xs text-red-600"
-                                onClick={() => cancelBillingMutation.mutate(bill._id)}
-                              >
-                                Cancelar
-                              </button>
-                              {bill.status !== "paid" && bill.status !== "cancelled" && (
-                                <button
-                                  type="button"
-                                  className="px-2 py-1 border rounded text-xs"
-                                  onClick={() => void handlePreviewAndRefreshBilling(bill._id)}
-                                >
-                                  Atualizar fechamento
-                                </button>
-                              )}
-                              {isBillingEligibleForCharge(bill) && (
-                                <input
-                                  type="checkbox"
-                                  checked={selectedBillingIds.includes(bill._id)}
-                                  onChange={(e) => {
-                                    setSelectedBillingIds((current) =>
-                                      e.target.checked
-                                        ? [...current, bill._id]
-                                        : current.filter((id) => id !== bill._id),
-                                    );
-                                  }}
-                                />
-                              )}
-                            </div>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           )}
 
@@ -1136,16 +1170,48 @@ const FinancialCenterPage: React.FC = () => {
                   {filteredCharges.map((charge: any) => (
                     <div
                       key={charge._id}
-                      className="border rounded-md p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                      className={`border rounded-md p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2 cursor-pointer ${
+                        charge.status === "paid"
+                          ? "bg-emerald-50 border-emerald-200/90 dark:bg-emerald-950/40 dark:border-emerald-800/50 hover:bg-emerald-100/90 dark:hover:bg-emerald-900/45"
+                          : "hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                      }`}
                       onDoubleClick={() => openChargeModal(charge)}
                       title="Duplo clique para abrir detalhes"
                     >
-                      <div>
-                        <p className="font-medium">{charge.chargeNumber}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          Cliente: {charge.customerId?.name || "Cliente"} | Status:{" "}
-                          {chargeStatusLabel[String(charge.status)] || charge.status} | Em aberto: R${" "}
-                          {Number(charge.outstandingAmount || 0).toFixed(2)}
+                      <div className="min-w-0">
+                        <p className="text-base font-semibold text-gray-900 dark:text-white truncate">
+                          {charge.customerId?.name || "Cliente"}
+                        </p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                          <span className="text-gray-600 dark:text-gray-300 font-medium tabular-nums">
+                            {charge.chargeNumber}
+                          </span>
+                          {" · "}
+                          {chargeStatusLabel[String(charge.status)] || charge.status}
+                          {" · "}
+                          Em aberto{" "}
+                          <span className="tabular-nums font-medium">
+                            {formatCurrencyBr(charge.outstandingAmount || 0)}
+                          </span>
+                          {Number(charge.paidAmount || 0) > 0.01 ? (
+                            <>
+                              {" · "}
+                              Pago{" "}
+                              <span className="tabular-nums font-medium text-gray-700 dark:text-gray-200">
+                                {formatCurrencyBr(charge.paidAmount || 0)}
+                              </span>
+                              {(() => {
+                                const lastIso = getChargeLatestPaymentPaidAtIso(charge);
+                                const lastLabel = lastIso ? formatDateTimeForDisplay(lastIso) : "";
+                                return lastLabel ? (
+                                  <>
+                                    {" · "}Última baixa:{" "}
+                                    <span className="tabular-nums">{lastLabel}</span>
+                                  </>
+                                ) : null;
+                              })()}
+                            </>
+                          ) : null}
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -1167,11 +1233,33 @@ const FinancialCenterPage: React.FC = () => {
           {activeTab === "invoices" && (
             <div className="border rounded-md p-4">
               <h3 className="font-semibold mb-1">Faturas</h3>
-              <p className="text-xs text-gray-500 mb-3">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                 Duplo clique em uma fatura para abrir detalhes completos e ações.
               </p>
+              <div className="mb-4 max-w-xs">
+                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                  CNPJ gerador
+                </label>
+                <select
+                  value={emitenteInvoiceBoardFilter}
+                  onChange={(e) => updateFilterParam("emitente", e.target.value)}
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-2 py-2 text-sm bg-white dark:bg-gray-900"
+                >
+                  <option value="">Todos</option>
+                  <option value="legacy">Sem emitente cadastrado (antigas)</option>
+                  {invoiceIssuerBoardOptions.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.label} · {formatDocumentForDisplay(row.cnpj)}
+                    </option>
+                  ))}
+                </select>
+              </div>
               {filteredInvoices.length === 0 ? (
-                <p className="text-sm text-gray-600">Nenhuma fatura gerada ainda.</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {invoices.length === 0
+                    ? "Nenhuma fatura gerada ainda."
+                    : "Nenhuma fatura com os filtros atuais."}
+                </p>
               ) : (
                 <div className="space-y-2">
                   {filteredInvoices.map((invoice: any) => (
@@ -1182,10 +1270,14 @@ const FinancialCenterPage: React.FC = () => {
                       title="Duplo clique para abrir detalhes"
                     >
                       <div>
-                        <p className="font-medium">Fatura {invoice.invoiceNumber}</p>
-                        <p className="text-xs text-gray-500">
-                          Cliente: {invoice.customerId?.name || "Cliente"} | Status: {invoiceStatusLabel[String(invoice.status)] || invoice.status} | Total: R${" "}
-                          {Number(invoice.total || 0).toFixed(2)}
+                        <p className="font-medium">{formatInvoiceHeading(invoice)}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Cliente: {invoice.customerId?.name || "Cliente"}
+                          {invoice.issuerLabel ? (
+                            <> | Emitente: {invoice.issuerLabel}</>
+                          ) : null}{" "}
+                          | Status: {invoiceStatusLabel[String(invoice.status)] || invoice.status} |
+                          Total: {formatCurrencyBr(invoice.total || 0)}
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -1207,8 +1299,8 @@ const FinancialCenterPage: React.FC = () => {
         <div className="border rounded-md p-4">
           <h3 className="font-semibold mb-2">Fluxo recomendado nesta tela</h3>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Selecione fechamentos elegíveis na lista ou no quadro e use <strong>Criar cobrança</strong> à direita. Em seguida, na aba{" "}
-            <strong>Cobranças</strong>, abra a cobrança para baixa total/parcial, PDF ou cancelamento; em{" "}
+            Selecione fechamentos elegíveis na lista abaixo e use <strong>Criar cobrança</strong>. Em seguida, na aba{" "}
+            <strong>Cobranças</strong>, abra a cobrança para registrar baixa (valor + desconto opcional), PDF ou cancelamento; em{" "}
             <strong>Faturas</strong>, trate o documento fiscal.
           </p>
         </div>
@@ -1245,7 +1337,7 @@ const FinancialCenterPage: React.FC = () => {
               </div>
               <button
                 type="button"
-                className="shrink-0 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                className="shrink-0 px-4 py-2.5 rounded-lg border-2 border-gray-900 dark:border-gray-100 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm font-bold shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
                 onClick={() => setChargeModal(null)}
               >
                 Fechar
@@ -1269,7 +1361,7 @@ const FinancialCenterPage: React.FC = () => {
                     Total
                   </p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-gray-900 dark:text-white">
-                    R$ {Number(chargeModal.total || 0).toFixed(2)}
+                    {formatCurrencyBr(chargeModal.total || 0)}
                   </p>
                 </div>
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 px-4 py-3">
@@ -1277,7 +1369,7 @@ const FinancialCenterPage: React.FC = () => {
                     Recebido
                   </p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-gray-900 dark:text-white">
-                    R$ {Number(chargeModal.paidAmount || 0).toFixed(2)}
+                    {formatCurrencyBr(chargeModal.paidAmount || 0)}
                   </p>
                 </div>
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 px-4 py-3 col-span-2 lg:col-span-1">
@@ -1285,7 +1377,7 @@ const FinancialCenterPage: React.FC = () => {
                     Em aberto
                   </p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-indigo-700 dark:text-indigo-300">
-                    R$ {Number(chargeModal.outstandingAmount || 0).toFixed(2)}
+                    {formatCurrencyBr(chargeModal.outstandingAmount || 0)}
                   </p>
                 </div>
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 px-4 py-3 col-span-2 lg:col-span-1">
@@ -1337,6 +1429,9 @@ const FinancialCenterPage: React.FC = () => {
                         disabled={chargeModalViewOnly}
                         value={chargeModalTotal}
                         onChange={(e) => setChargeModalTotal(e.target.value)}
+                        onBlur={(e) =>
+                          setChargeModalTotal(formatMoneyInputBr(e.target.value))
+                        }
                         placeholder="0,00"
                       />
                     </div>
@@ -1405,7 +1500,7 @@ const FinancialCenterPage: React.FC = () => {
                             {bill.periodStart ? formatDateNoTimezoneShift(bill.periodStart) : "-"} até{" "}
                             {bill.periodEnd ? formatDateNoTimezoneShift(bill.periodEnd) : "-"} ·{" "}
                             <span className="tabular-nums font-medium">
-                              R$ {getBillingOutstanding(bill).toFixed(2)}
+                              {formatCurrencyBr(getBillingOutstanding(bill))}
                             </span>
                           </span>
                         </span>
@@ -1419,139 +1514,84 @@ const FinancialCenterPage: React.FC = () => {
                 <section>
                   <div className="mb-2 px-0.5">
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      Baixas e quitação
+                      Registrar baixa
                     </h4>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      Quite o saldo inteiro (com desconto opcional) ou registre uma baixa parcial.
+                      Informe o valor recebido e, se precisar, desconto concedido na baixa (somam até o máximo do saldo em aberto).
+                      Para quitar o saldo por completo, use valor + desconto igual ao valor em aberto.
                     </p>
                   </div>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div className="rounded-lg border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/60 dark:bg-emerald-950/25 overflow-hidden flex flex-col">
-                      <div className="px-4 py-2.5 border-b border-emerald-200/80 dark:border-emerald-800/50">
-                        <h4 className="text-xs font-semibold uppercase tracking-wide text-emerald-900 dark:text-emerald-200">
-                          Quitação total
-                        </h4>
-                      </div>
-                      <div className="p-4 space-y-3 flex-1 flex flex-col">
-                        <div className="space-y-1.5 max-w-full sm:max-w-[200px]">
-                          <label className="text-xs font-medium text-emerald-900/90 dark:text-emerald-200/90">
-                            Desconto (opcional), R$
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-slate-50/80 dark:bg-gray-800/40 overflow-hidden flex flex-col max-w-full lg:max-w-3xl">
+                    <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                        Valores da baixa
+                      </h4>
+                    </div>
+                    <div className="p-4 space-y-3 flex-1 flex flex-col">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                            Valor (R$)
                           </label>
                           <input
-                            type="number"
-                            min={0}
-                            step={0.01}
-                            className="w-full border border-emerald-200 dark:border-emerald-800 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums"
+                            type="text"
+                            inputMode="decimal"
+                            className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums"
                             placeholder="0,00"
-                            value={chargeFullSettleDiscount}
-                            onChange={(e) => setChargeFullSettleDiscount(e.target.value)}
+                            value={chargePartialAmount}
+                            onChange={(e) => setChargePartialAmount(e.target.value)}
+                            onBlur={(e) =>
+                              setChargePartialAmount(formatMoneyInputBr(e.target.value))
+                            }
                           />
                         </div>
-                        <p className="text-xs text-emerald-900/85 dark:text-emerald-100/90 leading-relaxed rounded-lg bg-white/60 dark:bg-gray-900/30 px-3 py-2.5 border border-emerald-100 dark:border-emerald-900/40">
-                          Saldo em aberto{" "}
-                          <span className="font-semibold tabular-nums">
-                            R$ {chargeModalFullSettlePreview.outstanding.toFixed(2)}
-                          </span>
-                          . Serão registrados recebimento de{" "}
-                          <span className="font-semibold tabular-nums">
-                            R$ {chargeModalFullSettlePreview.received.toFixed(2)}
-                          </span>
-                          {chargeModalFullSettlePreview.discount > 0.005 ? (
-                            <>
-                              {" "}
-                              + desconto{" "}
-                              <span className="font-semibold tabular-nums">
-                                R$ {chargeModalFullSettlePreview.discount.toFixed(2)}
-                              </span>
-                            </>
-                          ) : null}
-                          .
-                        </p>
-                        <button
-                          type="button"
-                          disabled={payChargeMutation.isPending}
-                          className="w-full sm:w-auto px-4 py-2.5 bg-emerald-700 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-emerald-800"
-                          onClick={() => handleSettleCharge(chargeModal)}
-                        >
-                          {payChargeMutation.isPending ? "Registrando…" : "Registrar baixa total"}
-                        </button>
-                        <p className="text-xs text-emerald-800/75 dark:text-emerald-200/80 mt-auto">
-                          Saldo em aberto nesta cobrança:{" "}
-                          <span className="font-semibold tabular-nums">
-                            R$ {Number(chargeModal.outstandingAmount || 0).toFixed(2)}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-slate-50/80 dark:bg-gray-800/40 overflow-hidden flex flex-col">
-                      <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
-                        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-                          Baixa parcial
-                        </h4>
-                      </div>
-                      <div className="p-4 space-y-3 flex-1 flex flex-col">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                              Valor (R$)
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums"
-                              placeholder="0,00"
-                              value={chargePartialAmount}
-                              onChange={(e) => setChargePartialAmount(e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                              Desconto (R$)
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums"
-                              placeholder="0,00"
-                              value={chargePartialDiscount}
-                              onChange={(e) => setChargePartialDiscount(e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                              Forma
-                            </label>
-                            <select
-                              value={chargePartialMethod}
-                              onChange={(e) => setChargePartialMethod(e.target.value)}
-                              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900"
-                            >
-                              <option value="manual">Manual</option>
-                              <option value="pix">PIX</option>
-                              <option value="boleto">Boleto</option>
-                              <option value="cartao">Cartão</option>
-                              <option value="transferencia">Transferência</option>
-                            </select>
-                          </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                            Desconto (R$)
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums"
+                            placeholder="0,00"
+                            value={chargePartialDiscount}
+                            onChange={(e) => setChargePartialDiscount(e.target.value)}
+                            onBlur={(e) =>
+                              setChargePartialDiscount(formatMoneyInputBr(e.target.value))
+                            }
+                          />
                         </div>
-                        <button
-                          type="button"
-                          disabled={payChargeMutation.isPending}
-                          className="w-full sm:w-auto px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-green-700"
-                          onClick={() => handlePayChargePartialFromModal()}
-                        >
-                          {payChargeMutation.isPending ? "Registrando…" : "Registrar baixa parcial"}
-                        </button>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-auto">
-                          Saldo em aberto nesta cobrança:{" "}
-                          <span className="font-semibold tabular-nums text-gray-700 dark:text-gray-200">
-                            R$ {Number(chargeModal.outstandingAmount || 0).toFixed(2)}
-                          </span>
-                        </p>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                            Forma
+                          </label>
+                          <select
+                            value={chargePartialMethod}
+                            onChange={(e) => setChargePartialMethod(e.target.value)}
+                            className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900"
+                          >
+                            <option value="manual">Manual</option>
+                            <option value="pix">PIX</option>
+                            <option value="boleto">Boleto</option>
+                            <option value="cartao">Cartão</option>
+                            <option value="transferencia">Transferência</option>
+                          </select>
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        disabled={payChargeMutation.isPending}
+                        className="w-full sm:w-auto px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-green-700"
+                        onClick={() => handlePayChargePartialFromModal()}
+                      >
+                        {payChargeMutation.isPending ? "Registrando…" : "Registrar baixa"}
+                      </button>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-auto">
+                        Saldo em aberto nesta cobrança:{" "}
+                        <span className="font-semibold tabular-nums text-gray-700 dark:text-gray-200">
+                          {formatCurrencyBr(chargeModal.outstandingAmount || 0)}
+                        </span>
+                      </p>
                     </div>
                   </div>
                 </section>
@@ -1565,6 +1605,32 @@ const FinancialCenterPage: React.FC = () => {
                     </h4>
                   </div>
                   <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {invoiceIssuerBoardOptions.length > 0 ? (
+                      <div className="space-y-1.5 sm:col-span-2">
+                        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                          CNPJ emissor na fatura (obrigatório)
+                        </label>
+                        <select
+                          value={invoiceBillingIssuerForCreate}
+                          onChange={(e) => setInvoiceBillingIssuerForCreate(e.target.value)}
+                          className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900"
+                        >
+                          {invoiceIssuerBoardOptions.map((row) => (
+                            <option key={row.id} value={row.id}>
+                              {row.label} · {formatDocumentForDisplay(row.cnpj)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2 sm:col-span-2">
+                        Cadastre os CNPJs emissores em{" "}
+                        <Link to="/company/settings" className="underline font-medium">
+                          Configurações da empresa
+                        </Link>{" "}
+                        para escolher o emitente ao gerar a fatura e numerar por CNPJ.
+                      </p>
+                    )}
                     <div className="space-y-1.5">
                       <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
                         Vencimento na fatura (opcional)
@@ -1629,10 +1695,17 @@ const FinancialCenterPage: React.FC = () => {
                     {!chargeModalViewOnly ? (
                       <button
                         type="button"
-                        className="px-4 py-2 border border-red-300 text-red-600 dark:border-red-800 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-50 dark:hover:bg-red-950/30"
-                        onClick={() => cancelChargeMutation.mutate(chargeModal._id)}
+                        className="px-4 py-2 border border-red-300 text-red-600 dark:border-red-800 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => {
+                          const ok = window.confirm(
+                            "Tem certeza que deseja cancelar esta cobrança?\n\nEla deixará de constar como ativa; os vínculos com os fechamentos serão atualizados conforme as regras do sistema.",
+                          );
+                          if (!ok) return;
+                          cancelChargeMutation.mutate(chargeModal._id);
+                        }}
+                        disabled={cancelChargeMutation.isPending}
                       >
-                        Cancelar cobrança
+                        {cancelChargeMutation.isPending ? "Cancelando…" : "Cancelar cobrança"}
                       </button>
                     ) : null}
                   </div>
@@ -1649,10 +1722,14 @@ const FinancialCenterPage: React.FC = () => {
             <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Fatura {invoiceModal.invoiceNumber}
+                  {formatInvoiceHeading(invoiceModal)}
                 </h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Cliente: {invoiceModal.customerId?.name || "Cliente"} | Status:{" "}
+                  Cliente: {invoiceModal.customerId?.name || "Cliente"}
+                  {invoiceModal.issuerLabel ? (
+                    <> | Emitente: {invoiceModal.issuerLabel}</>
+                  ) : null}{" "}
+                  | Status:{" "}
                   {invoiceStatusLabel[String(invoiceModal.status)] || invoiceModal.status}
                 </p>
               </div>
@@ -1666,7 +1743,7 @@ const FinancialCenterPage: React.FC = () => {
             </div>
             <div className="px-5 py-4 space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                <div className="border rounded p-2">Total: R$ {Number(invoiceModal.total || 0).toFixed(2)}</div>
+                <div className="border rounded p-2">Total: {formatCurrencyBr(invoiceModal.total || 0)}</div>
                 <div className="border rounded p-2">
                   Emissao: {invoiceModal.issueDate ? formatDateNoTimezoneShift(invoiceModal.issueDate) : "-"}
                 </div>
@@ -1728,18 +1805,18 @@ const FinancialCenterPage: React.FC = () => {
 
                 <div className="text-gray-700 dark:text-gray-200">Total</div>
                 <div className="text-gray-700 dark:text-gray-200">
-                  R$ {refreshPreviewModal.current.total.toFixed(2)}
+                  {formatCurrencyBr(refreshPreviewModal.current.total)}
                 </div>
                 <div className="text-gray-900 dark:text-white font-semibold">
-                  R$ {refreshPreviewModal.next.total.toFixed(2)}
+                  {formatCurrencyBr(refreshPreviewModal.next.total)}
                 </div>
 
                 <div className="text-gray-700 dark:text-gray-200">Em aberto</div>
                 <div className="text-gray-700 dark:text-gray-200">
-                  R$ {refreshPreviewModal.current.outstandingAmount.toFixed(2)}
+                  {formatCurrencyBr(refreshPreviewModal.current.outstandingAmount)}
                 </div>
                 <div className="text-gray-900 dark:text-white font-semibold">
-                  R$ {refreshPreviewModal.next.outstandingAmount.toFixed(2)}
+                  {formatCurrencyBr(refreshPreviewModal.next.outstandingAmount)}
                 </div>
               </div>
 
@@ -1751,7 +1828,7 @@ const FinancialCenterPage: React.FC = () => {
                       : "bg-green-50 text-green-700 border border-green-200"
                   }`}
                 >
-                  Diferença no total: R$ {refreshPreviewModal.diff.total.toFixed(2)}
+                  Diferença no total: {formatCurrencyBr(refreshPreviewModal.diff.total)}
                 </div>
                 <div
                   className={`rounded-md p-3 text-sm ${
@@ -1760,7 +1837,7 @@ const FinancialCenterPage: React.FC = () => {
                       : "bg-green-50 text-green-700 border border-green-200"
                   }`}
                 >
-                  Diferença em aberto: R$ {refreshPreviewModal.diff.outstandingAmount.toFixed(2)}
+                  Diferença em aberto: {formatCurrencyBr(refreshPreviewModal.diff.outstandingAmount)}
                 </div>
               </div>
             </div>

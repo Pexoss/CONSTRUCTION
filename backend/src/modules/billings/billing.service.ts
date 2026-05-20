@@ -1,6 +1,8 @@
 import {
   addBillingDays,
   getPeriodLengthDays,
+  isLocalMidnight,
+  countRollingDailyBillingUnits,
 } from '../../shared/utils/rental-period.util';
 import { Billing } from './billing.model';
 import { Rental } from '../rentals/rental.model';
@@ -12,6 +14,12 @@ import { financialService } from '../financial/financial.service';
 import { transactionService } from '../transactions/transaction.service';
 import { Charge } from '../charges/charge.model';
 import { asIdString, buildRentalLineKey } from '../../shared/utils/rental-line-key.util';
+import {
+  getBillingCompositionRowsOrdered,
+  isBillingFreteLine,
+  sortBillingRowsFreteLastStable,
+} from '../../shared/utils/billing-display-order.util';
+import { formatCurrencyBr } from '../../shared/utils/money-display.util';
 
 /**
  * Alinha com RentalService.getEffectivePricingForRentalLines:
@@ -143,19 +151,38 @@ export function calculateBillingPeriod(
 
   let daysPassed: number;
   if (rentalType === "daily") {
-    const diffMs = e.getTime() - s.getTime();
-    if (diffMs < 0) {
-      return {
-        periodsCompleted: 0,
-        extraDays: 0,
-        totalPeriods: 0,
-        chargeExtraPeriod: false,
-        daysPassed: 0,
-      };
+    const pickup = new Date(pickupDate);
+    const dropoff = new Date(returnDate);
+    const calendarOnlyDaily =
+      isLocalMidnight(pickup) && isLocalMidnight(dropoff);
+
+    if (calendarOnlyDaily) {
+      const diffMs = e.getTime() - s.getTime();
+      if (diffMs < 0) {
+        return {
+          periodsCompleted: 0,
+          extraDays: 0,
+          totalPeriods: 0,
+          chargeExtraPeriod: false,
+          daysPassed: 0,
+        };
+      }
+      /** Com retirada e devolução só em datas (meia-noite): mantém diárias corridas inclusivas como antes. */
+      const wholeDaysBetween = Math.floor(diffMs / DAY_MS);
+      daysPassed = Math.max(1, wholeDaysBetween + 1);
+    } else {
+      const diffMs = dropoff.getTime() - pickup.getTime();
+      if (diffMs < 0) {
+        return {
+          periodsCompleted: 0,
+          extraDays: 0,
+          totalPeriods: 0,
+          chargeExtraPeriod: false,
+          daysPassed: 0,
+        };
+      }
+      daysPassed = Math.max(1, countRollingDailyBillingUnits(diffMs));
     }
-    /** Mesmos limites inclusivos das demais modalidades (ex.: retirada 01/04 e devolução 03/04 = 3 diárias). */
-    const wholeDaysBetween = Math.floor(diffMs / DAY_MS);
-    daysPassed = Math.max(1, wholeDaysBetween + 1);
   } else {
     const diffMs = e.getTime() - s.getTime();
     if (diffMs < 0) {
@@ -805,19 +832,38 @@ class BillingService {
     }
 
     let servicesSubtotal = 0;
-    const billingServices = (rental.services || []).map((service: any) => {
+    type BillingSvcRow = {
+      description: string;
+      category?: string;
+      price: number;
+      quantity: number;
+      subtotal: number;
+    };
+    const billingServices: BillingSvcRow[] = (rental.services || []).map((service: any) => {
       const quantity = Number(service.quantity || 1);
       const subtotal = Number(service.subtotal ?? Number(service.price || 0) * quantity);
       servicesSubtotal += subtotal;
+      const categoryRaw =
+        service.category != null && String(service.category).trim() !== ''
+          ? String(service.category).trim()
+          : undefined;
       return {
         description: service.description,
+        ...(categoryRaw ? { category: categoryRaw } : {}),
         price: Number(service.price || 0),
         quantity,
         subtotal,
       };
     });
 
-    return { services: billingServices, servicesSubtotal: Number(servicesSubtotal.toFixed(2)) };
+    const servicesOrdered = sortBillingRowsFreteLastStable(billingServices, (s) =>
+      isBillingFreteLine(s.description, s.category),
+    );
+
+    return {
+      services: servicesOrdered,
+      servicesSubtotal: Number(servicesSubtotal.toFixed(2)),
+    };
   }
 
   private async createServiceBillingIfNeeded(
@@ -990,12 +1036,27 @@ class BillingService {
     }
 
     const rentalType: RentalType = item.rentalType || 'daily';
-    const normalizedStart = new Date(periodStart);
-    normalizedStart.setHours(0, 0, 0, 0);
-    const normalizedEnd = new Date(periodEnd);
-    normalizedEnd.setHours(0, 0, 0, 0);
+    let billingPeriodStart = new Date(periodStart);
+    let billingPeriodEnd = new Date(periodEnd);
 
-    const periodCalculation = calculateBillingPeriod(normalizedStart, normalizedEnd, rentalType);
+    const dailyUsesCalendarInclusive =
+      rentalType === 'daily' &&
+      isLocalMidnight(billingPeriodStart) &&
+      isLocalMidnight(billingPeriodEnd);
+
+    if (rentalType !== 'daily') {
+      billingPeriodStart.setHours(0, 0, 0, 0);
+      billingPeriodEnd.setHours(0, 0, 0, 0);
+    } else if (dailyUsesCalendarInclusive) {
+      billingPeriodStart.setHours(0, 0, 0, 0);
+      billingPeriodEnd.setHours(0, 0, 0, 0);
+    }
+
+    const periodCalculation = calculateBillingPeriod(
+      billingPeriodStart,
+      billingPeriodEnd,
+      rentalType,
+    );
 
     const autoNotes: string[] = [];
     const { lineUnit, pricing, autoNote } = await this.resolvePeriodRateForBilling(
@@ -1058,12 +1119,23 @@ class BillingService {
       .join('\n');
 
     const targetStatus = options?.status || 'approved';
+    let periodStartMatch: Date | { $in: Date[] };
+    if (rentalType === 'daily' && !dailyUsesCalendarInclusive) {
+      const dayOnlyStart = new Date(billingPeriodStart);
+      dayOnlyStart.setHours(0, 0, 0, 0);
+      periodStartMatch = {
+        $in: [billingPeriodStart, dayOnlyStart],
+      };
+    } else {
+      periodStartMatch = billingPeriodStart;
+    }
+
     const itemScopedFilter: Record<string, unknown> = {
       companyId,
       rentalId: rental._id,
       rentalType,
-      periodStart: normalizedStart,
-      periodEnd: normalizedEnd,
+      periodStart: periodStartMatch,
+      periodEnd: billingPeriodEnd,
       status: targetStatus,
       financialStage: { $nin: ['paid', 'cancelled'] },
       'items.itemId': item.itemId,
@@ -1086,8 +1158,8 @@ class BillingService {
       rentalId: rental._id,
       customerId: rental.customerId,
       billingDate: new Date(),
-      periodStart: normalizedStart,
-      periodEnd: normalizedEnd,
+      periodStart: billingPeriodStart,
+      periodEnd: billingPeriodEnd,
       rentalType,
       calculation,
       items,
@@ -1531,53 +1603,59 @@ class BillingService {
       doc.text('Total', 450, y, { width: 80, align: 'right' });
       y += itemHeight;
 
-      // Table Items
+      // Table Items (equipamentos + serviços intercalados; frete sempre por último)
       doc.font('Helvetica');
-      billing.items.forEach((item: any) => {
-        const itemData = item.itemId as any;
-        const description =
-          itemData && typeof itemData === 'object' && 'name' in itemData
-            ? itemData.name
+      const billingRowsPdf = getBillingCompositionRowsOrdered(
+        billing as { items?: any[] | null; services?: any[] | null },
+        (line: any) => {
+          const itemData = line.itemId as any;
+          return itemData && typeof itemData === 'object' && 'name' in itemData
+            ? String(itemData.name ?? 'Item')
             : 'Item';
-        doc.text(description, 50, y, { width: 240 });
-        doc.text(item.quantity.toString(), 300, y);
-        doc.text(`R$ ${item.unitPrice.toFixed(2)}`, 350, y, { width: 80, align: 'right' });
-        doc.text(`R$ ${item.subtotal.toFixed(2)}`, 450, y, { width: 80, align: 'right' });
-        y += itemHeight;
-      });
-
-      if (billing.services && billing.services.length > 0) {
-        doc.font('Helvetica');
-        billing.services.forEach((service: any) => {
+        },
+      );
+      for (const row of billingRowsPdf) {
+        if (row.kind === 'item') {
+          const item = row.line;
+          const itemData = item.itemId as any;
+          const description =
+            itemData && typeof itemData === 'object' && 'name' in itemData ? itemData.name : 'Item';
+          doc.text(description, 50, y, { width: 240 });
+          doc.text(item.quantity.toString(), 300, y);
+          doc.text(formatCurrencyBr(item.unitPrice), 350, y, { width: 80, align: 'right' });
+          doc.text(formatCurrencyBr(item.subtotal), 450, y, { width: 80, align: 'right' });
+          y += itemHeight;
+        } else {
+          const service = row.svc;
           doc.text(service.description || 'Serviço', 50, y, { width: 240 });
           doc.text(String(service.quantity || 1), 300, y);
-          doc.text(`R$ ${service.price.toFixed(2)}`, 350, y, { width: 80, align: 'right' });
-          doc.text(`R$ ${service.subtotal.toFixed(2)}`, 450, y, { width: 80, align: 'right' });
+          doc.text(formatCurrencyBr(service.price), 350, y, { width: 80, align: 'right' });
+          doc.text(formatCurrencyBr(service.subtotal), 450, y, { width: 80, align: 'right' });
           y += itemHeight;
-        });
+        }
       }
 
       // Totals
       y += 10;
       doc.font('Helvetica');
       doc.text(`Subtotal:`, 350, y, { width: 80, align: 'right' });
-      doc.text(`R$ ${billing.calculation.subtotal.toFixed(2)}`, 450, y, { width: 80, align: 'right' });
+      doc.text(formatCurrencyBr(billing.calculation.subtotal), 450, y, { width: 80, align: 'right' });
       y += itemHeight;
 
       if (billing.calculation.discount && billing.calculation.discount > 0) {
         doc.text(`Desconto:`, 350, y, { width: 80, align: 'right' });
-        doc.text(`R$ ${billing.calculation.discount.toFixed(2)}`, 450, y, { width: 80, align: 'right' });
+        doc.text(formatCurrencyBr(billing.calculation.discount), 450, y, { width: 80, align: 'right' });
         y += itemHeight;
       }
 
       doc.font('Helvetica-Bold').fontSize(12);
       doc.text(`Total:`, 350, y, { width: 80, align: 'right' });
-      doc.text(`R$ ${billing.calculation.total.toFixed(2)}`, 450, y, { width: 80, align: 'right' });
+      doc.text(formatCurrencyBr(billing.calculation.total), 450, y, { width: 80, align: 'right' });
       y += itemHeight;
       doc.font('Helvetica').fontSize(10);
       doc.text(`Saldo em aberto:`, 350, y, { width: 80, align: 'right' });
       doc.text(
-        `R$ ${Number(billing.outstandingAmount ?? billing.calculation.total ?? 0).toFixed(2)}`,
+        formatCurrencyBr(billing.outstandingAmount ?? billing.calculation.total ?? 0),
         450,
         y,
         { width: 80, align: 'right' },

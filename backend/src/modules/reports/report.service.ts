@@ -5,6 +5,114 @@ import { Item } from "../inventory/item.model";
 import { Customer } from "../customers/customer.model";
 import { Billing } from "../billings/billing.model";
 import { Invoice } from "../invoices/invoice.model";
+import { mergeInvoiceIssuerFilter } from "../invoices/invoiceIssuerQuery.util";
+import { formatCnpjForDisplay, isValidCnpj, normalizeDocument } from "../../shared/utils/document.utils";
+import { asIdString, buildRentalLineKey } from "../../shared/utils/rental-line-key.util";
+
+function rentalItemHasReturnActual(ri: Record<string, unknown> | undefined): boolean {
+  if (!ri || ri.returnActual == null || ri.returnActual === "") return false;
+  const d = new Date(ri.returnActual as string | Date);
+  return !Number.isNaN(d.getTime());
+}
+
+function findRentalItemForBillingLine(
+  billingItem: Record<string, unknown>,
+  rental: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
+  const items = (rental?.items as Record<string, unknown>[] | undefined) || [];
+  if (items.length === 0) return null;
+
+  const key = billingItem?.rentalLineKey ? String(billingItem.rentalLineKey).trim() : "";
+  if (key) {
+    const hit = items.find((ri) => buildRentalLineKey(ri as any) === key);
+    if (hit) return hit as Record<string, unknown>;
+  }
+
+  const bid = asIdString(billingItem.itemId);
+  const uid = billingItem.unitId ? String(billingItem.unitId) : "";
+  const candidates = items.filter((ri) => {
+    const rid = asIdString(ri.itemId);
+    const ruid = ri.unitId ? String(ri.unitId) : "";
+    return rid === bid && ruid === uid;
+  });
+  if (candidates.length === 1) return candidates[0] as Record<string, unknown>;
+  if (candidates.length === 0) return null;
+
+  const qty = Number(billingItem.quantity || 0);
+  const qtyMatches = candidates.filter((ri) => Number(ri.quantity || 0) === qty);
+  if (qtyMatches.length === 1) return qtyMatches[0] as Record<string, unknown>;
+  return candidates[0] as Record<string, unknown>;
+}
+
+function aggregateQtyByEquipmentForRental(
+  rental: Record<string, unknown> | null | undefined,
+  itemIdStr: string,
+  unitIdStr: string,
+): { returnedQty: number; openQty: number } {
+  let returnedQty = 0;
+  let openQty = 0;
+  const items = (rental?.items as Record<string, unknown>[] | undefined) || [];
+  for (const ri of items) {
+    if (asIdString(ri.itemId) !== itemIdStr) continue;
+    const ruid = ri.unitId ? String(ri.unitId) : "";
+    if (ruid !== unitIdStr) continue;
+    const q = Number(ri.quantity || 0);
+    if (rentalItemHasReturnActual(ri)) returnedQty += q;
+    else openQty += q;
+  }
+  return { returnedQty, openQty };
+}
+
+/** Label para relatório: em campo / devolvido / devolução parcial com quantidades. */
+function equipmentSituationForBillingLine(
+  rental: Record<string, unknown> | null | undefined,
+  billingItem: Record<string, unknown>,
+): { label: string; sortKey: string } {
+  const qtyBilling = Number(billingItem.quantity || 0);
+  const itemIdStr = asIdString(billingItem.itemId);
+  const unitIdStr = billingItem.unitId ? String(billingItem.unitId) : "";
+
+  if (!rental || !(rental.items as unknown[])?.length) {
+    return { label: qtyBilling ? `Indeterminado · ${qtyBilling} un. (fech.)` : "Indeterminado", sortKey: "indeterminado" };
+  }
+
+  const agg = aggregateQtyByEquipmentForRental(rental, itemIdStr, unitIdStr);
+  if (agg.returnedQty > 0 && agg.openQty > 0) {
+    return {
+      label: `Devolução parcial · devolvidas ${agg.returnedQty} · em campo ${agg.openQty}`,
+      sortKey: "parcial",
+    };
+  }
+
+  const matched = findRentalItemForBillingLine(billingItem, rental);
+  if (matched) {
+    const qLine = Number(matched.quantity ?? qtyBilling);
+    if (rentalItemHasReturnActual(matched)) {
+      return { label: `Devolvido · ${qLine} un.`, sortKey: "devolvido" };
+    }
+    return { label: `Em campo · ${qLine} un.`, sortKey: "em_campo" };
+  }
+
+  const contractEnded =
+    rental.status === "completed" || rental.status === "cancelled";
+
+  if (contractEnded) {
+    return { label: `Devolvido · ${qtyBilling} un.`, sortKey: "devolvido" };
+  }
+
+  if (agg.returnedQty > 0) {
+    return { label: `Devolvido · ${agg.returnedQty} un.`, sortKey: "devolvido" };
+  }
+
+  if (agg.openQty > 0) {
+    return { label: `Em campo · ${agg.openQty} un.`, sortKey: "em_campo" };
+  }
+
+  return {
+    label: qtyBilling ? `Indeterminado · ${qtyBilling} un. (fech.)` : "Indeterminado",
+    sortKey: "indeterminado",
+  };
+}
 
 export type ReceivablesReport = {
   period: { startDate: string; endDate: string };
@@ -263,6 +371,7 @@ class ReportService {
     companyId: string,
     startDate: Date,
     endDate: Date,
+    billingIssuerId?: string,
   ): Promise<{
     totalInvoices: number;
     totalAmount: number;
@@ -273,6 +382,8 @@ class ReportService {
     invoices: Array<{
       id: string;
       invoiceNumber: string;
+      issuerCnpjDisplay: string;
+      issuerLabel: string | null;
       customerName: string;
       rentalNumber?: string;
       issueDate: string;
@@ -283,10 +394,12 @@ class ReportService {
     }>;
   }> {
     const { start, end } = this.normalizeReportRange(startDate, endDate);
-    const invoices = await Invoice.find({
+    const invQuery: Record<string, unknown> = {
       companyId,
       issueDate: { $gte: start, $lte: end },
-    })
+    };
+    mergeInvoiceIssuerFilter(invQuery, billingIssuerId);
+    const invoices = await Invoice.find(invQuery)
       .populate("customerId", "name")
       .populate("rentalId", "rentalNumber")
       .sort({ issueDate: 1 })
@@ -316,6 +429,17 @@ class ReportService {
       return {
         id: String(invoice._id),
         invoiceNumber: invoice.invoiceNumber,
+        issuerCnpjDisplay: (() => {
+          const rawCnpj = (invoice as any).issuerCnpj
+            ? normalizeDocument(String((invoice as any).issuerCnpj))
+            : "";
+          return rawCnpj.length === 14 && isValidCnpj(rawCnpj)
+            ? formatCnpjForDisplay(rawCnpj)
+            : "";
+        })(),
+        issuerLabel: (invoice as any).issuerLabel
+          ? String((invoice as any).issuerLabel).trim() || null
+          : null,
         customerName: invoice.customerId?.name || "Cliente",
         rentalNumber: invoice.rentalId?.rentalNumber,
         issueDate: invoice.issueDate?.toISOString?.() || new Date(invoice.issueDate).toISOString(),
@@ -363,6 +487,8 @@ class ReportService {
       periodsCharged: number;
       subtotal: number;
       status: string;
+      equipmentSituationLabel: string;
+      equipmentSituationSortKey: string;
     }>;
   }> {
     const { start, end } = this.normalizeReportRange(startDate, endDate);
@@ -374,7 +500,10 @@ class ReportService {
       "items.0": { $exists: true },
     })
       .populate("customerId", "name")
-      .populate("rentalId", "rentalNumber")
+      .populate({
+        path: "rentalId",
+        select: "rentalNumber status items",
+      })
       .populate("items.itemId", "name")
       .sort({ periodStart: 1, periodEnd: 1 })
       .lean();
@@ -398,10 +527,22 @@ class ReportService {
         totalQuantity += quantity;
         totalAmount += subtotal;
 
+        const rentalRaw = billing.rentalId;
+        const rentalDoc =
+          rentalRaw &&
+          typeof rentalRaw === "object" &&
+          Array.isArray((rentalRaw as { items?: unknown }).items)
+            ? (rentalRaw as Record<string, unknown>)
+            : undefined;
+        const situation = equipmentSituationForBillingLine(rentalDoc, item as Record<string, unknown>);
+
         return {
           billingId: String(billing._id),
           billingNumber: billing.billingNumber,
-          rentalNumber: billing.rentalId?.rentalNumber,
+          rentalNumber:
+            rentalDoc && typeof rentalDoc.rentalNumber === "string"
+              ? rentalDoc.rentalNumber
+              : undefined,
           customerName: billing.customerId?.name || "Cliente",
           itemName,
           unitId: item.unitId,
@@ -413,6 +554,8 @@ class ReportService {
           periodsCharged: Number(item.periodsCharged || 0),
           subtotal,
           status: billing.status,
+          equipmentSituationLabel: situation.label,
+          equipmentSituationSortKey: situation.sortKey,
         };
       }),
     );

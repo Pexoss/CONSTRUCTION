@@ -27,6 +27,7 @@ export interface BillingItem {
 
 export interface BillingService {
   description: string;
+  category?: string;
   price: number;
   quantity: number;
   subtotal: number;
