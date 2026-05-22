@@ -134,16 +134,6 @@ function App() {
                 }
               />
               <Route
-                path="/customers/:id"
-                element={
-                  <ProtectedRoute>
-                    <ViewCustomerPage />{" "}
-                    {/* você precisaria criar essa página */}
-                  </ProtectedRoute>
-                }
-              />
-
-              <Route
                 path="/customers/:id/edit"
                 element={
                   <ProtectedRoute>
@@ -156,6 +146,14 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <CustomerAddressesPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/customers/:id"
+                element={
+                  <ProtectedRoute>
+                    <ViewCustomerPage />
                   </ProtectedRoute>
                 }
               />

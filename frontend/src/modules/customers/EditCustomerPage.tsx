@@ -279,6 +279,7 @@ const EditCustomerPage: React.FC = () => {
               <div className="pt-5 border-t border-gray-200 dark:border-gray-700">
                 <Link
                   to={`/customers/${id}/addresses`}
+                  state={{ returnTo: `/customers/${id}/edit` }}
                   className="inline-flex items-center justify-center px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 gap-2"
                 >
                   <svg

@@ -1,15 +1,34 @@
 import React, { useState, useEffect } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "react-toastify";
 import Layout from "../../components/Layout";
 import { customerService } from "./customer.service";
 import { CustomerAddress } from "../../types/customer.types";
 
+const emptyAddress = (): CustomerAddress => ({
+  addressName: "",
+  type: "main",
+  street: "",
+  number: "",
+  complement: "",
+  neighborhood: "",
+  city: "",
+  state: "",
+  zipCode: "",
+  country: "Brasil",
+  isDefault: true,
+});
+
 const CustomerAddressesPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const returnTo =
+    (location.state as { returnTo?: string } | null)?.returnTo ??
+    `/customers/${id}/edit`;
 
   const { data, isLoading } = useQuery({
     queryKey: ["customerAddresses", id],
@@ -25,9 +44,9 @@ const CustomerAddressesPage: React.FC = () => {
   const [zipLookupSuccess, setZipLookupSuccess] = useState<Record<number, string>>({});
 
   useEffect(() => {
-    if (data?.data?.addresses) {
-      setAddresses(data.data.addresses);
-    }
+    if (!data?.data) return;
+    const loaded = data.data.addresses ?? [];
+    setAddresses(loaded.length > 0 ? loaded : [emptyAddress()]);
   }, [data]);
 
   const addMutation = useMutation({
@@ -38,20 +57,19 @@ const CustomerAddressesPage: React.FC = () => {
       setIsSaving(true);
     },
     onSuccess: (updatedCustomer) => {
-      setAddresses(updatedCustomer.addresses ?? []);
+      const saved = updatedCustomer.addresses ?? [];
+      setAddresses(saved.length > 0 ? saved : [emptyAddress()]);
       queryClient.invalidateQueries({ queryKey: ["customerAddresses", id] });
-      setSuccessMessage("Endereço salvo com sucesso !");
+      queryClient.invalidateQueries({ queryKey: ["customer", id] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      setSuccessMessage("Endereço salvo com sucesso!");
       setLoadingAddressId(null);
       setIsSaving(false);
     },
     onError: (error: any) => {
-      console.group("❌ ADD ADDRESS ERROR");
-      console.error("Error object:", error);
-      console.error("Backend response:", error?.response);
-      console.error("Status:", error?.response?.status);
-      console.error("Data:", error?.response?.data);
-      console.groupEnd();
-
+      const message =
+        error?.response?.data?.message || "Não foi possível salvar o endereço.";
+      toast.error(message);
       setLoadingAddressId(null);
       setIsSaving(false);
     },
@@ -70,20 +88,19 @@ const CustomerAddressesPage: React.FC = () => {
       setIsSaving(true);
     },
     onSuccess: (updatedCustomer) => {
-      setAddresses(updatedCustomer.addresses ?? []);
+      const saved = updatedCustomer.addresses ?? [];
+      setAddresses(saved.length > 0 ? saved : [emptyAddress()]);
       queryClient.invalidateQueries({ queryKey: ["customerAddresses", id] });
-      setSuccessMessage("Endereço salvo com sucesso !");
+      queryClient.invalidateQueries({ queryKey: ["customer", id] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      setSuccessMessage("Endereço salvo com sucesso!");
       setLoadingAddressId(null);
       setIsSaving(false);
     },
     onError: (error: any) => {
-      console.group("❌ UPDATE ADDRESS ERROR");
-      console.error("Error object:", error);
-      console.error("Backend response:", error?.response);
-      console.error("Status:", error?.response?.status);
-      console.error("Data:", error?.response?.data);
-      console.groupEnd();
-
+      const message =
+        error?.response?.data?.message || "Não foi possível atualizar o endereço.";
+      toast.error(message);
       setLoadingAddressId(null);
       setIsSaving(false);
     },
@@ -96,11 +113,18 @@ const CustomerAddressesPage: React.FC = () => {
       setLoadingAddressId(addressId);
     },
     onSuccess: (updatedCustomer) => {
-      setAddresses(updatedCustomer.addresses ?? []);
+      const saved = updatedCustomer.addresses ?? [];
+      setAddresses(saved.length > 0 ? saved : [emptyAddress()]);
       queryClient.invalidateQueries({ queryKey: ["customerAddresses", id] });
+      queryClient.invalidateQueries({ queryKey: ["customer", id] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      setSuccessMessage("Endereço excluído.");
       setLoadingAddressId(null);
     },
-    onError: () => {
+    onError: (error: any) => {
+      const message =
+        error?.response?.data?.message || "Não foi possível excluir o endereço.";
+      toast.error(message);
       setLoadingAddressId(null);
     },
   });
@@ -108,20 +132,13 @@ const CustomerAddressesPage: React.FC = () => {
   const handleAddAddress = () => {
     setAddresses([
       ...addresses,
-      {
-        addressName: "",
-        type: "main",
-        street: "",
-        number: "",
-        complement: "",
-        neighborhood: "",
-        city: "",
-        state: "",
-        zipCode: "",
-        country: "Brasil",
-        isDefault: addresses.length === 0,
-      },
+      { ...emptyAddress(), isDefault: addresses.length === 0 },
     ]);
+  };
+
+  const handleRemoveUnsaved = (index: number) => {
+    const next = addresses.filter((_, i) => i !== index);
+    setAddresses(next.length > 0 ? next : [emptyAddress()]);
   };
 
   const handleSaveAddress = (address: CustomerAddress) => {
@@ -131,23 +148,11 @@ const CustomerAddressesPage: React.FC = () => {
       country: "Brasil",
     };
 
-    console.group("📦 SAVE ADDRESS");
-    console.log("➡️ Original address (state):", address);
-
     if (address._id) {
-      console.log("✏️ Action: UPDATE");
-      console.log("🆔 Address ID:", address._id);
-      console.log("📤 Payload sent to backend:", addressPayload);
-
       updateMutation.mutate({ addressId: address._id, address: addressPayload });
     } else {
-      console.log("➕ Action: CREATE");
-      console.log("📤 Payload sent to backend:", addressPayload);
-
       addMutation.mutate(addressPayload);
     }
-
-    console.groupEnd();
   };
 
   const handleChange = (
@@ -240,21 +245,21 @@ const CustomerAddressesPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <Layout title="Endereços do Cliente" backTo={`/customers/${id}`}>
+      <Layout title="Endereços do Cliente" backTo={returnTo}>
         <div className="text-center py-16">Carregando...</div>
       </Layout>
     );
   }
 
   return (
-    <Layout title="Endereços do Cliente" backTo={`/customers/${id}`}>
+    <Layout title="Endereços do Cliente" backTo={returnTo} backLabel="Voltar ao cadastro">
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
-          <div className="mb-6">
+          <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2">
             <Link
-              to="/customers"
-              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 inline-flex items-center"
+              to={returnTo}
+              className="text-sm text-gray-900 dark:text-white font-medium hover:text-gray-700 dark:hover:text-gray-300 inline-flex items-center"
             >
               <svg
                 className="h-4 w-4 mr-2"
@@ -269,7 +274,13 @@ const CustomerAddressesPage: React.FC = () => {
                   d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
                 />
               </svg>
-              Voltar para Clientes
+              Voltar ao cadastro do cliente
+            </Link>
+            <Link
+              to="/customers"
+              className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 inline-flex items-center"
+            >
+              Lista de clientes
             </Link>
           </div>
 
@@ -659,7 +670,18 @@ const CustomerAddressesPage: React.FC = () => {
 
                   {/* Ações */}
                   <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    {!address._id && addresses.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveUnsaved(index)}
+                        disabled={isLoading}
+                        className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Cancelar
+                      </button>
+                    )}
                     <button
+                      type="button"
                       onClick={() => handleSaveAddress(addresses[index])}
                       disabled={isLoading}
                       className="inline-flex items-center justify-center px-4 py-2 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -691,6 +713,7 @@ const CustomerAddressesPage: React.FC = () => {
 
                     {address._id && (
                       <button
+                        type="button"
                         onClick={() => deleteMutation.mutate(address._id!)}
                         disabled={isLoading}
                         className="inline-flex items-center justify-center px-4 py-2 bg-white dark:bg-gray-800 border border-red-300 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-700 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 rounded-lg text-sm font-medium transition-colors gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -724,6 +747,16 @@ const CustomerAddressesPage: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+
+          <div className="mt-8 flex justify-end">
+            <button
+              type="button"
+              onClick={() => navigate(returnTo)}
+              className="inline-flex items-center justify-center px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium shadow-sm transition-all duration-200"
+            >
+              Concluir e voltar ao cadastro
+            </button>
           </div>
         </div>
       </div>

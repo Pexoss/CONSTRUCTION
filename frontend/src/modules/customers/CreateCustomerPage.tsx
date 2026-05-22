@@ -543,16 +543,19 @@ const CreateCustomerPage: React.FC = () => {
                 <button
                   onClick={() => {
                     setShowAddressModal(false);
-                    navigate("/customers");
+                    navigate(`/customers/${createdCustomerId}/edit`);
                   }}
                   className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
                 >
-                  Depois
+                  Ir ao cadastro
                 </button>
                 <button
-                  onClick={() =>
-                    navigate(`/customers/${createdCustomerId}/addresses`)
-                  }
+                  onClick={() => {
+                    setShowAddressModal(false);
+                    navigate(`/customers/${createdCustomerId}/addresses`, {
+                      state: { returnTo: `/customers/${createdCustomerId}/edit` },
+                    });
+                  }}
                   className="px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
                 >
                   Adicionar Endereço

@@ -269,7 +269,7 @@ const ViewCustomerPage: React.FC = () => {
                     </h2>
                   </div>
                   <Link
-                    to={`/customers/${customer._id}/edit`}
+                    to={`/customers/${customer._id}/addresses`}
                     className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
                     <svg
@@ -315,7 +315,7 @@ const ViewCustomerPage: React.FC = () => {
                         Nenhum endereço registrado
                       </p>
                       <Link
-                        to={`/customers/${customer._id}/edit`}
+                        to={`/customers/${customer._id}/addresses`}
                         className="mt-2 inline-flex items-center text-sm text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300 font-medium"
                       >
                         <svg
