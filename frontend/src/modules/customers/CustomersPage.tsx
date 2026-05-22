@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   useQuery,
   useMutation,
@@ -23,6 +23,7 @@ import {
 type CustomerSortKey = "name" | "document" | "contact" | "status";
 
 const CustomersPage: React.FC = () => {
+  const navigate = useNavigate();
   const [filters, setFilters] = useState<CustomerFilters>({
     page: 1,
     limit: 20,
@@ -347,7 +348,11 @@ const CustomersPage: React.FC = () => {
                       {sortedCustomers.map((customer) => (
                         <tr
                           key={customer._id}
-                          className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${customer.isBlocked ? "bg-red-50/50 dark:bg-red-900/10" : ""}`}
+                          title="Duplo clique para editar"
+                          onDoubleClick={() =>
+                            navigate(`/customers/${customer._id}/edit`)
+                          }
+                          className={`cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${customer.isBlocked ? "bg-red-50/50 dark:bg-red-900/10" : ""}`}
                         >
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="flex items-center">
@@ -391,7 +396,10 @@ const CustomersPage: React.FC = () => {
                               {customer.isBlocked ? "Bloqueado" : "Ativo"}
                             </span>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <td
+                            className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"
+                            onDoubleClick={(e) => e.stopPropagation()}
+                          >
                             <div className="flex justify-end gap-2">
                               <Link
                                 to={`/customers/${customer._id}`}
@@ -497,7 +505,11 @@ const CustomersPage: React.FC = () => {
                   {sortedCustomers.map((customer) => (
                     <div
                       key={customer._id}
-                      className={`p-4 ${customer.isBlocked ? "bg-red-50/50 dark:bg-red-900/10" : ""}`}
+                      title="Duplo clique para editar"
+                      onDoubleClick={() =>
+                        navigate(`/customers/${customer._id}/edit`)
+                      }
+                      className={`p-4 cursor-pointer ${customer.isBlocked ? "bg-red-50/50 dark:bg-red-900/10" : ""}`}
                     >
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-3">
@@ -565,7 +577,10 @@ const CustomersPage: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="flex justify-end gap-2 border-t border-gray-200 dark:border-gray-700 pt-3">
+                      <div
+                        className="flex justify-end gap-2 border-t border-gray-200 dark:border-gray-700 pt-3"
+                        onDoubleClick={(e) => e.stopPropagation()}
+                      >
                         <Link
                           to={`/customers/${customer._id}`}
                           className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"

@@ -4,6 +4,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { customerService } from "./customer.service";
 import { CreateCustomerData } from "../../types/customer.types";
 import Layout from "../../components/Layout";
+import {
+  formatDocumentInputBr,
+  formatPhoneInputBr,
+} from "../../utils/formatters";
 
 const EditCustomerPage: React.FC = () => {
   const navigate = useNavigate();
@@ -29,9 +33,9 @@ const EditCustomerPage: React.FC = () => {
     if (data?.data) {
       setFormData({
         name: data.data.name,
-        cpfCnpj: data.data.cpfCnpj,
+        cpfCnpj: formatDocumentInputBr(data.data.cpfCnpj || ""),
         email: data.data.email || "",
-        phone: data.data.phone || "",
+        phone: formatPhoneInputBr(data.data.phone || ""),
         notes: data.data.notes || "",
         isBlocked: data.data.isBlocked,
       });
@@ -57,6 +61,20 @@ const EditCustomerPage: React.FC = () => {
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
     const { name, value } = e.target;
+    if (name === "cpfCnpj") {
+      setFormData((prev) => ({
+        ...prev,
+        cpfCnpj: formatDocumentInputBr(value),
+      }));
+      return;
+    }
+    if (name === "phone") {
+      setFormData((prev) => ({
+        ...prev,
+        phone: formatPhoneInputBr(value),
+      }));
+      return;
+    }
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 

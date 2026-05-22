@@ -4,6 +4,10 @@ import { useMutation } from "@tanstack/react-query";
 import { customerService } from "./customer.service";
 import { CreateCustomerData, Customer } from "../../types/customer.types";
 import Layout from "../../components/Layout";
+import {
+  formatDocumentInputBr,
+  formatPhoneInputBr,
+} from "../../utils/formatters";
 
 const CreateCustomerPage: React.FC = () => {
   const navigate = useNavigate();
@@ -168,6 +172,13 @@ const CreateCustomerPage: React.FC = () => {
           ...prev,
           validateDocument: false,
         };
+      }
+
+      if (name === "cpfCnpj") {
+        return { ...prev, cpfCnpj: formatDocumentInputBr(String(nextValue)) };
+      }
+      if (name === "phone") {
+        return { ...prev, phone: formatPhoneInputBr(String(nextValue)) };
       }
 
       return {

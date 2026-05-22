@@ -1,6 +1,37 @@
 const onlyDigits = (value: string): string => value.replace(/\D/g, "");
 
-const isAllDigits = (value: string): boolean => /^\d+$/.test(value);
+/** Remove tudo que não for dígito. */
+export const normalizeDigits = (value: string): string => onlyDigits(value);
+
+/** Máscara CPF/CNPJ enquanto digita (adapta ao tamanho). */
+export const formatDocumentInputBr = (value: string): string => {
+  const digits = onlyDigits(value).slice(0, 14);
+  if (digits.length <= 11) {
+    return digits
+      .replace(/^(\d{3})(\d)/, "$1.$2")
+      .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+      .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3-$4");
+  }
+  return digits
+    .replace(/^(\d{2})(\d)/, "$1.$2")
+    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4")
+    .replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, "$1.$2.$3/$4-$5");
+};
+
+/** Máscara telefone BR enquanto digita (10 ou 11 dígitos). */
+export const formatPhoneInputBr = (value: string): string => {
+  const digits = onlyDigits(value).slice(0, 11);
+  if (!digits) return "";
+  if (digits.length <= 2) return `(${digits}`;
+  if (digits.length <= 6) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  }
+  if (digits.length <= 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+};
 
 export const isValidCpf = (digits: string): boolean => {
   if (!/^\d{11}$/.test(digits) || /^(\d)\1{10}$/.test(digits)) return false;
@@ -48,30 +79,18 @@ export const isValidCpfCnpj = (value?: string | null): boolean => {
 export const formatDocumentForDisplay = (value?: string | null): string => {
   const raw = (value || "").trim();
   if (!raw) return "";
-  if (!isAllDigits(raw)) return raw;
-
   const digits = onlyDigits(raw);
-  if (digits.length === 11 && isValidCpf(digits)) {
-    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  }
-  if (digits.length === 14 && isValidCnpj(digits)) {
-    return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
-  }
+  if (!digits) return raw;
+  if (digits.length <= 14) return formatDocumentInputBr(digits);
   return raw;
 };
 
 export const formatPhoneForDisplay = (value?: string | null): string => {
   const raw = (value || "").trim();
   if (!raw) return "";
-  if (!isAllDigits(raw)) return raw;
-
   const digits = onlyDigits(raw);
-  if (digits.length === 11) {
-    return digits.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3");
-  }
-  if (digits.length === 10) {
-    return digits.replace(/(\d{2})(\d{4})(\d{4})/, "($1) $2-$3");
-  }
+  if (!digits) return raw;
+  if (digits.length <= 11) return formatPhoneInputBr(digits);
   return raw;
 };
 
