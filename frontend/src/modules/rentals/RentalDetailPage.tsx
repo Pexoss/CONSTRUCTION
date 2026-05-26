@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
@@ -26,7 +26,7 @@ import {
   formatCurrencyBr,
   formatMoneyInputBr,
   getBillingOutstandingAmount,
-  parseMoneyBr,
+  // parseMoneyBr,
   todayDateInputValue,
 } from "../../utils/formatters";
 import {
@@ -167,22 +167,21 @@ const RentalDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [showStatusModal, setShowStatusModal] = useState(false);
-  const [showExtendModal, setShowExtendModal] = useState(false);
+  // const [showStatusModal, setShowStatusModal] = useState(false);
+  const [showExtendModal] = useState(false);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [checklistType, setChecklistType] = useState<"pickup" | "return">(
     "pickup",
   );
-  const [newStatus, setNewStatus] = useState<RentalStatus>("reserved");
   const [serverError, setServerError] = useState<string | null>(null);
-  const [newReturnDate, setNewReturnDate] = useState("");
+  // const [newReturnDate, setNewReturnDate] = useState("");
   const [checklistData, setChecklistData] = useState<ChecklistData>({
     photos: [],
     conditions: {},
     notes: "",
   });
-  const [showRecalculateModal, setShowRecalculateModal] = useState(false);
+  // const [showRecalculateModal, setShowRecalculateModal] = useState(false);
   const [modalFinalizarAluguel, setModalFinalizarAluguel] = useState(false);
   const [newStatusAluguel, setNewStatusAluguel] = useState<RentalStatus | null>(
     null,
@@ -190,7 +189,7 @@ const RentalDetailPage: React.FC = () => {
   const [showConfirmFinalClosure, setShowConfirmFinalClosure] = useState(false);
   const [loadingConfirmClosure, setLoadingConfirmClosure] = useState(false);
 
-  const [closePreview, setClosePreview] = useState<{
+  const [closePreview] = useState<{
     originalTotal: number;
     recalculatedTotal: number;
     usedDays: number;
@@ -198,7 +197,7 @@ const RentalDetailPage: React.FC = () => {
     rentalType: string;
   } | null>(null);
 
-  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [loadingPreview] = useState(false);
   const [closeForm, setCloseForm] = useState({
     returnDate: "",
     rentalType: "daily",
@@ -379,7 +378,10 @@ const RentalDetailPage: React.FC = () => {
     enabled: !!id,
   });
 
-  const billings = (billingsData?.data?.billings || []) as Billing[];
+  const billings = useMemo(
+    () => (billingsData?.data?.billings || []) as Billing[],
+    [billingsData?.data?.billings],
+  );
 
   const rentalDoc = data?.data;
   const billingsForClosureTable = useMemo(
@@ -403,84 +405,6 @@ const RentalDetailPage: React.FC = () => {
 
   const handleRentalBillingSort = (key: RentalDetailBillingSortKey) =>
     setRentalBillingSort((prev) => toggleColumnSort(prev, key));
-
-  const updateStatusMutation = useMutation({
-    mutationFn: (data: { status: RentalStatus; adjustments?: any }) =>
-      rentalService.updateRentalStatus(id!, data),
-
-    onSuccess: (response) => {
-      setShowStatusModal(false);
-      setServerError(null);
-      setModalFinalizarAluguel(false);
-      setClosePreview(null);
-
-      if (response.requiresApproval) {
-        setShowSuccessToast(true);
-        setTimeout(() => setShowSuccessToast(false), 5000);
-        toast.info(
-          "Solicitação enviada. O status só muda após aprovação de um administrador.",
-          { autoClose: 8000 },
-        );
-        queryClient.invalidateQueries({ queryKey: ["rental", id] });
-        return;
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["rental", id] });
-      queryClient.invalidateQueries({ queryKey: ["rentals"] });
-      queryClient.invalidateQueries({ queryKey: ["items"] });
-      queryClient.invalidateQueries({ queryKey: ["inventory"] });
-
-      toast.success(response.message || "Status atualizado.");
-    },
-    onError: (err: unknown) => {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response
-          ?.data?.message ?? "Não foi possível alterar o status.";
-      setServerError(message);
-      toast.error(message);
-    },
-  });
-
-  const closeRentalMutation = useMutation({
-    mutationFn: () => rentalService.closeRental(id!),
-
-    onSuccess: () => {
-      setShowStatusModal(false);
-      setServerError(null);
-      setModalFinalizarAluguel(false);
-      setClosePreview(null);
-
-      queryClient.invalidateQueries({ queryKey: ["rental", id] });
-      queryClient.invalidateQueries({ queryKey: ["rentals"] });
-      queryClient.invalidateQueries({ queryKey: ["items"] });
-      queryClient.invalidateQueries({ queryKey: ["inventory"] });
-      toast.success("Aluguel finalizado com sucesso.");
-    },
-    onError: (err: unknown) => {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response
-          ?.data?.message ?? "Não foi possível finalizar o aluguel.";
-      setServerError(message);
-      toast.error(message);
-    },
-  });
-
-  const extendMutation = useMutation({
-    mutationFn: (newReturnDate: string) =>
-      rentalService.extendRental(id!, { newReturnDate }),
-
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rental", id] });
-      queryClient.invalidateQueries({ queryKey: ["rentals"] });
-      setServerError(null);
-      setShowExtendModal(false);
-    },
-
-    onError: (err: any) => {
-      const message = err.response?.data?.message || "Erro ao estender período";
-      setServerError(message);
-    },
-  });
 
   const updateChecklistMutation = useMutation({
     mutationFn: (data: ChecklistData) => {
@@ -608,11 +532,6 @@ const RentalDetailPage: React.FC = () => {
     return labels[status];
   };
 
-  const formatDate = (value?: string) => {
-    if (!value) return "-";
-    return formatDateNoTimezoneShift(value) || value;
-  };
-
   const formatBillingPeriodDate = (value?: string) => {
     if (!value) return "-";
     const isoDatePart = String(value).split("T")[0];
@@ -708,60 +627,6 @@ const RentalDetailPage: React.FC = () => {
       setCloseItemLoading(false);
       setCloseItemModal(true);
     }
-  };
-
-  const handleAbrirFinalizacao = async (status: RentalStatus) => {
-    setNewStatusAluguel(status);
-    setModalFinalizarAluguel(true);
-    setLoadingPreview(true);
-    try {
-      const response = await rentalService.getClosePreview(id!);
-      // Garante que os campos estejam presentes
-      setClosePreview({
-        originalTotal: response.originalTotal,
-        recalculatedTotal: response.recalculatedTotal,
-        usedDays: response.usedDays,
-        contractedDays: response.contractedDays ?? 1,
-        rentalType: response.rentalType ?? "daily",
-      });
-      const today = todayDateInputValue();
-      setCloseForm({
-        returnDate: today,
-        rentalType: response.rentalType ?? "daily",
-        equipmentSubtotal: formatMoneyInputBr(rental?.pricing?.equipmentSubtotal ?? ""),
-        servicesSubtotal: formatMoneyInputBr(rental?.pricing?.servicesSubtotal ?? ""),
-        discount: formatMoneyInputBr(rental?.pricing?.discount ?? ""),
-        lateFee: formatMoneyInputBr(rental?.pricing?.lateFee ?? ""),
-        total: formatMoneyInputBr(
-          response?.recalculatedTotal ?? rental?.pricing?.total ?? "",
-        ),
-        notes: "",
-      });
-    } catch {
-      toast.error("Erro ao calcular valores do fechamento");
-      setModalFinalizarAluguel(false);
-    } finally {
-      setLoadingPreview(false);
-    }
-  };
-
-  const handleSalvarStatus = () => {
-    if (newStatus === "completed") {
-      // Se o status atual é ready_to_close, pode confirmar
-      if (rental && rental.status === "ready_to_close") {
-        setShowStatusModal(false);
-        setShowConfirmFinalClosure(true);
-        return;
-      }
-      
-      // Se não está ready_to_close, mostra erro
-      toast.error(
-        "Este aluguel ainda possui itens não finalizados. Finalize todos os itens antes de concluir o aluguel."
-      );
-      return;
-    }
-    updateStatusMutation.mutate({ status: newStatus });
-    setShowStatusModal(false);
   };
 
   const confirmFinalClosure = async () => {

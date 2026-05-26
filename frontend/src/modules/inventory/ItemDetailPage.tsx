@@ -3,7 +3,6 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   useItem,
   useDeleteItem,
-  useItemMovements,
   useAdjustQuantity,
   useCalculateDepreciation,
 } from "../../hooks/useInventory";
@@ -20,6 +19,14 @@ import {
 
 type UnitRowSortKey = "unitId" | "status" | "location";
 
+const unitStatusLabels: Record<string, string> = {
+  available: "Disponível",
+  reserved: "Reservado",
+  rented: "Alugado",
+  maintenance: "Manutenção",
+  damaged: "Danificado",
+};
+
 const ItemDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -27,7 +34,6 @@ const ItemDetailPage: React.FC = () => {
   const deleteItem = useDeleteItem();
   const adjustQuantity = useAdjustQuantity();
   const calculateDepreciation = useCalculateDepreciation();
-  const { data: movementsData } = useItemMovements(id || "");
   const [operationalStatus, setOperationalStatus] = useState<{
     status: string;
     label: string;
@@ -50,13 +56,6 @@ const ItemDetailPage: React.FC = () => {
   );
 
   const item = itemData?.data;
-  const unitStatusLabels: Record<string, string> = {
-    available: "Disponível",
-    reserved: "Reservado",
-    rented: "Alugado",
-    maintenance: "Manutenção",
-    damaged: "Danificado",
-  };
 
   const sortedUnits = useMemo(() => {
     const rows = item?.units ?? [];
@@ -141,8 +140,6 @@ const ItemDetailPage: React.FC = () => {
       </Layout>
     );
   }
-  const movements = movementsData?.data || [];
-
   return (
     <Layout title="Detalhes do Item" backTo="/inventory/items">
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useItems, useLowStockItems } from "../../hooks/useInventory";
-import { Item, ItemFilters } from "../../types/inventory.types";
+import { ItemFilters } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
 import { formatCurrencyBr } from "../../utils/formatters";
 import { inventoryService } from "./inventory.service";
@@ -23,7 +23,7 @@ const InventoryPage: React.FC = () => {
   });
   const [searchTerm, setSearchTerm] = useState("");
 
-  const { data: itemsData, isLoading, error } = useItems(filters);
+  const { data: itemsData, isLoading } = useItems(filters);
   const { data: lowStockData } = useLowStockItems();
 
   // Carregar categorias ao montar
@@ -45,7 +45,7 @@ const InventoryPage: React.FC = () => {
         const data = await inventoryService.getInformationsItens();
         setInventorySummary(data);
         console.log(data);
-      } catch (error: any) {
+      } catch {
         // console.error('Erro ao buscar resumo do inventário');
         // console.error('Mensagem:', error?.message);
         // console.error('Status:', error?.response?.status);

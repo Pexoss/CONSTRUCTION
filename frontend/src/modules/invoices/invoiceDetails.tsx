@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoiceService } from "./invoice.service";
 import Layout from "../../components/Layout";
@@ -21,7 +21,6 @@ type InvoiceItemSortKey =
 
 const InvoiceDetails = () => {
   const { id } = useParams();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({

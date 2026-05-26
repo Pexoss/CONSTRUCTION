@@ -9,7 +9,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import RegisterChoicePage from "modules/auth/RegisterChoicePage";
 import LoginPage from "./modules/auth/LoginPage";
 import RegisterPage from "./modules/auth/RegisterPage";
 import RegisterEmploye from "./modules/employe/RegisterEmploye";

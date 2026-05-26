@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { customerService } from "./customer.service";
-import { CreateCustomerData, Customer } from "../../types/customer.types";
+import { CreateCustomerData } from "../../types/customer.types";
 import Layout from "../../components/Layout";
 import {
   formatDocumentInputBr,
@@ -144,7 +144,7 @@ const CreateCustomerPage: React.FC = () => {
     }, 400);
 
     return () => clearTimeout(timeoutId);
-  }, [formData.cpfCnpj, formData.validateDocument]);
+  }, [cpfCnpjEnabled, formData.cpfCnpj, formData.validateDocument]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,

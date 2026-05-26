@@ -20,6 +20,29 @@ type ExpirationSortKey =
   | "status"
   | "value";
 
+const getReturnDate = (rental: Rental): Date | null => {
+  if (!rental.dates?.returnScheduled) return null;
+  return new Date(rental.dates.returnScheduled);
+};
+
+const getStatusLabel = (rental: Rental) => {
+  const returnDate = getReturnDate(rental);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (!returnDate) return "Sem vencimento";
+  if (returnDate < today) return "Vencido";
+
+  const daysUntilReturn = Math.ceil(
+    (returnDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  if (daysUntilReturn === 0) return "Vence hoje";
+  if (daysUntilReturn <= 3) return `Vence em ${daysUntilReturn} dias`;
+
+  return "Ativo";
+};
+
 const ExpirationDashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<
@@ -42,11 +65,6 @@ const ExpirationDashboardPage: React.FC = () => {
     return formatDateNoTimezoneShift(dateString) || "-";
   };
 
-  const getReturnDate = (rental: Rental): Date | null => {
-    if (!rental.dates?.returnScheduled) return null;
-    return new Date(rental.dates.returnScheduled);
-  };
-
   const getStatusColor = (rental: Rental) => {
     const returnDate = getReturnDate(rental);
     const today = new Date();
@@ -67,24 +85,6 @@ const ExpirationDashboardPage: React.FC = () => {
       return "bg-orange-100 text-orange-800 border-orange-300";
 
     return "bg-green-100 text-green-800 border-green-300";
-  };
-
-  const getStatusLabel = (rental: Rental) => {
-    const returnDate = getReturnDate(rental);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    if (!returnDate) return "Sem vencimento";
-    if (returnDate < today) return "Vencido";
-
-    const daysUntilReturn = Math.ceil(
-      (returnDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
-    );
-
-    if (daysUntilReturn === 0) return "Vence hoje";
-    if (daysUntilReturn <= 3) return `Vence em ${daysUntilReturn} dias`;
-
-    return "Ativo";
   };
 
   const expirationRowsBase = useMemo((): Rental[] => {

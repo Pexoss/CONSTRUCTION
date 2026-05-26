@@ -115,12 +115,6 @@ const InvoicesPage: React.FC = () => {
     return diff;
   };
 
-  const getItemsSummary = (items: any[]) => {
-    if (!items?.length) return "0 itens";
-    const total = items.length;
-    return `${total} item${total > 1 ? "s" : ""}`;
-  };
-
   // Calcular totalizadores
   const calculateTotals = (invoiceList: any[]) => {
     return {
@@ -137,7 +131,7 @@ const InvoicesPage: React.FC = () => {
     };
   };
 
-  const invoices = data?.data || [];
+  const invoices = useMemo(() => data?.data || [], [data?.data]);
   const pagination = data?.pagination;
   const totals = calculateTotals(invoices);
 

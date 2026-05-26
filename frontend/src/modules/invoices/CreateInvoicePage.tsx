@@ -107,7 +107,7 @@ const CreateInvoicePage: React.FC = () => {
 
   const customerDetail = customerDetailRes?.data;
   const customerAddresses = customerDetail?.addresses ?? [];
-  const billings = billingsRes?.data?.billings ?? [];
+  const billings = useMemo(() => billingsRes?.data?.billings ?? [], [billingsRes?.data?.billings]);
 
   const billingsGroupedFreteClosureLast = useMemo(
     () =>

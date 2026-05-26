@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
 import { RentalFilters, RentalStatus } from "../../types/rental.types";
-import { CheckCircle } from "lucide-react";
 import Layout from "../../components/Layout";
 import { rentalStatusLabel } from "../../utils/statusLabels";
 import { formatDateNoTimezoneShift, formatCurrencyBr } from "../../utils/formatters";
@@ -105,7 +104,7 @@ const RentalsPage: React.FC = () => {
     },
   });
 
-  const rentals = data?.data || [];
+  const rentals = useMemo(() => data?.data || [], [data?.data]);
   const pagination = data?.pagination;
 
   const sortedRentalsList = useMemo(

@@ -22,7 +22,7 @@ const EmployeesPage: React.FC = () => {
     queryFn: employeeService.getEmployees,
   });
 
-  const employees = data?.data || [];
+  const employees = useMemo(() => data?.data || [], [data?.data]);
 
   const sortedEmployees = useMemo(
     () =>

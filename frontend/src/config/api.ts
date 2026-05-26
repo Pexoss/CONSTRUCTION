@@ -1,6 +1,5 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from "axios";
 import {
-  clearAuthSession,
   persistAccessToken,
   redirectToLogin,
 } from "./authSession";

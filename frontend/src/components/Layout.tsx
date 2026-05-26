@@ -41,8 +41,6 @@ const Layout: React.FC<LayoutProps> = ({
     loadUnreadCount();
   }, [loadUnreadCount]);
 
-  const pathSegments = location.pathname.split('/').filter(Boolean);
-  const currentTitle = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : 'Dashboard';
   const canGoBack = location.key !== 'default' || backTo;
 
   // Close mobile menu when clicking outside or on link

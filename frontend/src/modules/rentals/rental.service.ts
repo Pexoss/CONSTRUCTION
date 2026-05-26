@@ -7,7 +7,6 @@ import {
   UpdateRentalStatusData,
   ExtendRentalData,
   ChecklistData,
-  RentalPendingApproval,
   RentalChangeHistory,
 } from "../../types/rental.types";
 

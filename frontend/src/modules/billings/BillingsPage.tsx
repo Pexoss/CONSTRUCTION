@@ -213,17 +213,6 @@ const BillingsPage: React.FC = () => {
     return due.getTime() < today.getTime();
   };
 
-  const hasChargeLinked = (billing: Billing): boolean => {
-    const c = billing.chargeId as unknown;
-    if (c == null || c === "") return false;
-    if (typeof c === "string") return c.trim().length > 0;
-    if (typeof c === "object" && c !== null && "_id" in c) {
-      const id = (c as { _id?: unknown })._id;
-      return id != null && String(id).trim().length > 0;
-    }
-    return false;
-  };
-
   const billingRowClasses = (billing: Billing): string => {
     if (billing.status === "paid") {
       return "bg-green-50 hover:bg-green-100/80 dark:bg-green-950/35 dark:hover:bg-green-950/45";

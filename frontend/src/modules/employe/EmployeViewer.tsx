@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import Layout from "../../components/Layout";
 import { employeeService } from "./employe.service";
@@ -8,8 +8,6 @@ import { Employee } from "../../types/employe.type";
 const ViewEmployeePage: React.FC = () => {
 
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-
   const { data, isLoading, isError } = useQuery({
     queryKey: ["employee", id],
     queryFn: () => employeeService.getEmployeeById(id!),

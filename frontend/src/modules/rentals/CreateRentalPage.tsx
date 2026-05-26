@@ -29,7 +29,6 @@ import {
   normalizeBrazilZipDigits,
 } from "../../utils/viacep";
 import { toast } from "react-toastify";
-import axios from "axios";
 
 export const rentalTypeMapper: Record<RentalTypeUI, RentalTypeAPI> = {
   diario: "daily",
@@ -57,8 +56,10 @@ const workAddressFromCustomerAddress = (addr: CustomerAddress): RentalWorkAddres
   workId: addr._id,
 });
 
-const selectNumericInputOnFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-  e.target.select();
+const selectNumericInputContents = (
+  e: React.FocusEvent<HTMLInputElement> | React.MouseEvent<HTMLInputElement>,
+) => {
+  e.currentTarget.select();
 };
 
 interface SelectedItem {
@@ -124,7 +125,7 @@ const CreateRentalPage: React.FC = () => {
   const [workAddress, setWorkAddress] = useState<RentalWorkAddress | null>(
     null,
   );
-  const [saveWorkAddress, setSaveWorkAddress] = useState(false);
+  const [saveWorkAddress] = useState(false);
   const [selectedWorkAddressIndex, setSelectedWorkAddressIndex] =
     useState<string>("");
   const [pickupDate, setPickupDate] = useState("");
@@ -138,10 +139,9 @@ const CreateRentalPage: React.FC = () => {
   const [discountType, setDiscountType] = useState<"value" | "percentage">("value");
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
-  const [rentalType, setRentalType] = useState<
+  const [rentalType] = useState<
     "diario" | "semanal" | "quinzenal" | "mensal"
   >("diario");
-  const [serverError, setServerError] = useState<string | null>(null);
   const [workZipLookupLoading, setWorkZipLookupLoading] = useState(false);
   const [workZipLookupMessage, setWorkZipLookupMessage] = useState("");
 
@@ -389,13 +389,6 @@ const CreateRentalPage: React.FC = () => {
       total: Math.max(0, total),
       rentalPeriod,
     };
-  };
-
-  const getRentalTypeFromItem = (item: Item): RentalTypeUI => {
-    if (item.pricing.monthlyRate) return "mensal";
-    if (item.pricing.biweeklyRate) return "quinzenal";
-    if (item.pricing.weeklyRate) return "semanal";
-    return "diario";
   };
 
   const handleAddItem = (item: Item) => {
@@ -727,8 +720,6 @@ const CreateRentalPage: React.FC = () => {
 
     createMutation.mutate(data, {
       onSuccess: async (res) => {
-        setServerError(null);
-
         if (
           saveWorkAddress &&
           selectedCustomer &&
@@ -793,7 +784,6 @@ const CreateRentalPage: React.FC = () => {
       onError: (err: any) => {
         const message =
           err.response?.data?.message || "Erro ao processar a requisição";
-        setServerError(message);
         toast.error(message);
       },
     });
@@ -802,7 +792,10 @@ const CreateRentalPage: React.FC = () => {
   const totals = calculateTotals();
   const items = itemsData?.data || [];
 
-  const customerAddresses = selectedCustomerData?.addresses ?? [];
+  const customerAddresses = useMemo(
+    () => selectedCustomerData?.addresses ?? [],
+    [selectedCustomerData?.addresses],
+  );
 
   const applyCustomerAddressAtIndex = useCallback(
     (index: number) => {
@@ -870,17 +863,6 @@ const CreateRentalPage: React.FC = () => {
     }
   }, [customerAddresses, applyCustomerAddressAtIndex]);
 
-  const addressOptions =
-    selectedCustomerData?.addresses?.map((address, index) => ({
-      label:
-        address.type === "work"
-          ? address.workName || `Obra ${index + 1}`
-          : address.type === "main"
-            ? "Principal"
-            : `Outro ${index + 1}`,
-      value: index,
-    })) ?? [];
-
   const filteredItems = items.filter((item) => {
     if (item.quantity.available <= 0) return false;
 
@@ -899,10 +881,6 @@ const CreateRentalPage: React.FC = () => {
 
     return true;
   });
-
-  const handleClearFilters = () => {
-    setSearch("");
-  };
 
   const sortedItems = useMemo(() => {
     const list = [...filteredItems];
@@ -1415,8 +1393,8 @@ const CreateRentalPage: React.FC = () => {
                                     min="1"
                                     max={selectedItem.item.quantity.available}
                                     value={selectedItem.quantity}
-                                    onFocus={selectNumericInputOnFocus}
-                                    onClick={selectNumericInputOnFocus}
+                                    onFocus={selectNumericInputContents}
+                                    onClick={selectNumericInputContents}
                                     onChange={(e) =>
                                       handleQuantityChange(
                                         selectedItem.itemId,
@@ -1605,8 +1583,8 @@ const CreateRentalPage: React.FC = () => {
                                 type="number"
                                 min="1"
                                 value={service.quantity}
-                                onFocus={selectNumericInputOnFocus}
-                                onClick={selectNumericInputOnFocus}
+                                onFocus={selectNumericInputContents}
+                                onClick={selectNumericInputContents}
                                 onChange={(e) =>
                                   updateService(
                                     index,

@@ -64,12 +64,12 @@ const AdminPage: React.FC = () => {
     enabled: !!selectedCompany,
   });
 
-  const { data: upcomingPayments } = useQuery({
-    queryKey: ["upcoming-payments"],
-    queryFn: async () => {
-      return subscriptionService.getUpcomingPayments(7);
-    },
-  });
+  // const { data: upcomingPayments } = useQuery({
+  //   queryKey: ["upcoming-payments"],
+  //   queryFn: async () => {
+  //     return subscriptionService.getUpcomingPayments(7);
+  //   },
+  // });
 
   const createPaymentMutation = useMutation({
     mutationFn: async (data: PaymentFormData) => {

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { maintenanceService } from "./maintenance.service";
 import { MaintenanceStatus } from "../../types/maintenance.types";
@@ -8,7 +8,6 @@ import { formatCurrencyBr } from "../../utils/formatters";
 
 const MaintenanceDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [newStatus, setNewStatus] = useState<MaintenanceStatus>("scheduled");

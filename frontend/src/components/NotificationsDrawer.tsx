@@ -26,12 +26,8 @@ export const NotificationsDrawer = ({ open, onClose }: Props) => {
 
   useEffect(() => {
     if (!open) return;
-
     loadNotifications();
-  }, [open]);
-
-  useEffect(() => {
-  }, [notifications]);
+  }, [open, loadNotifications]);
 
   const approveMutation = useMutation({
     mutationFn: (notificationId: string) =>

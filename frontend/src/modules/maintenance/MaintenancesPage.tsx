@@ -78,7 +78,7 @@ const MaintenancesPage: React.FC = () => {
     return type === "preventive" ? "Preventiva" : "Corretiva";
   };
 
-  const maintenances = data?.data || [];
+  const maintenances = useMemo(() => data?.data || [], [data?.data]);
 
   const sortedMaintenances = useMemo(
     () =>

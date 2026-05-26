@@ -66,7 +66,7 @@ const CustomersPage: React.FC = () => {
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
   };
 
-  const customers = data?.data || [];
+  const customers = useMemo(() => data?.data || [], [data?.data]);
   const pagination = data?.pagination;
 
   const sortedCustomers = useMemo(
