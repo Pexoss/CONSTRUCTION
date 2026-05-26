@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { rentalService } from "../rentals/rental.service";
-import { RentalItem } from "../../types/rental.types";
+import { Rental, RentalItem } from "../../types/rental.types";
 import { Item } from "../../types/inventory.types";
 import { rentalStatusLabel } from "../../utils/statusLabels";
 
@@ -11,6 +11,8 @@ type Props = {
   rentalId: string | null;
   onClose: () => void;
 };
+
+type RentalByIdResult = Awaited<ReturnType<typeof rentalService.getRentalById>>;
 
 function getLineItemId(line: RentalItem): string {
   if (line.itemId && typeof line.itemId === "object" && "_id" in line.itemId) {
@@ -30,13 +32,13 @@ export const RentalDeliveryQuickModal: React.FC<Props> = ({ rentalId, onClose })
   const queryClient = useQueryClient();
   const open = !!rentalId;
 
-  const rentalQuery = useQuery({
+  const rentalQuery = useQuery<RentalByIdResult>({
     queryKey: ["rental", rentalId],
     queryFn: () => rentalService.getRentalById(rentalId!),
     enabled: open,
   });
 
-  const rental = rentalQuery.data?.data;
+  const rental: Rental | undefined = rentalQuery.data?.data;
 
   const closeItemMutation = useMutation({
     mutationFn: async ({
@@ -92,7 +94,8 @@ export const RentalDeliveryQuickModal: React.FC<Props> = ({ rentalId, onClose })
 
   const status = rental?.status;
   const statusLabel = status ? rentalStatusLabel[status] || status : "—";
-  const allItemsReturned = rental?.items?.every((line) => !!line.returnActual) ?? false;
+  const allItemsReturned =
+    rental?.items?.every((line: RentalItem) => !!line.returnActual) ?? false;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
