@@ -52,3 +52,6 @@ export interface Company {
   createdAt?: string;
   updatedAt?: string;
 }
+
+export const EMPTY_COMPANIES: Company[] = [];
+export const EMPTY_SUBSCRIPTION_PAYMENTS: SubscriptionPayment[] = [];

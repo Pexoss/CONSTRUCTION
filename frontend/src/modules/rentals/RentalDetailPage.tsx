@@ -7,10 +7,12 @@ import {
   ChecklistData,
   RentalWorkAddress,
   RentalTypeUI,
+  Rental,
+  RentalItem,
 } from "../../types/rental.types";
 import { billingService } from "../billings/billing.service";
 import { Billing, EMPTY_BILLINGS } from "../../types/billing.types";
-import { EMPTY_ITEMS, Item } from "../../types/inventory.types";
+import { EMPTY_ITEMS, Item, ItemUnit } from "../../types/inventory.types";
 import { customerService } from "../customers/customer.service";
 import Layout from "../../components/Layout";
 import { SuccessToast } from "../../components/SuccessToast";
@@ -699,7 +701,7 @@ const RentalDetailPage: React.FC = () => {
     );
   }
 
-  const rental = data.data;
+  const rental: Rental = data.data;
   const customer =
     typeof rental.customerId === "object" ? rental.customerId : null;
   const customerAddresses = customer?.addresses ?? [];
@@ -710,7 +712,9 @@ const RentalDetailPage: React.FC = () => {
         ? "Retirado na locadora"
         : "Não informado";
 
-  const allReturned = rental.items.every((item) => item.returnActual);
+  const allReturned = rental.items.every(
+    (item: RentalItem) => item.returnActual,
+  );
 
   const getEntityId = (value: any) =>
     typeof value === "string"
@@ -1484,7 +1488,7 @@ const RentalDetailPage: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="">Selecione o item</option>
-                    {filteredInventoryItems.map((item: any) => (
+                    {filteredInventoryItems.map((item: Item) => (
                       <option key={item._id} value={item._id}>
                         {item.name}
                       </option>
@@ -1503,8 +1507,8 @@ const RentalDetailPage: React.FC = () => {
                     >
                       <option value="">Selecione a unidade</option>
                       {selectedInventoryItem?.units
-                        ?.filter((u: any) => u.status === "available")
-                        .map((unit: any) => (
+                        ?.filter((u: ItemUnit) => u.status === "available")
+                        .map((unit: ItemUnit) => (
                           <option key={unit.unitId} value={unit.unitId}>
                             Unidade: {unit.unitId}
                           </option>
@@ -1745,7 +1749,7 @@ const RentalDetailPage: React.FC = () => {
                       returnDate: rental.dates.returnScheduled
                         ? toDateInput(rental.dates.returnScheduled)
                         : "",
-                      items: rental.items.map((item: any) => {
+                      items: rental.items.map((item: RentalItem) => {
                         const ra = item.returnActual
                           ? toDateInput(item.returnActual)
                           : "";
@@ -1764,7 +1768,9 @@ const RentalDetailPage: React.FC = () => {
                               : undefined,
                           quantity: item.quantity,
                           rentalType:
-                            rentalTypeApiToUi[item.rentalType] || "diario",
+                            (item.rentalType
+                              ? rentalTypeApiToUi[item.rentalType]
+                              : undefined) || "diario",
                           pickupDate: item.pickupScheduled
                             ? toDateInput(item.pickupScheduled)
                             : "",
@@ -3956,7 +3962,7 @@ const RentalDetailPage: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="">Selecione o item</option>
-                  {filteredInventoryItems.map((item: any) => (
+                  {filteredInventoryItems.map((item: Item) => (
                     <option key={item._id} value={item._id}>
                       {item.name}
                     </option>
@@ -3975,8 +3981,8 @@ const RentalDetailPage: React.FC = () => {
                   >
                     <option value="">Selecione a unidade</option>
                     {selectedInventoryItem?.units
-                      ?.filter((u: any) => u.status === "available")
-                      .map((unit: any) => (
+                      ?.filter((u: ItemUnit) => u.status === "available")
+                      .map((unit: ItemUnit) => (
                         <option key={unit.unitId} value={unit.unitId}>
                           Unidade: {unit.unitId}
                         </option>

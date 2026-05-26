@@ -5,7 +5,7 @@ import { maintenanceService } from "./maintenance.service";
 import { useItem, useItems } from "../../hooks/useInventory";
 import { CreateMaintenanceData } from "../../types/maintenance.types";
 import Layout from "../../components/Layout";
-import { EMPTY_ITEMS, Item } from "../../types/inventory.types";
+import { EMPTY_ITEMS, EMPTY_ITEM_UNITS, Item, ItemUnit } from "../../types/inventory.types";
 import { formatMoneyInputBr, parseMoneyBr } from "../../utils/formatters";
 
 const CreateMaintenancePage: React.FC = () => {
@@ -107,10 +107,11 @@ const CreateMaintenancePage: React.FC = () => {
       }));
     }
   }, [selectedItem]);
-  const availableUnits =
+  const availableUnits: ItemUnit[] =
     selectedItem?.units?.filter(
-      (unit) => unit.status === "available" || unit.status === "damaged",
-    ) || [];
+      (unit: ItemUnit) =>
+        unit.status === "available" || unit.status === "damaged",
+    ) ?? EMPTY_ITEM_UNITS;
 
   return (
     <Layout title="Nova Manutenção" backTo="/maintenance">

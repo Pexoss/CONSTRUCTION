@@ -3,8 +3,21 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { subscriptionService } from "./subscription.service";
 import Layout from "../../components/Layout";
 import { formatDocumentForDisplay, formatCurrencyBr } from "../../utils/formatters";
+import {
+  Company,
+  EMPTY_COMPANIES,
+  EMPTY_SUBSCRIPTION_PAYMENTS,
+  SubscriptionPayment,
+} from "../../types/subscription.types";
 
 type Plan = "basic" | "pro" | "enterprise";
+
+type CompaniesListResult = Awaited<
+  ReturnType<typeof subscriptionService.getAllCompanies>
+>;
+type PaymentsListResult = Awaited<
+  ReturnType<typeof subscriptionService.getCompanyPayments>
+>;
 
 interface PaymentFormData {
   companyId: string;
@@ -30,7 +43,7 @@ const AdminPage: React.FC = () => {
     dueDate: "",
   });
 
-  const { data: companiesData } = useQuery({
+  const { data: companiesData } = useQuery<CompaniesListResult>({
     queryKey: ["admin-companies"],
     queryFn: async () => {
       const res = await subscriptionService.getAllCompanies();
@@ -38,7 +51,7 @@ const AdminPage: React.FC = () => {
     },
   });
 
-  const { data: paymentsData } = useQuery({
+  const { data: paymentsData } = useQuery<PaymentsListResult>({
     queryKey: ["admin-payments", selectedCompany],
     queryFn: async () => {
       const res = await subscriptionService.getCompanyPayments(selectedCompany);
@@ -186,11 +199,12 @@ const AdminPage: React.FC = () => {
     }
   }, [showPaymentModal, selectedCompany]);
 
-  const companies = companiesData?.data || [];
-  const payments = paymentsData?.data || [];
+  const companies: Company[] = companiesData?.data ?? EMPTY_COMPANIES;
+  const payments: SubscriptionPayment[] =
+    paymentsData?.data ?? EMPTY_SUBSCRIPTION_PAYMENTS;
   const metrics = metricsData?.data;
   const selectedCompanyData = companies.find(
-    (company) => company._id === selectedCompany,
+    (company: Company) => company._id === selectedCompany,
   );
 
   const getStatusColor = (status: string) => {

@@ -154,7 +154,7 @@ const EmployeesPage: React.FC = () => {
                   </thead>
 
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {sortedEmployees.map((employee: any) => (
+                    {sortedEmployees.map((employee) => (
                       <tr
                         key={employee._id}
                         className="hover:bg-gray-50 dark:hover:bg-gray-700/50"

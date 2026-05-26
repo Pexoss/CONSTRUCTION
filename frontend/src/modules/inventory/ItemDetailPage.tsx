@@ -16,6 +16,7 @@ import {
   sortedTableRows,
   toggleColumnSort,
 } from "../../utils/tableSort";
+import { EMPTY_ITEM_UNITS, Item, ItemUnit } from "../../types/inventory.types";
 
 type UnitRowSortKey = "unitId" | "status" | "location";
 
@@ -55,15 +56,15 @@ const ItemDetailPage: React.FC = () => {
     { key: "unitId", dir: "asc" },
   );
 
-  const item = itemData?.data;
+  const item: Item | undefined = itemData?.data;
 
   const sortedUnits = useMemo(() => {
-    const rows = item?.units ?? [];
+    const rows: ItemUnit[] = item?.units ?? EMPTY_ITEM_UNITS;
     return sortedTableRows(rows, unitSort, {
-      unitId: (u) => String(u.unitId || "").toLowerCase(),
-      status: (u) =>
+      unitId: (u: ItemUnit) => String(u.unitId || "").toLowerCase(),
+      status: (u: ItemUnit) =>
         String(unitStatusLabels[u.status] || u.status || "").toLowerCase(),
-      location: (u) => String(u.location || "").toLowerCase(),
+      location: (u: ItemUnit) => String(u.location || "").toLowerCase(),
     });
   }, [item?.units, unitSort]);
 

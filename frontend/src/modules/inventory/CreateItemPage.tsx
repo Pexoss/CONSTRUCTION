@@ -11,6 +11,7 @@ import {
   CreateItemData,
   EMPTY_CATEGORIES,
   EMPTY_SUBCATEGORIES,
+  ItemUnit,
   Subcategory,
 } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
@@ -54,14 +55,7 @@ const CreateItemPage: React.FC = () => {
     isActive: true,
   });
 
-  const [units, setUnits] = useState<
-    Array<{
-      unitId: string;
-      status: "available" | "rented" | "maintenance" | "damaged";
-      location?: string;
-      notes?: string;
-    }>
-  >([]);
+  const [units, setUnits] = useState<ItemUnit[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pricingInputs, setPricingInputs] = useState({
     dailyRate: "",
@@ -195,7 +189,7 @@ const CreateItemPage: React.FC = () => {
           return;
         }
 
-        dataToSend.units = unitsToSend.map((u) => ({
+        dataToSend.units = unitsToSend.map((u: ItemUnit) => ({
           unitId: u.unitId.trim(),
           status: u.status,
           location: u.location,
@@ -204,7 +198,7 @@ const CreateItemPage: React.FC = () => {
 
         const total = dataToSend.units.length;
         const available = dataToSend.units.filter(
-          (u) => u.status === "available",
+          (u: ItemUnit) => u.status === "available",
         ).length;
 
         dataToSend.quantity = {

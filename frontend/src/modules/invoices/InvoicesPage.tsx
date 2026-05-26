@@ -166,22 +166,22 @@ const InvoicesPage: React.FC = () => {
   const sortedInvoiceRows = useMemo(
     () =>
       sortedTableRows(filteredInvoices, invSort, {
-        number: (i: any) => String(i.invoiceNumber ?? "").toLowerCase(),
-        emitter: (i: any) =>
+        number: (i: Invoice) => String(i.invoiceNumber ?? "").toLowerCase(),
+        emitter: (i: Invoice) =>
           `${i.issuerLabel || ""} ${i.issuerCnpj || ""}`
             .trim()
             .toLowerCase(),
-        customer: (i: any) =>
+        customer: (i: Invoice) =>
           String(
             typeof i.customerId === "object"
               ? i.customerId?.name || ""
               : "",
           ).toLowerCase(),
-        issue: (i: any) =>
+        issue: (i: Invoice) =>
           i.issueDate ? new Date(i.issueDate).getTime() : 0,
-        due: (i: any) => (i.dueDate ? new Date(i.dueDate).getTime() : 0),
-        total: (i: any) => Number(i.total ?? 0),
-        status: (i: any) =>
+        due: (i: Invoice) => (i.dueDate ? new Date(i.dueDate).getTime() : 0),
+        total: (i: Invoice) => Number(i.total ?? 0),
+        status: (i: Invoice) =>
           String(invoiceStatusLabel[i.status] || i.status || ""),
       }),
     [filteredInvoices, invSort],
@@ -428,7 +428,7 @@ const InvoicesPage: React.FC = () => {
                   </thead>
 
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {sortedInvoiceRows.map((invoice: any) => {
+                    {sortedInvoiceRows.map((invoice: Invoice) => {
                       const customer =
                         typeof invoice.customerId === "object"
                           ? invoice.customerId

@@ -91,19 +91,20 @@ const MaintenancesPage: React.FC = () => {
   const sortedMaintenances = useMemo(
     () =>
       sortedTableRows(maintenances, maintSort, {
-        item: (m: any) => {
+        item: (m: Maintenance) => {
           const itemObj =
             typeof m.itemId === "object" && m.itemId ? m.itemId : null;
           return String(itemObj?.name || "").toLowerCase();
         },
-        unit: (m: any) => String(m.unitId || "").toLowerCase(),
-        type: (m: any) =>
+        unit: (m: Maintenance) => String(m.unitId || "").toLowerCase(),
+        type: (m: Maintenance) =>
           String(m.type === "preventive" ? "preventiva" : "corretiva"),
-        description: (m: any) => String(m.description || "").toLowerCase(),
-        scheduled: (m: any) =>
+        description: (m: Maintenance) =>
+          String(m.description || "").toLowerCase(),
+        scheduled: (m: Maintenance) =>
           m.scheduledDate ? new Date(m.scheduledDate).getTime() : 0,
-        cost: (m: any) => Number(m.cost ?? 0),
-        status: (m: any) => String(getStatusLabel(m.status) || ""),
+        cost: (m: Maintenance) => Number(m.cost ?? 0),
+        status: (m: Maintenance) => String(getStatusLabel(m.status) || ""),
       }),
     [maintenances, maintSort],
   );

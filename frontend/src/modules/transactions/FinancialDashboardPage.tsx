@@ -1,14 +1,26 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { transactionService } from "./transaction.service";
+import {
+  EMPTY_TRANSACTIONS,
+  FinancialDashboard,
+  Transaction,
+} from "../../types/transaction.types";
 import { formatCurrencyBr } from "../../utils/formatters";
 import Layout from "../../components/Layout";
+
+type FinancialDashboardResult = Awaited<
+  ReturnType<typeof transactionService.getFinancialDashboard>
+>;
+type AccountsListResult = Awaited<
+  ReturnType<typeof transactionService.getAccountsReceivable>
+>;
 
 const FinancialDashboardPage: React.FC = () => {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useQuery<FinancialDashboardResult>({
     queryKey: ["financial-dashboard", startDate, endDate],
     queryFn: () =>
       transactionService.getFinancialDashboard(
@@ -17,12 +29,12 @@ const FinancialDashboardPage: React.FC = () => {
       ),
   });
 
-  const { data: receivable } = useQuery({
+  const { data: receivable } = useQuery<AccountsListResult>({
     queryKey: ["accounts-receivable"],
     queryFn: () => transactionService.getAccountsReceivable(),
   });
 
-  const { data: payable } = useQuery({
+  const { data: payable } = useQuery<AccountsListResult>({
     queryKey: ["accounts-payable"],
     queryFn: () => transactionService.getAccountsPayable(),
   });
@@ -37,7 +49,11 @@ const FinancialDashboardPage: React.FC = () => {
     );
   }
 
-  const dashboard = data?.data;
+  const dashboard: FinancialDashboard | undefined = data?.data;
+  const receivableTransactions: Transaction[] =
+    receivable?.data ?? EMPTY_TRANSACTIONS;
+  const payableTransactions: Transaction[] =
+    payable?.data ?? EMPTY_TRANSACTIONS;
 
   return (
     <Layout title="Dashboard Financeiro" backTo="/dashboard">
@@ -125,8 +141,8 @@ const FinancialDashboardPage: React.FC = () => {
                     Contas a Receber
                   </h3>
                   <div className="space-y-2">
-                    {receivable?.data && receivable.data.length > 0 ? (
-                      receivable.data.slice(0, 5).map((transaction) => (
+                    {receivableTransactions.length > 0 ? (
+                      receivableTransactions.slice(0, 5).map((transaction: Transaction) => (
                         <div
                           key={transaction._id}
                           className="flex justify-between items-center p-2 border-b border-gray-200 dark:border-gray-700 last:border-0"
@@ -161,8 +177,8 @@ const FinancialDashboardPage: React.FC = () => {
                     Contas a Pagar
                   </h3>
                   <div className="space-y-2">
-                    {payable?.data && payable.data.length > 0 ? (
-                      payable.data.slice(0, 5).map((transaction) => (
+                    {payableTransactions.length > 0 ? (
+                      payableTransactions.slice(0, 5).map((transaction: Transaction) => (
                         <div
                           key={transaction._id}
                           className="flex justify-between items-center p-2 border-b border-gray-200 dark:border-gray-700 last:border-0"

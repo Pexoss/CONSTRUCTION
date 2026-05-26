@@ -17,7 +17,7 @@ import {
   CustomerAddress,
   EMPTY_CUSTOMERS,
 } from "../../types/customer.types";
-import { Billing, EMPTY_BILLINGS } from "../../types/billing.types";
+import { Billing, BillingItem, EMPTY_BILLINGS } from "../../types/billing.types";
 import {
   formatCurrencyBr,
   formatDocumentForDisplay,
@@ -144,8 +144,8 @@ const CreateInvoicePage: React.FC = () => {
         closure: (b) => String(b.billingNumber ?? "").toLowerCase(),
         period: (b) =>
           b.periodStart ? new Date(b.periodStart).getTime() : 0,
-        items: (b: any) => {
-          const billingItemLabel = (it: any) =>
+        items: (b: Billing) => {
+          const billingItemLabel = (it: BillingItem) =>
             typeof it.itemId === "object" && it.itemId?.name
               ? it.itemId.name
               : "";
@@ -167,7 +167,7 @@ const CreateInvoicePage: React.FC = () => {
             .toLowerCase();
           return names;
         },
-        status: (b: any) =>
+        status: (b: Billing) =>
           String(billingStatusLabel[b.status as keyof typeof billingStatusLabel] || b.status || ""),
         total: (b) => Number(b.calculation?.total ?? 0),
       }),

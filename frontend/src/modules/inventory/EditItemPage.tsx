@@ -12,6 +12,7 @@ import {
   EditItemData,
   EMPTY_CATEGORIES,
   EMPTY_SUBCATEGORIES,
+  Item,
   ItemUnit,
   Subcategory,
 } from "../../types/inventory.types";
@@ -66,7 +67,7 @@ const EditItemPage: React.FC = () => {
   useEffect(() => {
     if (!itemData?.data) return;
 
-    const item = itemData.data;
+    const item: Item = itemData.data;
 
     setFormData({
       name: item.name,
@@ -102,7 +103,7 @@ const EditItemPage: React.FC = () => {
 
     setUnits(
       item.units?.length
-        ? item.units.map((u) => ({
+        ? item.units.map((u: ItemUnit) => ({
             unitId: u.unitId,
             status: u.status,
             location: u.location,
@@ -219,7 +220,7 @@ const EditItemPage: React.FC = () => {
           setErrors({ units: "Item unitário precisa de ao menos uma unidade" });
           return;
         }
-        dataToSend.units = unitsToSend.map((u) => ({
+        dataToSend.units = unitsToSend.map((u: ItemUnit) => ({
           unitId: u.unitId.trim(),
           status: u.status,
           location: u.location,

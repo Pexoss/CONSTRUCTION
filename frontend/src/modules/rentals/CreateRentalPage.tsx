@@ -12,7 +12,7 @@ import {
   RentalWorkAddress,
   RentalFulfillmentMethod,
 } from "../../types/rental.types";
-import { EMPTY_ITEMS, Item } from "../../types/inventory.types";
+import { EMPTY_ITEMS, EMPTY_ITEM_UNITS, Item, ItemUnit } from "../../types/inventory.types";
 import {
   Customer,
   CustomerAddress,
@@ -402,7 +402,8 @@ const CreateRentalPage: React.FC = () => {
   const handleAddItem = (item: Item) => {
     if (item.trackingType === "unit") {
       const availableUnits =
-        item.units?.filter((u) => u.status === "available") || [];
+        item.units?.filter((u: ItemUnit) => u.status === "available") ??
+        EMPTY_ITEM_UNITS;
       if (availableUnits.length === 0) {
         toast.warning(
           `O item "${item.name}" não possui unidades disponíveis para aluguel.`,
@@ -635,12 +636,14 @@ const CreateRentalPage: React.FC = () => {
         return;
       }
       if (si.item.trackingType === "unit" && si.unitId) {
-        const unit = si.item.units?.find((u) => u.unitId === si.unitId);
+        const unit = si.item.units?.find(
+          (u: ItemUnit) => u.unitId === si.unitId,
+        );
         if (!unit || unit.status !== "available") {
           const availableUnits =
             si.item.units
-              ?.filter((u) => u.status === "available")
-              .map((u) => u.unitId)
+              ?.filter((u: ItemUnit) => u.status === "available")
+              .map((u: ItemUnit) => u.unitId)
               .join(", ") || "nenhuma";
           toast.warning(
             `A unidade ${si.unitId} do item "${si.item.name}" não está mais disponível. Unidades disponíveis: ${availableUnits}.`,
@@ -1196,8 +1199,10 @@ const CreateRentalPage: React.FC = () => {
                                   >
                                     <option value="">Selecione...</option>
                                     {selectedItem.item.units
-                                      ?.filter((u) => u.status === "available")
-                                      .map((unit) => (
+                                      ?.filter(
+                                        (u: ItemUnit) => u.status === "available",
+                                      )
+                                      .map((unit: ItemUnit) => (
                                         <option
                                           key={unit.unitId}
                                           value={unit.unitId}

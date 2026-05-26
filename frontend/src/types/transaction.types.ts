@@ -63,3 +63,5 @@ export interface FinancialDashboard {
   cashFlow: Array<{ date: string; income: number; expenses: number; balance: number }>;
   byCategory: Array<{ category: string; income: number; expenses: number }>;
 }
+
+export const EMPTY_TRANSACTIONS: Transaction[] = [];

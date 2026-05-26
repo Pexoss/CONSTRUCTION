@@ -218,5 +218,6 @@ export interface AdjustQuantityData {
 
 /** Fallback tipado para listas vazias (evita `|| []` inferido como any[] no build de produção). */
 export const EMPTY_ITEMS: Item[] = [];
+export const EMPTY_ITEM_UNITS: ItemUnit[] = [];
 export const EMPTY_CATEGORIES: Category[] = [];
 export const EMPTY_SUBCATEGORIES: Subcategory[] = [];

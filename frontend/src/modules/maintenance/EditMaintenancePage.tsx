@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Layout from "../../components/Layout";
-import { EMPTY_ITEMS, Item } from "../../types/inventory.types";
+import { EMPTY_ITEMS, EMPTY_ITEM_UNITS, Item, ItemUnit } from "../../types/inventory.types";
 import { maintenanceService } from "./maintenance.service";
 import {
   CreateMaintenanceData,
@@ -110,13 +110,13 @@ const EditMaintenancePage: React.FC = () => {
         ...items.filter((item) => item._id !== selectedItemFromApi._id),
       ]
     : items;
-  const availableUnits =
+  const availableUnits: ItemUnit[] =
     selectedItem?.units?.filter(
-      (unit) =>
+      (unit: ItemUnit) =>
         unit.status === "available" ||
         unit.status === "damaged" ||
         unit.unitId === formData.unitId,
-    ) || [];
+    ) ?? EMPTY_ITEM_UNITS;
 
   useEffect(() => {
     if (!selectedItem) return;
