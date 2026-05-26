@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
@@ -13,6 +13,7 @@ import {
   RentalFulfillmentMethod,
 } from "../../types/rental.types";
 import { Item } from "../../types/inventory.types";
+import { CustomerAddress } from "../../types/customer.types";
 import Layout from "../../components/Layout";
 import {
   formatDocumentForDisplay,
@@ -36,6 +37,30 @@ export const rentalTypeMapper: Record<RentalTypeUI, RentalTypeAPI> = {
   quinzenal: "biweekly",
   mensal: "monthly",
 };
+
+const workAddressFromCustomerAddress = (addr: CustomerAddress): RentalWorkAddress => ({
+  workName:
+    addr.workName ||
+    addr.addressName ||
+    (addr.type === "main"
+      ? "Endereço Principal"
+      : addr.type === "billing"
+        ? "Endereço de Cobrança"
+        : "Outro Endereço"),
+  street: addr.street || "",
+  number: addr.number,
+  complement: addr.complement,
+  neighborhood: addr.neighborhood,
+  city: addr.city || "",
+  state: addr.state || "",
+  zipCode: addr.zipCode || "",
+  workId: addr._id,
+});
+
+const selectNumericInputOnFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+  e.target.select();
+};
+
 interface SelectedItem {
   itemId: string;
   quantity: number;
@@ -100,7 +125,7 @@ const CreateRentalPage: React.FC = () => {
     null,
   );
   const [saveWorkAddress, setSaveWorkAddress] = useState(false);
-  const [selectedWorkAddressId, setSelectedWorkAddressId] =
+  const [selectedWorkAddressIndex, setSelectedWorkAddressIndex] =
     useState<string>("");
   const [pickupDate, setPickupDate] = useState("");
   const [pickupTime, setPickupTime] = useState("");
@@ -513,7 +538,7 @@ const CreateRentalPage: React.FC = () => {
     setSelectedCustomer(newCustomerId);
     setShowCustomerDropdown(false);
     setCustomerSearch("");
-    setSelectedWorkAddressId("");
+    setSelectedWorkAddressIndex("");
     setWorkAddress(null);
     const customer = allCustomers.find((c) => c._id === newCustomerId);
     setCustomerCpf(formatDocumentInput(customer?.cpfCnpj || ""));
@@ -527,6 +552,7 @@ const CreateRentalPage: React.FC = () => {
     const documentToSubmit = rentalDocumentDigits || selectedCustomerDocumentDigits;
     if (!documentToSubmit) missingFields.push("CPF/CNPJ do cliente");
     if (!fulfillmentMethod) missingFields.push("entrega ou retirada");
+    if (!pickedUpBy.trim()) missingFields.push("quem retirou/entregou");
     if (selectedItems.length === 0) {
       if ((itemsData?.data || []).length === 0) {
         toast.warning("Nenhum item disponível no inventário para alugar.");
@@ -538,6 +564,19 @@ const CreateRentalPage: React.FC = () => {
     if (missingFields.length > 0) {
       toast.warning(`Preencha os campos obrigatórios: ${missingFields.join(", ")}.`);
       return;
+    }
+
+    if (workAddress) {
+      const addrMissing: string[] = [];
+      if (!workAddress.workName?.trim()) addrMissing.push("nome da obra");
+      if (!workAddress.street?.trim()) addrMissing.push("rua");
+      if (!workAddress.city?.trim()) addrMissing.push("cidade");
+      if (!workAddress.state?.trim()) addrMissing.push("estado");
+      if (!workAddress.zipCode?.trim()) addrMissing.push("CEP");
+      if (addrMissing.length > 0) {
+        toast.warning(`Preencha o endereço da obra: ${addrMissing.join(", ")}.`);
+        return;
+      }
     }
 
     if (!isValidCpfCnpj(documentToSubmit)) {
@@ -765,6 +804,16 @@ const CreateRentalPage: React.FC = () => {
 
   const customerAddresses = selectedCustomerData?.addresses ?? [];
 
+  const applyCustomerAddressAtIndex = useCallback(
+    (index: number) => {
+      const addr = customerAddresses[index];
+      if (!addr) return;
+      setSelectedWorkAddressIndex(String(index));
+      setWorkAddress(workAddressFromCustomerAddress(addr));
+    },
+    [customerAddresses],
+  );
+
   const totalsWithRentalType = {
     ...totals,
     // apenas copia, sem multiplicar
@@ -813,19 +862,13 @@ const CreateRentalPage: React.FC = () => {
 
   useEffect(() => {
     if (customerAddresses.length === 1) {
-      const addr = customerAddresses[0];
-      setWorkAddress({
-        workName: addr.workName || "",
-        street: addr.street || "",
-        number: addr.number,
-        neighborhood: addr.neighborhood,
-        city: addr.city || "",
-        state: addr.state || "",
-        zipCode: addr.zipCode || "",
-      });
-      setSelectedWorkAddressId(addr._id || "");
+      applyCustomerAddressAtIndex(0);
+      return;
     }
-  }, [customerAddresses]);
+    if (customerAddresses.length === 0) {
+      setSelectedWorkAddressIndex("");
+    }
+  }, [customerAddresses, applyCustomerAddressAtIndex]);
 
   const addressOptions =
     selectedCustomerData?.addresses?.map((address, index) => ({
@@ -951,7 +994,7 @@ const CreateRentalPage: React.FC = () => {
                           setSelectedCustomer("");
                           setCustomerSearch("");
                           setCustomerCpf("");
-                          setSelectedWorkAddressId("");
+                          setSelectedWorkAddressIndex("");
                           setWorkAddress(null);
                         }}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-lg leading-none"
@@ -1372,6 +1415,8 @@ const CreateRentalPage: React.FC = () => {
                                     min="1"
                                     max={selectedItem.item.quantity.available}
                                     value={selectedItem.quantity}
+                                    onFocus={selectNumericInputOnFocus}
+                                    onClick={selectNumericInputOnFocus}
                                     onChange={(e) =>
                                       handleQuantityChange(
                                         selectedItem.itemId,
@@ -1560,6 +1605,8 @@ const CreateRentalPage: React.FC = () => {
                                 type="number"
                                 min="1"
                                 value={service.quantity}
+                                onFocus={selectNumericInputOnFocus}
+                                onClick={selectNumericInputOnFocus}
                                 onChange={(e) =>
                                   updateService(
                                     index,
@@ -1634,30 +1681,15 @@ const CreateRentalPage: React.FC = () => {
                           </label>
                           <select
                             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            defaultValue=""
+                            value={selectedWorkAddressIndex}
                             onChange={(e) => {
-                              const index = Number(e.target.value);
-                              const addr = customerAddresses[index];
-                              if (!addr) return;
-
-                              setWorkAddress({
-                                workName:
-                                  addr.workName ||
-                                  addr.addressName ||
-                                  (addr.type === "main"
-                                    ? "Endereço Principal"
-                                    : addr.type === "billing"
-                                      ? "Endereço de Cobrança"
-                                      : "Outro Endereço"),
-                                street: addr.street || "",
-                                number: addr.number,
-                                complement: addr.complement,
-                                neighborhood: addr.neighborhood,
-                                city: addr.city || "",
-                                state: addr.state || "",
-                                zipCode: addr.zipCode || "",
-                                workId: addr._id,
-                              });
+                              const value = e.target.value;
+                              if (value === "") {
+                                setSelectedWorkAddressIndex("");
+                                setWorkAddress(null);
+                                return;
+                              }
+                              applyCustomerAddressAtIndex(Number(value));
                             }}
                           >
                             <option value="">Selecione um endereço</option>
@@ -1960,13 +1992,14 @@ const CreateRentalPage: React.FC = () => {
                     </div>
                     <div className="mt-3">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Quem retirou/entregou
+                        Quem retirou/entregou *
                       </label>
                       <input
                         type="text"
                         value={pickedUpBy}
                         onChange={(e) => setPickedUpBy(e.target.value)}
                         placeholder="Nome de quem retirou ou entregou"
+                        required
                         className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
                     </div>
