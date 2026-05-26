@@ -40,20 +40,17 @@ export const useAuth = () => {
     }
   }, [currentUser, setUser]);
 
-  // Handle user query error
+  // Erros de /auth/me: o interceptor em api.ts tenta refresh e só redireciona
+  // ao login se o refresh falhar — não fazer logout aqui para não interromper isso.
   useEffect(() => {
     if (userError) {
-      const isUnauthorized = (userError as any)?.response?.status === 401;
-      if (isUnauthorized) {
-        console.log("[AUTH] Usuário não autenticado, fazendo logout");
-        logout();
-      } else {
+      const status = (userError as { response?: { status?: number } })?.response
+        ?.status;
+      if (status !== 401) {
         console.warn("[AUTH] Erro ao validar usuário:", userError);
-        // Não fazer logout em erros de rede ou servidor
-        // O retry automático do React Query tentará novamente
       }
     }
-  }, [userError, logout]);
+  }, [userError]);
 
   // Login mutation
   const loginMutation = useMutation({

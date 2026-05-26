@@ -3,6 +3,7 @@ import { Bell, Menu, X, ChevronLeft, Home } from "lucide-react";
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import ThemeToggle from './ThemeToggle';
+import FontSizeToggle from './FontSizeToggle';
 import { NotificationsDrawer } from "./NotificationsDrawer";
 import { useNotifications } from "hooks/useNotifications";
 
@@ -60,7 +61,7 @@ const Layout: React.FC<LayoutProps> = ({
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
       {/* Navigation Header */}
       <nav className="bg-white dark:bg-gray-800 shadow-md sticky top-0 z-40 transition-colors duration-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="app-container">
           <div className="flex justify-between h-16">
             {/* Left section - Logo & Mobile menu button */}
             <div className="flex items-center">
@@ -88,6 +89,7 @@ const Layout: React.FC<LayoutProps> = ({
 
             {/* Desktop navigation items */}
             <div className="hidden md:flex items-center space-x-4 lg:space-x-6">
+              <FontSizeToggle />
               <ThemeToggle />
               {(user?.role === "admin" || user?.role === "superadmin") && (
                 <Link
@@ -162,6 +164,7 @@ const Layout: React.FC<LayoutProps> = ({
 
             {/* Mobile right section */}
             <div className="flex md:hidden items-center space-x-2">
+              <FontSizeToggle />
               <ThemeToggle />
               {(user?.role === "admin" || user?.role === "superadmin") && (
                 <button
@@ -244,7 +247,7 @@ const Layout: React.FC<LayoutProps> = ({
       {/* Breadcrumbs */}
       {(title || (canGoBack && showBackButton)) && (
         <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 transition-colors duration-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+          <div className="app-container py-3">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               {/* Back button for desktop */}
               {canGoBack && showBackButton && (
@@ -312,8 +315,8 @@ const Layout: React.FC<LayoutProps> = ({
       )}
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 sm:p-6 transition-colors duration-200">
+      <main className="app-container py-4 sm:py-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-3 sm:p-4 md:p-6 w-full transition-colors duration-200">
           {children}
         </div>
       </main>

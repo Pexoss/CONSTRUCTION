@@ -7,7 +7,6 @@ import { inventoryService } from "../inventory/inventory.service";
 import { rentalService } from "../rentals/rental.service";
 import { maintenanceService } from "../maintenance/maintenance.service";
 import { billingService } from "../billings/billing.service";
-import { features } from "../../config/features";
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
@@ -83,22 +82,16 @@ const Dashboard: React.FC = () => {
     {
       title: "Gestão",
       cards: [
-        ...(features.financialUnifiedModule
-          ? [
-              {
-                title: "Quadro de fechamentos",
-                description: "Kanban de fechamentos somente leitura (filtros e visão geral)",
-                to: "/finance/dashboard-kanban",
-              },
-            ]
-          : []),
-
         {
-          title: "Vencimentos",
-          description: "Contratos vencidos e a vencer",
-          to: "/rentals/expiration-dashboard",
+          title: "Relatórios",
+          description: "Análises e métricas da operação",
+          to: "/reports",
         },
-
+        {
+          title: "Faturas",
+          description: "Gerenciar faturas e contratos",
+          to: "/invoices",
+        },
         {
           title: "Equipe",
           description: "Gerencie funcionários e permissões",
@@ -118,42 +111,12 @@ const Dashboard: React.FC = () => {
       ],
     },
 
-    {
-      title: "Análise e Controle",
-      cards: [
-        {
-          title: "Relatórios",
-          description: "Análises e métricas da operação",
-          to: "/reports",
-        },
-        {
-          title: "Faturas",
-          description: "Gerenciar faturas e contratos",
-          to: "/invoices",
-          icon: (
-            <svg
-              className="h-6 w-6 text-gray-800 dark:text-gray-200"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              />
-            </svg>
-          ),
-        },
-      ],
-    },
   ];
 
   return (
     <Layout title="Dashboard" showBackButton={false}>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
-        <div className="max-w-7xl mx-auto px-4">
+        <div className="app-container">
           {/* HEADER */}
 
           <div className="mb-10">
@@ -279,10 +242,9 @@ const Dashboard: React.FC = () => {
                     </div>
                   </Link>
 
-                  {(user?.role === "admin" || user?.role === "superadmin") && (
-                    <Link
-                      to="/finance"
-                      className="
+                  <Link
+                    to="/finance"
+                    className="
             flex items-center gap-3
             bg-white/80
             backdrop-blur-sm
@@ -293,33 +255,34 @@ const Dashboard: React.FC = () => {
             hover:bg-white
             transition-colors
           "
-                    >
-                      <div className="bg-indigo-100 p-2 rounded-lg">
-                        <svg
-                          className="w-5 h-5 text-indigo-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                      </div>
+                  >
+                    <div className="bg-indigo-100 p-2 rounded-lg">
+                      <svg
+                        className="w-5 h-5 text-indigo-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </div>
 
-                      <div>
-                        <p className="text-xl font-semibold text-gray-800 dark:text-gray-100">
-                          Financeiro
-                        </p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                          Faturamento e fluxo de caixa
-                        </p>
-                      </div>
-                    </Link>
-                  )}
+                    <div>
+                      <p className="text-xl font-semibold text-gray-800 dark:text-gray-100">
+                        Financeiro
+                      </p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {user?.role === "admin" || user?.role === "superadmin"
+                          ? "Faturamento e fluxo de caixa"
+                          : "Consulta e PDF de documentos"}
+                      </p>
+                    </div>
+                  </Link>
                 </div>
               </div>
 
@@ -361,43 +324,18 @@ const Dashboard: React.FC = () => {
           <div className="space-y-10">
             {cardSections.map((section, sectionIndex) => {
               const filteredCards = section.cards.filter((card) => {
-                // Administração apenas superadmin
-                if (
-                  card.title === "Administração" &&
-                  user?.role !== "superadmin"
-                ) {
-                  return false;
-                }
+                const isAdmin =
+                  user?.role === "admin" || user?.role === "superadmin";
 
-                // Equipe apenas admin e superadmin
-                if (
-                  card.title === "Equipe" &&
-                  user?.role !== "admin" &&
-                  user?.role !== "superadmin"
-                ) {
+                if (card.title === "Administração" && user?.role !== "superadmin") {
                   return false;
                 }
 
                 if (
-                  card.title === "Relatórios" &&
-                  user?.role !== "admin" &&
-                  user?.role !== "superadmin"
-                ) {
-                  return false;
-                }
-
-                if (
-                  card.title === "Vencimentos" &&
-                  user?.role !== "admin" &&
-                  user?.role !== "superadmin"
-                ) {
-                  return false;
-                }
-
-                if (
-                  card.title === "Faturas" &&
-                  user?.role !== "admin" &&
-                  user?.role !== "superadmin"
+                  (card.title === "Equipe" ||
+                    card.title === "Relatórios" ||
+                    card.title === "Faturas") &&
+                  !isAdmin
                 ) {
                   return false;
                 }

@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .app-container {
+    @apply w-full max-w-app mx-auto px-3 sm:px-4 md:px-5 lg:px-6 xl:px-8;
+  }
+}
+
+/* Acessibilidade: 3 níveis de fonte (Tailwind usa rem) */
+html.font-large {
+  font-size: 112.5%; /* ~18px */
+}
+
+html.font-xlarge {
+  font-size: 125%; /* ~20px */
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',

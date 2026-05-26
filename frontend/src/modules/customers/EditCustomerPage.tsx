@@ -91,7 +91,7 @@ const EditCustomerPage: React.FC = () => {
   return (
     <Layout title="Editar Cliente" backTo="/customers">
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-full max-w-5xl mx-auto px-3 sm:px-4 md:px-6">
           {/* Header */}
           <div className="mb-6">
             <Link

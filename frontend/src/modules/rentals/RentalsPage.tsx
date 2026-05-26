@@ -290,7 +290,7 @@ const RentalsPage: React.FC = () => {
     <Layout title="Aluguéis e Reservas" backTo="/dashboard">
       {/* Header - Corrigido espaçamento */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6">
+        <div className="app-container py-4 sm:py-5 lg:py-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
@@ -311,7 +311,7 @@ const RentalsPage: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 sm:mt-6">
+      <div className="app-container mt-4 sm:mt-6">
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
             <div className="flex gap-2">
@@ -355,7 +355,7 @@ const RentalsPage: React.FC = () => {
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 mt-4 sm:mt-6 pb-6">
+      <div className="app-container mt-4 sm:mt-6 pb-6">
         {viewMode === "calendar" ? (
           renderCalendarView()
         ) : (

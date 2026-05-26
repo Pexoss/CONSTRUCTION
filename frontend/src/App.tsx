@@ -14,6 +14,7 @@ import LoginPage from "./modules/auth/LoginPage";
 import RegisterPage from "./modules/auth/RegisterPage";
 import RegisterEmploye from "./modules/employe/RegisterEmploye";
 import ProtectedRoute from "./components/ProtectedRoute";
+import AuthSessionBridge from "./components/AuthSessionBridge";
 import Dashboard from "./modules/dashboard/Dashboard";
 import Skeleton from "./components/Skeleton";
 import InventoryPage from "./modules/inventory/InventoryPage";
@@ -65,6 +66,7 @@ function App() {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <Router>
+          <AuthSessionBridge />
           <Suspense fallback={<Skeleton className="w-full h-screen" />}>
             <Routes>
               <Route path="/" element={<LoginPage />} />
@@ -240,7 +242,7 @@ function App() {
               <Route
                 path="/finance"
                 element={
-                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
+                  <ProtectedRoute>
                     <FinancialCenterPage />
                   </ProtectedRoute>
                 }
@@ -312,7 +314,7 @@ function App() {
               <Route
                 path="/employes"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
                     <Employees />
                   </ProtectedRoute>
                 }
@@ -320,7 +322,7 @@ function App() {
               <Route
                 path="/registerEmploye"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
                     <RegisterEmploye />
                   </ProtectedRoute>
                 }
@@ -329,7 +331,7 @@ function App() {
               <Route
                 path="/employees/:id/editEmploye"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
                     <EditEmploye />
                   </ProtectedRoute>
                 }
@@ -338,7 +340,7 @@ function App() {
               <Route
                 path="/employees/:id"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
                     <ViewEmployeePage />
                   </ProtectedRoute>
                 }

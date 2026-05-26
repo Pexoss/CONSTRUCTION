@@ -4,10 +4,17 @@ import { useAuth } from "../../hooks/useAuth";
 import { loginSchema } from "../../utils/validation";
 import { LoginCredentials } from "../../types/auth.types";
 import Logo from "../../assets/Logo.png";
+import { resetSessionRedirectFlag } from "../../config/authSession";
+import ThemeToggle from "../../components/ThemeToggle";
+import FontSizeToggle from "../../components/FontSizeToggle";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { login, isLoggingIn, loginError } = useAuth();
+
+  useEffect(() => {
+    resetSessionRedirectFlag();
+  }, []);
   const [formData, setFormData] = useState<LoginCredentials>({
     email: "",
     password: "",
@@ -72,7 +79,15 @@ const LoginPage: React.FC = () => {
   }, [isLoggingIn, loginError, navigate]);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-white dark:bg-gray-900 flex flex-col transition-colors">
+      <div
+        className="fixed top-3 right-3 sm:top-4 sm:right-4 z-50 flex items-center gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-800/90 backdrop-blur px-1 py-1 shadow-sm"
+        role="toolbar"
+        aria-label="Preferências de exibição"
+      >
+        <FontSizeToggle />
+        <ThemeToggle />
+      </div>
       {/* Main content */}
       <main className="flex-1 flex">
         {/* Left side - Hero section */}

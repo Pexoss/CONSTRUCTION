@@ -38,7 +38,7 @@ const RegisterChoicePage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Card: Login */}
           <div
-            onClick={() => navigate('/login')}
+            onClick={() => navigate('/')}
             className="group cursor-pointer bg-white rounded-xl border border-gray-200 p-8 flex flex-col items-center text-center hover:border-gray-300 hover:shadow-lg transition-all duration-200"
           >
             <div className="p-4 bg-gray-50 rounded-xl mb-6 group-hover:bg-gray-100 transition-colors">

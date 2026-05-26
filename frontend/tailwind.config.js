@@ -5,7 +5,12 @@ module.exports = {
   ],
   darkMode: 'class', // Enable class-based dark mode
   theme: {
-    extend: {},
+    extend: {
+      maxWidth: {
+        /** ~1536px — área útil ampla em desktop, 100% no mobile */
+        app: "96rem",
+      },
+    },
   },
   plugins: [],
 }

@@ -411,7 +411,7 @@ const ReportsPage: React.FC = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         {/* Header */}
         <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="app-container py-6">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
               Relatórios
             </h1>
@@ -422,7 +422,7 @@ const ReportsPage: React.FC = () => {
         </div>
 
         {/* Conteúdo */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="app-container py-8">
           {/* Filters */}
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 mb-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

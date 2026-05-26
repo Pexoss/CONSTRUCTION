@@ -196,7 +196,7 @@ const InvoicesPage: React.FC = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         {/* Header */}
         <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="app-container py-6">
             <div className="flex justify-between items-start gap-4 flex-wrap">
               <div>
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
@@ -219,7 +219,7 @@ const InvoicesPage: React.FC = () => {
 
         {/* KPIs */}
         {/* KPIs */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="app-container py-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
             {/* Total de Faturas */}
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
@@ -284,7 +284,7 @@ const InvoicesPage: React.FC = () => {
         </div>
 
         {/* Filtros e Busca */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div className="app-container py-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="flex-1">
@@ -333,7 +333,7 @@ const InvoicesPage: React.FC = () => {
         </div>
 
         {/* Lista */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="app-container py-6">
           {filteredInvoices.length === 0 ? (
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
               <div className="text-5xl mb-4">📭</div>

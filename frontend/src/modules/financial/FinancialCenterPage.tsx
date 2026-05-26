@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-toastify";
 import { Link, useSearchParams } from "react-router-dom";
 import Layout from "../../components/Layout";
+import { useAuth } from "../../hooks/useAuth";
 import { features } from "../../config/features";
+import { canManageFinancial } from "../../utils/financialAccess";
 import { financialService } from "./financial.service";
 import { chargeService } from "../charges/charge.service";
 import { invoiceService } from "../invoices/invoice.service";
@@ -125,6 +127,8 @@ type FinBillSortKey =
 
 const FinancialCenterPage: React.FC = () => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canManageFinancialUser = canManageFinancial(user?.role);
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedBillingIds, setSelectedBillingIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"billings" | "charges" | "invoices">("billings");
@@ -702,11 +706,16 @@ const FinancialCenterPage: React.FC = () => {
     );
   };
 
-  const chargeModalViewOnly = Boolean(chargeModal && isChargeEditLocked(chargeModal));
-  /** Cobrança cancelada não gera NF a partir deste fluxo; quitada (paga) pode. */
+  const chargeModalViewOnly =
+    !canManageFinancialUser ||
+    Boolean(chargeModal && isChargeEditLocked(chargeModal));
+  /** Cobrança cancelada não gera NF a partir deste fluxo; quitada (paga) pode — só gestores. */
   const chargeModalShowInvoiceSection = Boolean(
-    chargeModal && chargeModal.status !== "cancelled",
+    canManageFinancialUser &&
+      chargeModal &&
+      chargeModal.status !== "cancelled",
   );
+  const invoiceModalReadOnly = !canManageFinancialUser;
 
   /** Soma dos fechamentos marcados no modal da cobrança — atualiza o valor total antes de salvar. */
   const chargeModalSelectedBillingsTotal = useMemo(() => {
@@ -745,6 +754,16 @@ const FinancialCenterPage: React.FC = () => {
   return (
     <Layout title="Financeiro" backTo="/dashboard">
       <div className="space-y-6">
+        {!canManageFinancialUser ? (
+          <div
+            className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-100"
+            role="status"
+          >
+            Modo consulta: você pode filtrar listas e gerar PDF de fechamentos, cobranças e
+            faturas. Alterações financeiras são restritas a administradores.
+          </div>
+        ) : null}
+
         <details className="border rounded-md p-4 bg-white dark:bg-gray-800">
           <summary className="cursor-pointer font-semibold">
             Filtros (fechamentos, cobranças e lista de faturas)
@@ -895,38 +914,44 @@ const FinancialCenterPage: React.FC = () => {
                 <div className="flex flex-col gap-1 min-w-[200px]">
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Lista de fechamentos</p>
                   <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                    Marque linhas elegíveis e use <strong>Criar cobrança</strong>.
+                    {canManageFinancialUser
+                      ? "Marque linhas elegíveis e use Criar cobrança."
+                      : "Consulte os fechamentos e use o botão PDF em cada linha."}
                   </p>
                 </div>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleCreateCharge}
-                    disabled={
-                      selectedEligibleBillingIds.length === 0 || createChargeMutation.isPending
-                    }
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium shadow-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-                  >
-                    {createChargeMutation.isPending ? "Criando…" : "Criar cobrança"}
-                  </button>
-                  {selectedEligibleBillingIds.length > 0 && (
-                    <span className="text-[11px] text-gray-500 dark:text-gray-400 text-right max-w-[220px]">
-                      {selectedEligibleBillingIds.length} fechamento(s) elegível(is) para nova cobrança
-                    </span>
-                  )}
-                  {hasMixedCustomers && (
-                    <p className="text-[11px] text-amber-600 dark:text-amber-400 text-right max-w-[260px]">
-                      Fechamentos de clientes diferentes — agrupe apenas o mesmo cliente.
-                    </p>
-                  )}
-                </div>
+                {canManageFinancialUser ? (
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleCreateCharge}
+                      disabled={
+                        selectedEligibleBillingIds.length === 0 || createChargeMutation.isPending
+                      }
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium shadow-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      {createChargeMutation.isPending ? "Criando…" : "Criar cobrança"}
+                    </button>
+                    {selectedEligibleBillingIds.length > 0 && (
+                      <span className="text-[11px] text-gray-500 dark:text-gray-400 text-right max-w-[220px]">
+                        {selectedEligibleBillingIds.length} fechamento(s) elegível(is) para nova cobrança
+                      </span>
+                    )}
+                    {hasMixedCustomers && (
+                      <p className="text-[11px] text-amber-600 dark:text-amber-400 text-right max-w-[260px]">
+                        Fechamentos de clientes diferentes — agrupe apenas o mesmo cliente.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
               </div>
 
               <div className="overflow-x-auto rounded-md border border-gray-200 dark:border-gray-700">
                   <table className="min-w-[960px] w-full text-sm text-left">
                     <thead className="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200">
                       <tr>
-                        <th className="px-2 py-2 w-10 text-center">Sel.</th>
+                        {canManageFinancialUser ? (
+                          <th className="px-2 py-2 w-10 text-center">Sel.</th>
+                        ) : null}
                         <SortableTh<FinBillSortKey>
                           columnKey="customer"
                           label="Cliente"
@@ -985,7 +1010,10 @@ const FinancialCenterPage: React.FC = () => {
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
                       {tableBillings.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="px-3 py-6 text-center text-gray-500">
+                          <td
+                            colSpan={canManageFinancialUser ? 9 : 8}
+                            className="px-3 py-6 text-center text-gray-500"
+                          >
                             Nenhum fechamento com os filtros atuais.
                           </td>
                         </tr>
@@ -1021,24 +1049,26 @@ const FinancialCenterPage: React.FC = () => {
                           const canSelectForCharge = isBillingEligibleForCharge(bill);
                           return (
                             <tr key={bill._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/80">
-                              <td className="px-2 py-2 text-center">
-                                {canSelectForCharge ? (
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedBillingIds.includes(bill._id)}
-                                    onChange={(e) => {
-                                      setSelectedBillingIds((current) =>
-                                        e.target.checked
-                                          ? [...current, bill._id]
-                                          : current.filter((id) => id !== bill._id),
-                                      );
-                                    }}
-                                    aria-label={`Selecionar fechamento ${bill.billingNumber || bill._id}`}
-                                  />
-                                ) : (
-                                  <span className="text-gray-300 dark:text-gray-600">—</span>
-                                )}
-                              </td>
+                              {canManageFinancialUser ? (
+                                <td className="px-2 py-2 text-center">
+                                  {canSelectForCharge ? (
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedBillingIds.includes(bill._id)}
+                                      onChange={(e) => {
+                                        setSelectedBillingIds((current) =>
+                                          e.target.checked
+                                            ? [...current, bill._id]
+                                            : current.filter((id) => id !== bill._id),
+                                        );
+                                      }}
+                                      aria-label={`Selecionar fechamento ${bill.billingNumber || bill._id}`}
+                                    />
+                                  ) : (
+                                    <span className="text-gray-300 dark:text-gray-600">—</span>
+                                  )}
+                                </td>
+                              ) : null}
                               <td className="px-2 py-2 font-medium">{bill.customerId?.name || "Cliente"}</td>
                               <td className="px-2 py-2 whitespace-nowrap">
                                 {bill.periodStart
@@ -1098,32 +1128,40 @@ const FinancialCenterPage: React.FC = () => {
                                   >
                                     PDF
                                   </button>
-                                  <button
-                                    type="button"
-                                    className="px-2 py-0.5 border rounded text-xs"
-                                    onClick={() => {
-                                      const notes = window.prompt("Editar observações do fechamento:", bill.notes || "");
-                                      if (notes !== null) editBillingMutation.mutate({ billingId: bill._id, notes });
-                                    }}
-                                  >
-                                    Obs.
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="px-2 py-0.5 border rounded text-xs text-red-600"
-                                    onClick={() => cancelBillingMutation.mutate(bill._id)}
-                                  >
-                                    Cancelar
-                                  </button>
-                                  {bill.status !== "paid" && bill.status !== "cancelled" && (
-                                    <button
-                                      type="button"
-                                      className="px-2 py-0.5 border rounded text-xs"
-                                      onClick={() => void handlePreviewAndRefreshBilling(bill._id)}
-                                    >
-                                      Atualizar
-                                    </button>
-                                  )}
+                                  {canManageFinancialUser ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="px-2 py-0.5 border rounded text-xs"
+                                        onClick={() => {
+                                          const notes = window.prompt(
+                                            "Editar observações do fechamento:",
+                                            bill.notes || "",
+                                          );
+                                          if (notes !== null)
+                                            editBillingMutation.mutate({ billingId: bill._id, notes });
+                                        }}
+                                      >
+                                        Obs.
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="px-2 py-0.5 border rounded text-xs text-red-600"
+                                        onClick={() => cancelBillingMutation.mutate(bill._id)}
+                                      >
+                                        Cancelar
+                                      </button>
+                                      {bill.status !== "paid" && bill.status !== "cancelled" ? (
+                                        <button
+                                          type="button"
+                                          className="px-2 py-0.5 border rounded text-xs"
+                                          onClick={() => void handlePreviewAndRefreshBilling(bill._id)}
+                                        >
+                                          Atualizar
+                                        </button>
+                                      ) : null}
+                                    </>
+                                  ) : null}
                                 </div>
                               </td>
                             </tr>
@@ -1222,6 +1260,13 @@ const FinancialCenterPage: React.FC = () => {
                         >
                           Abrir
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => printChargeMutation.mutate(charge._id)}
+                          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm"
+                        >
+                          PDF
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -1287,6 +1332,13 @@ const FinancialCenterPage: React.FC = () => {
                         >
                           Abrir
                         </button>
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm"
+                          onClick={() => printInvoiceMutation.mutate(invoice._id)}
+                        >
+                          PDF
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -1299,9 +1351,18 @@ const FinancialCenterPage: React.FC = () => {
         <div className="border rounded-md p-4">
           <h3 className="font-semibold mb-2">Fluxo recomendado nesta tela</h3>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Selecione fechamentos elegíveis na lista abaixo e use <strong>Criar cobrança</strong>. Em seguida, na aba{" "}
-            <strong>Cobranças</strong>, abra a cobrança para registrar baixa (valor + desconto opcional), PDF ou cancelamento; em{" "}
-            <strong>Faturas</strong>, trate o documento fiscal.
+            {canManageFinancialUser ? (
+              <>
+                Selecione fechamentos elegíveis na lista abaixo e use <strong>Criar cobrança</strong>. Em seguida, na
+                aba <strong>Cobranças</strong>, abra a cobrança para registrar baixa (valor + desconto opcional), PDF ou
+                cancelamento; em <strong>Faturas</strong>, trate o documento fiscal.
+              </>
+            ) : (
+              <>
+                Consulte fechamentos, cobranças e faturas nas abas acima. Use o botão <strong>PDF</strong> em cada
+                linha ou dentro do detalhe para imprimir os documentos.
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -1349,9 +1410,11 @@ const FinancialCenterPage: React.FC = () => {
                   className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100"
                   role="status"
                 >
-                  {chargeModal.status === "paid"
-                    ? "Esta cobrança está quitada: não é possível alterar dados, fechamentos nem baixas. Você pode gerar a fatura nesta tela se os fechamentos ainda não estiverem em outra nota, ou imprimir o PDF."
-                    : "Esta cobrança foi cancelada e não pode ser alterada."}
+                  {!canManageFinancialUser
+                    ? "Modo consulta: você pode visualizar os dados e imprimir o PDF. Alterações são restritas a administradores."
+                    : chargeModal.status === "paid"
+                      ? "Esta cobrança está quitada: não é possível alterar dados, fechamentos nem baixas. Você pode gerar a fatura nesta tela se os fechamentos ainda não estiverem em outra nota, ou imprimir o PDF."
+                      : "Esta cobrança foi cancelada e não pode ser alterada."}
                 </div>
               ) : null}
 
@@ -1752,32 +1815,38 @@ const FinancialCenterPage: React.FC = () => {
                 </div>
               </div>
               <textarea
-                className="w-full border rounded-md px-2 py-2 text-sm min-h-24"
+                className="w-full border rounded-md px-2 py-2 text-sm min-h-24 disabled:opacity-70 disabled:cursor-not-allowed"
                 value={invoiceModalNotes}
                 onChange={(e) => setInvoiceModalNotes(e.target.value)}
                 placeholder="Observações"
+                readOnly={invoiceModalReadOnly}
+                disabled={invoiceModalReadOnly}
               />
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm"
-                  onClick={handleSaveInvoiceFromModal}
-                >
-                  Salvar fatura
-                </button>
+                {!invoiceModalReadOnly ? (
+                  <>
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm"
+                      onClick={handleSaveInvoiceFromModal}
+                    >
+                      Salvar fatura
+                    </button>
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 border border-red-300 text-red-600 rounded-md text-sm"
+                      onClick={() => cancelInvoiceMutation.mutate(invoiceModal._id)}
+                    >
+                      Cancelar fatura
+                    </button>
+                  </>
+                ) : null}
                 <button
                   type="button"
                   className="px-3 py-1.5 border border-gray-300 rounded-md text-sm"
                   onClick={() => printInvoiceMutation.mutate(invoiceModal._id)}
                 >
                   Imprimir PDF
-                </button>
-                <button
-                  type="button"
-                  className="px-3 py-1.5 border border-red-300 text-red-600 rounded-md text-sm"
-                  onClick={() => cancelInvoiceMutation.mutate(invoiceModal._id)}
-                >
-                  Cancelar fatura
                 </button>
               </div>
             </div>
