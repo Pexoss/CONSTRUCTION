@@ -22,7 +22,10 @@ import {
 import { invoiceStatusLabel } from "../../utils/statusLabels";
 import SortableTh from "../../components/SortableTh";
 import { formatDocumentForDisplay, formatCurrencyBr } from "../../utils/formatters";
-import { companyService } from "../company/company.service";
+import {
+  companyService,
+  type CompanyInvoiceIssuerRow,
+} from "../company/company.service";
 import {
   ColumnSort,
   sortedTableRows,
@@ -54,7 +57,9 @@ const InvoicesPage: React.FC = () => {
     dir: "desc",
   });
 
-  const { data: invoiceIssuerFilterOptions = [] } = useQuery({
+  const { data: invoiceIssuerFilterOptions = [] } = useQuery<
+    CompanyInvoiceIssuerRow[]
+  >({
     queryKey: ["company-invoice-issuers-invoices-page"],
     queryFn: () => companyService.getInvoiceIssuers(),
   });

@@ -5,7 +5,10 @@ import Layout from "../../components/Layout";
 import { customerService } from "../customers/customer.service";
 import { billingService } from "../billings/billing.service";
 import { invoiceService } from "./invoice.service";
-import { companyService } from "../company/company.service";
+import {
+  companyService,
+  type CompanyInvoiceIssuerRow,
+} from "../company/company.service";
 import { toast } from "react-toastify";
 import { ArrowLeft, FilePlus2 } from "lucide-react";
 import type { CustomerAddress } from "../../types/customer.types";
@@ -153,7 +156,9 @@ const CreateInvoicePage: React.FC = () => {
     [billingsGroupedFreteClosureLast, createInvBillingSort],
   );
 
-  const { data: invoiceIssuerOptions = [] } = useQuery({
+  const { data: invoiceIssuerOptions = [] } = useQuery<
+    CompanyInvoiceIssuerRow[]
+  >({
     queryKey: ["company-invoice-issuers-create"],
     queryFn: () => companyService.getInvoiceIssuers(),
   });

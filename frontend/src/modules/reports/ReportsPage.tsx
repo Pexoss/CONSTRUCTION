@@ -25,7 +25,10 @@ import {
   todayDateInputValue,
   formatDocumentForDisplay,
 } from "../../utils/formatters";
-import { companyService } from "../company/company.service";
+import {
+  companyService,
+  type CompanyInvoiceIssuerRow,
+} from "../company/company.service";
 
 type InventoryMostUsedSortKey = "itemName" | "quantity" | "totalValue";
 
@@ -117,7 +120,9 @@ const ReportsPage: React.FC = () => {
     ColumnSort<TopCustomersSortKey> | null
   >(null);
 
-  const { data: invoiceIssuerRowsForReport = [] } = useQuery({
+  const { data: invoiceIssuerRowsForReport = [] } = useQuery<
+    CompanyInvoiceIssuerRow[]
+  >({
     queryKey: ["company-invoice-issuers-reports"],
     queryFn: () => companyService.getInvoiceIssuers(),
   });

@@ -16,7 +16,10 @@ import {
   FinancialBoardUrlFilters,
 } from "./financialBoardFilters";
 import { RentalDeliveryQuickModal } from "./RentalDeliveryQuickModal";
-import { companyService } from "../company/company.service";
+import {
+  companyService,
+  type CompanyInvoiceIssuerRow,
+} from "../company/company.service";
 import { rentalTypeLabel } from "../../utils/statusLabels";
 import {
   formatDateNoTimezoneShift,
@@ -201,7 +204,9 @@ const FinancialCenterPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   };
 
-  const { data: invoiceIssuerBoardOptions = [] } = useQuery({
+  const { data: invoiceIssuerBoardOptions = [] } = useQuery<
+    CompanyInvoiceIssuerRow[]
+  >({
     queryKey: ["company-invoice-issuers"],
     queryFn: () => companyService.getInvoiceIssuers(),
     enabled: features.financialUnifiedModule,
