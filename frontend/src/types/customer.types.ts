@@ -67,3 +67,5 @@ export interface CustomerFilters {
   page?: number;
   limit?: number;
 }
+
+export const EMPTY_CUSTOMERS: Customer[] = [];

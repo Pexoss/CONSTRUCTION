@@ -9,6 +9,8 @@ import { createItemSchema } from "../../utils/inventory.validation";
 import {
   Category,
   CreateItemData,
+  EMPTY_CATEGORIES,
+  EMPTY_SUBCATEGORIES,
   Subcategory,
 } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
@@ -262,8 +264,9 @@ const CreateItemPage: React.FC = () => {
     }
   };
 
-  const categories: Category[] = categoriesData?.data ?? [];
-  const subcategories: Subcategory[] = subcategoriesData?.data ?? [];
+  const categories: Category[] = categoriesData?.data ?? EMPTY_CATEGORIES;
+  const subcategories: Subcategory[] =
+    subcategoriesData?.data ?? EMPTY_SUBCATEGORIES;
 
   return (
     <Layout title="Novo Item" backTo="/inventory/items">

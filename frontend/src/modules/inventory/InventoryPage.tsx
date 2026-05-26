@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useItems, useLowStockItems } from "../../hooks/useInventory";
-import { ItemFilters } from "../../types/inventory.types";
+import { EMPTY_ITEMS, Item, ItemFilters } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
 import { formatCurrencyBr } from "../../utils/formatters";
 import { inventoryService } from "./inventory.service";
@@ -78,7 +78,7 @@ const InventoryPage: React.FC = () => {
     }));
   };
 
-  const items = itemsData?.data || [];
+  const items: Item[] = itemsData?.data ?? EMPTY_ITEMS;
   const pagination = itemsData?.pagination;
 
   return (

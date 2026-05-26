@@ -8,7 +8,7 @@ import {
 import { Link } from "react-router-dom";
 import { createCategorySchema } from "../../utils/inventory.validation";
 import Layout from "../../components/Layout";
-import { Category } from "../../types/inventory.types";
+import { Category, EMPTY_CATEGORIES } from "../../types/inventory.types";
 
 const CategoriesPage: React.FC = () => {
   const { data: categoriesData, isLoading } = useCategories();
@@ -102,7 +102,7 @@ const CategoriesPage: React.FC = () => {
     });
   };
 
-  const categories: Category[] = categoriesData?.data ?? [];
+  const categories: Category[] = categoriesData?.data ?? EMPTY_CATEGORIES;
 
   if (isLoading) {
     return (

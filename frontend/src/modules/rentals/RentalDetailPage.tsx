@@ -9,7 +9,8 @@ import {
   RentalTypeUI,
 } from "../../types/rental.types";
 import { billingService } from "../billings/billing.service";
-import { Billing } from "../../types/billing.types";
+import { Billing, EMPTY_BILLINGS } from "../../types/billing.types";
+import { EMPTY_ITEMS, Item } from "../../types/inventory.types";
 import { customerService } from "../customers/customer.service";
 import Layout from "../../components/Layout";
 import { SuccessToast } from "../../components/SuccessToast";
@@ -44,6 +45,9 @@ import {
   getBillingCompositionRowsOrdered,
   sortBillingDocumentsFreteClosureGroupLastStable,
 } from "../../utils/billingDisplayOrder";
+
+type RentalByIdResult = Awaited<ReturnType<typeof rentalService.getRentalById>>;
+type RentalBillingsResult = Awaited<ReturnType<typeof billingService.getBillings>>;
 
 function resolveBillingItemDisplayForFreteGrouping(item: any, rental: any): string {
   if (item.itemId && typeof item.itemId === "object" && item.itemId.name) {
@@ -293,17 +297,17 @@ const RentalDetailPage: React.FC = () => {
   const [selectedWorkAddressId, setSelectedWorkAddressId] =
     useState<string>("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useQuery<RentalByIdResult>({
     queryKey: ["rental", id],
     queryFn: () => rentalService.getRentalById(id!),
     enabled: !!id,
   });
   const { data: itemsData } = useItems({ isActive: true, limit: 200 });
-  const inventoryItems = itemsData?.data || [];
+  const inventoryItems: Item[] = itemsData?.data ?? EMPTY_ITEMS;
   const selectedInventoryItem = inventoryItems.find(
-    (item: any) => item._id === newItemForm.itemId,
+    (item) => item._id === newItemForm.itemId,
   );
-  const filteredInventoryItems = inventoryItems.filter((item: any) => {
+  const filteredInventoryItems = inventoryItems.filter((item) => {
     if (!addItemSearch.trim()) return true;
     const term = addItemSearch.toLowerCase().trim();
     return (
@@ -372,14 +376,14 @@ const RentalDetailPage: React.FC = () => {
     }
   };
 
-  const { data: billingsData, isLoading: billingsLoading } = useQuery({
+  const { data: billingsData, isLoading: billingsLoading } = useQuery<RentalBillingsResult>({
     queryKey: ["rental-billings", id],
     queryFn: () => billingService.getBillings({ rentalId: id!, limit: 200 }),
     enabled: !!id,
   });
 
   const billings = useMemo(
-    () => (billingsData?.data?.billings || []) as Billing[],
+    () => billingsData?.data?.billings ?? EMPTY_BILLINGS,
     [billingsData?.data?.billings],
   );
 

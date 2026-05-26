@@ -7,6 +7,10 @@ import {
   EditItemData,
 } from '../types/inventory.types';
 
+type ItemsListResult = Awaited<ReturnType<typeof inventoryService.getItems>>;
+type ItemByIdResult = Awaited<ReturnType<typeof inventoryService.getItemById>>;
+type ItemMovementsResult = Awaited<ReturnType<typeof inventoryService.getItemMovements>>;
+type LowStockItemsResult = Awaited<ReturnType<typeof inventoryService.getLowStockItems>>;
 type CategoriesListResult = Awaited<
   ReturnType<typeof inventoryService.getCategories>
 >;
@@ -15,14 +19,14 @@ type SubcategoriesListResult = Awaited<
 >;
 
 export const useItems = (filters: ItemFilters = {}) => {
-  return useQuery({
+  return useQuery<ItemsListResult>({
     queryKey: ['items', filters],
     queryFn: () => inventoryService.getItems(filters),
   });
 };
 
 export const useItem = (id: string) => {
-  return useQuery({
+  return useQuery<ItemByIdResult>({
     queryKey: ['item', id],
     queryFn: () => inventoryService.getItemById(id),
     enabled: !!id,
@@ -78,8 +82,17 @@ export const useAdjustQuantity = () => {
   });
 };
 
-export const useItemMovements = (itemId: string, filters?: any) => {
-  return useQuery({
+export const useItemMovements = (
+  itemId: string,
+  filters?: {
+    type?: string;
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    limit?: number;
+  },
+) => {
+  return useQuery<ItemMovementsResult>({
     queryKey: ['item-movements', itemId, filters],
     queryFn: () => inventoryService.getItemMovements(itemId, filters),
     enabled: !!itemId,
@@ -87,7 +100,7 @@ export const useItemMovements = (itemId: string, filters?: any) => {
 };
 
 export const useLowStockItems = () => {
-  return useQuery({
+  return useQuery<LowStockItemsResult>({
     queryKey: ['items', 'low-stock'],
     queryFn: () => inventoryService.getLowStockItems(),
   });

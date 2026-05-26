@@ -5,6 +5,7 @@ import { maintenanceService } from "./maintenance.service";
 import { useItem, useItems } from "../../hooks/useInventory";
 import { CreateMaintenanceData } from "../../types/maintenance.types";
 import Layout from "../../components/Layout";
+import { EMPTY_ITEMS, Item } from "../../types/inventory.types";
 import { formatMoneyInputBr, parseMoneyBr } from "../../utils/formatters";
 
 const CreateMaintenancePage: React.FC = () => {
@@ -79,7 +80,7 @@ const CreateMaintenancePage: React.FC = () => {
     }));
   };
 
-  const items = itemsData?.data || [];
+  const items: Item[] = itemsData?.data ?? EMPTY_ITEMS;
   const selectedItemFromApi = selectedItemData?.data;
   const selectedItem =
     selectedItemFromApi || items.find((item) => item._id === formData.itemId);

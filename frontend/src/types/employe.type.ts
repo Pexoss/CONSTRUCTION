@@ -6,3 +6,5 @@ export interface Employee {
   isActive: boolean;
   createdAt: string;
 }
+
+export const EMPTY_EMPLOYEES: Employee[] = [];

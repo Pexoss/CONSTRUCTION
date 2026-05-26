@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { employeeService } from "./employe.service";
+import { Employee, EMPTY_EMPLOYEES } from "../../types/employe.type";
 import Layout from "../../components/Layout";
 import SortableTh from "../../components/SortableTh";
 import {
@@ -17,19 +18,24 @@ const EmployeesPage: React.FC = () => {
     key: "name",
     dir: "asc",
   });
-  const { data, isLoading, error } = useQuery({
+  type EmployeesListResult = Awaited<ReturnType<typeof employeeService.getEmployees>>;
+
+  const { data, isLoading, error } = useQuery<EmployeesListResult>({
     queryKey: ["employees"],
     queryFn: employeeService.getEmployees,
   });
 
-  const employees = useMemo(() => data?.data || [], [data?.data]);
+  const employees: Employee[] = useMemo(
+    () => data?.data ?? EMPTY_EMPLOYEES,
+    [data?.data],
+  );
 
   const sortedEmployees = useMemo(
     () =>
       sortedTableRows(employees, empSort, {
-        name: (e: any) => String(e.name || "").toLowerCase(),
-        email: (e: any) => String(e.email || "").toLowerCase(),
-        role: (e: any) => String(e.role || "").toLowerCase(),
+        name: (e) => String(e.name || "").toLowerCase(),
+        email: (e) => String(e.email || "").toLowerCase(),
+        role: (e) => String(e.role || "").toLowerCase(),
       }),
     [employees, empSort],
   );

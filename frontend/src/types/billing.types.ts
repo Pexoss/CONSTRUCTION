@@ -67,3 +67,5 @@ export interface BillingFilters {
   page?: number;
   limit?: number;
 }
+
+export const EMPTY_BILLINGS: Billing[] = [];

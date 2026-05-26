@@ -2,7 +2,11 @@ import React, { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Layout from "../../components/Layout";
 import { rentalService } from "./rental.service";
-import { RentalPendingApproval } from "../../types/rental.types";
+import {
+  EMPTY_RENTALS,
+  Rental,
+  RentalPendingApproval,
+} from "../../types/rental.types";
 import {
   formatDateNoTimezoneShift,
   formatRentalTypeLabel,
@@ -147,10 +151,11 @@ const RentalApprovalsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  const { data: rentals = [], isLoading } = useQuery({
+  const { data: rentalsRaw, isLoading } = useQuery<Rental[]>({
     queryKey: ["rental-approvals"],
     queryFn: () => rentalService.getPendingApprovals(),
   });
+  const rentals: Rental[] = rentalsRaw ?? EMPTY_RENTALS;
 
   const approveMutation = useMutation({
     mutationFn: ({

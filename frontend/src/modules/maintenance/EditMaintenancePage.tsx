@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Layout from "../../components/Layout";
+import { EMPTY_ITEMS, Item } from "../../types/inventory.types";
 import { maintenanceService } from "./maintenance.service";
 import {
   CreateMaintenanceData,
@@ -99,7 +100,7 @@ const EditMaintenancePage: React.FC = () => {
     });
   };
 
-  const items = itemsData?.data || [];
+  const items: Item[] = itemsData?.data ?? EMPTY_ITEMS;
   const selectedItemFromApi = selectedItemData?.data;
   const selectedItem =
     selectedItemFromApi || items.find((item) => item._id === formData.itemId);

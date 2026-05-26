@@ -12,7 +12,12 @@ import {
 } from "../company/company.service";
 import { toast } from "react-toastify";
 import { ArrowLeft, FilePlus2 } from "lucide-react";
-import type { CustomerAddress } from "../../types/customer.types";
+import {
+  Customer,
+  CustomerAddress,
+  EMPTY_CUSTOMERS,
+} from "../../types/customer.types";
+import { Billing, EMPTY_BILLINGS } from "../../types/billing.types";
 import {
   formatCurrencyBr,
   formatDocumentForDisplay,
@@ -34,6 +39,15 @@ type CreateInvoiceBillingSortKey =
   | "items"
   | "status"
   | "total";
+
+type CustomersListResult = Awaited<
+  ReturnType<typeof customerService.getCustomers>
+>;
+type CustomerByIdResult = Awaited<
+  ReturnType<typeof customerService.getCustomerById>
+>;
+type BillingsListResult = Awaited<ReturnType<typeof billingService.getBillings>>;
+
 const CreateInvoicePage: React.FC = () => {
   const navigate = useNavigate();
   const [customerId, setCustomerId] = useState("");
@@ -64,35 +78,35 @@ const CreateInvoicePage: React.FC = () => {
     dir: "desc",
   });
 
-  const { data: customersRes, isLoading: loadingCustomers } = useQuery({
-    queryKey: ["customers-invoice-create"],
-    queryFn: () => customerService.getCustomers({ limit: 500, page: 1 }),
-  });
+  const { data: customersRes, isLoading: loadingCustomers } =
+    useQuery<CustomersListResult>({
+      queryKey: ["customers-invoice-create"],
+      queryFn: () => customerService.getCustomers({ limit: 500, page: 1 }),
+    });
 
-  const { data: customerDetailRes, isLoading: loadingCustomerDetail } = useQuery({
-    queryKey: ["customer-detail-with-addresses", customerId],
-    queryFn: () => customerService.getCustomerById(customerId),
-    enabled: !!customerId,
-  });
+  const { data: customerDetailRes, isLoading: loadingCustomerDetail } =
+    useQuery<CustomerByIdResult>({
+      queryKey: ["customer-detail-with-addresses", customerId],
+      queryFn: () => customerService.getCustomerById(customerId),
+      enabled: !!customerId,
+    });
 
-  const { data: billingsRes, isLoading: loadingBillings } = useQuery({
-    queryKey: ["billings-for-invoice", customerId],
-    queryFn: () =>
-      billingService.getBillings({
-        customerId,
-        limit: 200,
-        page: 1,
-      }),
-    enabled: !!customerId,
-  });
+  const { data: billingsRes, isLoading: loadingBillings } =
+    useQuery<BillingsListResult>({
+      queryKey: ["billings-for-invoice", customerId],
+      queryFn: () =>
+        billingService.getBillings({
+          customerId,
+          limit: 200,
+          page: 1,
+        }),
+      enabled: !!customerId,
+    });
 
-  const allCustomers = useMemo(
-    () => {
-      const list = customersRes?.data ?? [];
-      return [...list].sort((a, b) => a.name.localeCompare(b.name));
-    },
-    [customersRes],
-  );
+  const allCustomers: Customer[] = useMemo(() => {
+    const list = customersRes?.data ?? EMPTY_CUSTOMERS;
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  }, [customersRes]);
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return [];
@@ -111,7 +125,10 @@ const CreateInvoicePage: React.FC = () => {
 
   const customerDetail = customerDetailRes?.data;
   const customerAddresses = customerDetail?.addresses ?? [];
-  const billings = useMemo(() => billingsRes?.data?.billings ?? [], [billingsRes?.data?.billings]);
+  const billings: Billing[] = useMemo(
+    () => billingsRes?.data?.billings ?? EMPTY_BILLINGS,
+    [billingsRes?.data?.billings],
+  );
 
   const billingsGroupedFreteClosureLast = useMemo(
     () =>

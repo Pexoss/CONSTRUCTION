@@ -10,6 +10,8 @@ import { updateItemSchema } from "../../utils/inventory.validation";
 import {
   Category,
   EditItemData,
+  EMPTY_CATEGORIES,
+  EMPTY_SUBCATEGORIES,
   ItemUnit,
   Subcategory,
 } from "../../types/inventory.types";
@@ -27,6 +29,10 @@ const EditItemPage: React.FC = () => {
     selectedCategoryId,
     true,
   );
+
+  const categories: Category[] = categoriesData?.data ?? EMPTY_CATEGORIES;
+  const subcategories: Subcategory[] =
+    subcategoriesData?.data ?? EMPTY_SUBCATEGORIES;
 
   const [formData, setFormData] = useState<EditItemData>({
     depreciation: null,
@@ -91,7 +97,7 @@ const EditItemPage: React.FC = () => {
       isActive: item.isActive,
     });
 
-    const category = categoriesData?.data.find((c) => c.name === item.category);
+    const category = categories.find((c) => c.name === item.category);
     if (category) setSelectedCategoryId(category._id);
 
     setUnits(
@@ -111,7 +117,7 @@ const EditItemPage: React.FC = () => {
       biweeklyRate: formatMoneyInputBr(item.pricing?.biweeklyRate ?? ""),
       monthlyRate: formatMoneyInputBr(item.pricing?.monthlyRate ?? ""),
     });
-  }, [itemData, categoriesData]);
+  }, [itemData, categories]);
 
   const handleChange = (
     e: React.ChangeEvent<
@@ -134,7 +140,7 @@ const EditItemPage: React.FC = () => {
 
     if (name === "category") {
       setFormData((prev) => ({ ...prev, category: value, subcategory: "" }));
-      const cat = categoriesData?.data.find((c) => c.name === value);
+      const cat = categories.find((c) => c.name === value);
       setSelectedCategoryId(cat?._id || "");
       return;
     }
@@ -266,9 +272,6 @@ const EditItemPage: React.FC = () => {
       </Layout>
     );
   }
-
-  const categories: Category[] = categoriesData?.data ?? [];
-  const subcategories: Subcategory[] = subcategoriesData?.data ?? [];
 
   return (
     <Layout title="Editar Item" backTo="/inventory/items">

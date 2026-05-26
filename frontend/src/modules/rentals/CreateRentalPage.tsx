@@ -12,8 +12,12 @@ import {
   RentalWorkAddress,
   RentalFulfillmentMethod,
 } from "../../types/rental.types";
-import { Item } from "../../types/inventory.types";
-import { CustomerAddress } from "../../types/customer.types";
+import { EMPTY_ITEMS, Item } from "../../types/inventory.types";
+import {
+  Customer,
+  CustomerAddress,
+  EMPTY_CUSTOMERS,
+} from "../../types/customer.types";
 import Layout from "../../components/Layout";
 import {
   formatDocumentForDisplay,
@@ -29,6 +33,10 @@ import {
   normalizeBrazilZipDigits,
 } from "../../utils/viacep";
 import { toast } from "react-toastify";
+
+type CustomersListResult = Awaited<
+  ReturnType<typeof customerService.getCustomers>
+>;
 
 export const rentalTypeMapper: Record<RentalTypeUI, RentalTypeAPI> = {
   diario: "daily",
@@ -150,7 +158,7 @@ const CreateRentalPage: React.FC = () => {
   >("name");
   const [showItemsModal, setShowItemsModal] = useState(false);
 
-  const { data: customersData } = useQuery({
+  const { data: customersData } = useQuery<CustomersListResult>({
     queryKey: ["customers"],
     queryFn: () => customerService.getCustomers({ limit: 100 }),
   });
@@ -160,8 +168,8 @@ const CreateRentalPage: React.FC = () => {
     limit: 100,
   });
 
-  const allCustomers = useMemo(() => {
-    const list = customersData?.data ?? [];
+  const allCustomers: Customer[] = useMemo(() => {
+    const list = customersData?.data ?? EMPTY_CUSTOMERS;
     return [...list].sort((a, b) => a.name.localeCompare(b.name));
   }, [customersData]);
 
@@ -547,7 +555,7 @@ const CreateRentalPage: React.FC = () => {
     if (!fulfillmentMethod) missingFields.push("entrega ou retirada");
     if (!pickedUpBy.trim()) missingFields.push("quem retirou/entregou");
     if (selectedItems.length === 0) {
-      if ((itemsData?.data || []).length === 0) {
+      if ((itemsData?.data ?? EMPTY_ITEMS).length === 0) {
         toast.warning("Nenhum item disponível no inventário para alugar.");
         return;
       }
@@ -606,7 +614,8 @@ const CreateRentalPage: React.FC = () => {
     };
 
     const freshItemsResult = await refetchItems();
-    const freshItems = freshItemsResult.data?.data || itemsData?.data || [];
+    const freshItems: Item[] =
+      freshItemsResult.data?.data ?? itemsData?.data ?? EMPTY_ITEMS;
     const refreshedSelectedItems = selectedItems.map((si) => {
       const freshItem = freshItems.find((item) => item._id === si.itemId);
       return freshItem ? { ...si, item: freshItem } : si;
@@ -790,7 +799,7 @@ const CreateRentalPage: React.FC = () => {
   };
 
   const totals = calculateTotals();
-  const items = itemsData?.data || [];
+  const items: Item[] = itemsData?.data ?? EMPTY_ITEMS;
 
   const customerAddresses = useMemo(
     () => selectedCustomerData?.addresses ?? [],

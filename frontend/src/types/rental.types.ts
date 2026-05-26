@@ -233,3 +233,5 @@ export interface RentalDashboardItem {
     total: number;
   };
 }
+
+export const EMPTY_RENTALS: Rental[] = [];
