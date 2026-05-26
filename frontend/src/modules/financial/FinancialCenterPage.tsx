@@ -16,7 +16,7 @@ import {
   FinancialBoardUrlFilters,
 } from "./financialBoardFilters";
 import { RentalDeliveryQuickModal } from "./RentalDeliveryQuickModal";
-import { companyService } from "../company/company.service";
+import { companyService, CompanyInvoiceIssuerRow } from "../company/company.service";
 import { rentalTypeLabel } from "../../utils/statusLabels";
 import {
   formatDateNoTimezoneShift,
@@ -1292,7 +1292,7 @@ const FinancialCenterPage: React.FC = () => {
                 >
                   <option value="">Todos</option>
                   <option value="legacy">Sem emitente cadastrado (antigas)</option>
-                  {invoiceIssuerBoardOptions.map((row) => (
+                  {invoiceIssuerBoardOptions.map((row: CompanyInvoiceIssuerRow) => (
                     <option key={row.id} value={row.id}>
                       {row.label} · {formatDocumentForDisplay(row.cnpj)}
                     </option>
@@ -1678,7 +1678,7 @@ const FinancialCenterPage: React.FC = () => {
                           onChange={(e) => setInvoiceBillingIssuerForCreate(e.target.value)}
                           className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900"
                         >
-                          {invoiceIssuerBoardOptions.map((row) => (
+                          {invoiceIssuerBoardOptions.map((row: CompanyInvoiceIssuerRow) => (
                             <option key={row.id} value={row.id}>
                               {row.label} · {formatDocumentForDisplay(row.cnpj)}
                             </option>
