@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import Layout from '../../components/Layout';
-import { companyService } from './company.service';
+import { companyService, CompanyInvoiceIssuerRow } from './company.service';
 
 const CompanySettingsPage: React.FC = () => {
   const { data, isLoading, refetch } = useQuery({
@@ -59,7 +59,7 @@ const CompanySettingsPage: React.FC = () => {
   useEffect(() => {
     if (issuerQuery.data && issuerQuery.data.length > 0) {
       setIssuerDraft(
-        issuerQuery.data.map((r) => ({
+        issuerQuery.data.map((r: CompanyInvoiceIssuerRow) => ({
           id: r.id,
           label: r.label || '',
           cnpj: r.cnpj || '',
