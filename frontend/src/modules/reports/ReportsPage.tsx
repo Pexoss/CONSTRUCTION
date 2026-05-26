@@ -27,6 +27,7 @@ import {
 } from "../../utils/formatters";
 import {
   companyService,
+  EMPTY_COMPANY_INVOICE_ISSUERS,
   type CompanyInvoiceIssuerRow,
 } from "../company/company.service";
 
@@ -120,12 +121,14 @@ const ReportsPage: React.FC = () => {
     ColumnSort<TopCustomersSortKey> | null
   >(null);
 
-  const { data: invoiceIssuerRowsForReport = [] } = useQuery<
+  const { data: invoiceIssuerRowsForReportRaw } = useQuery<
     CompanyInvoiceIssuerRow[]
   >({
     queryKey: ["company-invoice-issuers-reports"],
     queryFn: () => companyService.getInvoiceIssuers(),
   });
+  const invoiceIssuerRowsForReport: CompanyInvoiceIssuerRow[] =
+    invoiceIssuerRowsForReportRaw ?? EMPTY_COMPANY_INVOICE_ISSUERS;
 
   const { data: rentalsReport } = useQuery({
     queryKey: ["rentals-report", startDate, endDate],

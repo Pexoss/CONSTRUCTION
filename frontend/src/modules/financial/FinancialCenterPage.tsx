@@ -18,6 +18,7 @@ import {
 import { RentalDeliveryQuickModal } from "./RentalDeliveryQuickModal";
 import {
   companyService,
+  EMPTY_COMPANY_INVOICE_ISSUERS,
   type CompanyInvoiceIssuerRow,
 } from "../company/company.service";
 import { rentalTypeLabel } from "../../utils/statusLabels";
@@ -204,13 +205,15 @@ const FinancialCenterPage: React.FC = () => {
     setSearchParams(next, { replace: true });
   };
 
-  const { data: invoiceIssuerBoardOptions = [] } = useQuery<
+  const { data: invoiceIssuerBoardOptionsRaw } = useQuery<
     CompanyInvoiceIssuerRow[]
   >({
     queryKey: ["company-invoice-issuers"],
     queryFn: () => companyService.getInvoiceIssuers(),
     enabled: features.financialUnifiedModule,
   });
+  const invoiceIssuerBoardOptions: CompanyInvoiceIssuerRow[] =
+    invoiceIssuerBoardOptionsRaw ?? EMPTY_COMPANY_INVOICE_ISSUERS;
 
   useEffect(() => {
     if (invoiceIssuerBoardOptions.length > 0 && !invoiceBillingIssuerForCreate) {

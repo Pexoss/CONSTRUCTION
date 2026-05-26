@@ -8,6 +8,9 @@ export interface CompanyInvoiceIssuerRow {
   initialInvoiceNumber: number;
 }
 
+/** Fallback tipado para useQuery quando `data` ainda é undefined (evita `= []` como any[]). */
+export const EMPTY_COMPANY_INVOICE_ISSUERS: CompanyInvoiceIssuerRow[] = [];
+
 export interface CompanyCpfCnpjSettings {
   tokenConfigured: boolean;
   cpfPackageId: string;

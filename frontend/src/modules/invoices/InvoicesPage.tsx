@@ -24,6 +24,7 @@ import SortableTh from "../../components/SortableTh";
 import { formatDocumentForDisplay, formatCurrencyBr } from "../../utils/formatters";
 import {
   companyService,
+  EMPTY_COMPANY_INVOICE_ISSUERS,
   type CompanyInvoiceIssuerRow,
 } from "../company/company.service";
 import {
@@ -57,12 +58,14 @@ const InvoicesPage: React.FC = () => {
     dir: "desc",
   });
 
-  const { data: invoiceIssuerFilterOptions = [] } = useQuery<
+  const { data: invoiceIssuerFilterOptionsRaw } = useQuery<
     CompanyInvoiceIssuerRow[]
   >({
     queryKey: ["company-invoice-issuers-invoices-page"],
     queryFn: () => companyService.getInvoiceIssuers(),
   });
+  const invoiceIssuerFilterOptions: CompanyInvoiceIssuerRow[] =
+    invoiceIssuerFilterOptionsRaw ?? EMPTY_COMPANY_INVOICE_ISSUERS;
 
   const { data, isLoading } = useQuery<InvoicesListResult>({
     queryKey: ["invoices", filters, statusFilter],

@@ -7,6 +7,7 @@ import { billingService } from "../billings/billing.service";
 import { invoiceService } from "./invoice.service";
 import {
   companyService,
+  EMPTY_COMPANY_INVOICE_ISSUERS,
   type CompanyInvoiceIssuerRow,
 } from "../company/company.service";
 import { toast } from "react-toastify";
@@ -156,12 +157,14 @@ const CreateInvoicePage: React.FC = () => {
     [billingsGroupedFreteClosureLast, createInvBillingSort],
   );
 
-  const { data: invoiceIssuerOptions = [] } = useQuery<
+  const { data: invoiceIssuerOptionsRaw } = useQuery<
     CompanyInvoiceIssuerRow[]
   >({
     queryKey: ["company-invoice-issuers-create"],
     queryFn: () => companyService.getInvoiceIssuers(),
   });
+  const invoiceIssuerOptions: CompanyInvoiceIssuerRow[] =
+    invoiceIssuerOptionsRaw ?? EMPTY_COMPANY_INVOICE_ISSUERS;
 
   useEffect(() => {
     if (invoiceIssuerOptions.length > 0 && !billingIssuerForCreate) {
