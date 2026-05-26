@@ -7,7 +7,12 @@ import {
   useSubcategories,
 } from "../../hooks/useInventory";
 import { updateItemSchema } from "../../utils/inventory.validation";
-import { EditItemData, ItemUnit } from "../../types/inventory.types";
+import {
+  Category,
+  EditItemData,
+  ItemUnit,
+  Subcategory,
+} from "../../types/inventory.types";
 import Layout from "../../components/Layout";
 import { formatMoneyInputBr, parseMoneyBr } from "../../utils/formatters";
 
@@ -262,8 +267,8 @@ const EditItemPage: React.FC = () => {
     );
   }
 
-  const categories = categoriesData?.data || [];
-  const subcategories = subcategoriesData?.data || [];
+  const categories: Category[] = categoriesData?.data ?? [];
+  const subcategories: Subcategory[] = subcategoriesData?.data ?? [];
 
   return (
     <Layout title="Editar Item" backTo="/inventory/items">

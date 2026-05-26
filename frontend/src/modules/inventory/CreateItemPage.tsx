@@ -6,7 +6,11 @@ import {
   useSubcategories,
 } from "../../hooks/useInventory";
 import { createItemSchema } from "../../utils/inventory.validation";
-import { CreateItemData } from "../../types/inventory.types";
+import {
+  Category,
+  CreateItemData,
+  Subcategory,
+} from "../../types/inventory.types";
 import Layout from "../../components/Layout";
 import { formatMoneyInputBr, parseMoneyBr } from "../../utils/formatters";
 
@@ -258,8 +262,8 @@ const CreateItemPage: React.FC = () => {
     }
   };
 
-  const categories = categoriesData?.data || [];
-  const subcategories = subcategoriesData?.data || [];
+  const categories: Category[] = categoriesData?.data ?? [];
+  const subcategories: Subcategory[] = subcategoriesData?.data ?? [];
 
   return (
     <Layout title="Novo Item" backTo="/inventory/items">
