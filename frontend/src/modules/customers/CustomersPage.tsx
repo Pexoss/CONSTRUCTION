@@ -7,7 +7,7 @@ import {
   keepPreviousData,
 } from "@tanstack/react-query";
 import { customerService } from "./customer.service";
-import { CustomerFilters } from "../../types/customer.types";
+import { Customer, CustomerFilters } from "../../types/customer.types";
 import Layout from "../../components/Layout";
 import {
   formatDocumentForDisplay,
@@ -72,11 +72,11 @@ const CustomersPage: React.FC = () => {
   const sortedCustomers = useMemo(
     () =>
       sortedTableRows(customers, customerSort, {
-        name: (c) => String(c.name || "").toLowerCase(),
-        document: (c) => String(c.cpfCnpj || "").replace(/\D/g, ""),
-        contact: (c) =>
+        name: (c: Customer) => String(c.name || "").toLowerCase(),
+        document: (c: Customer) => String(c.cpfCnpj || "").replace(/\D/g, ""),
+        contact: (c: Customer) =>
           `${String(c.email || "").toLowerCase()}|${String(c.phone || "")}`,
-        status: (c) => (c.isBlocked ? 1 : 0),
+        status: (c: Customer) => (c.isBlocked ? 1 : 0),
       }),
     [customers, customerSort],
   );
