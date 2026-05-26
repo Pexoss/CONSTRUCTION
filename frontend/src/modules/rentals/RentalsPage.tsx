@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
-import { RentalFilters, RentalStatus } from "../../types/rental.types";
+import { Rental, RentalFilters, RentalStatus } from "../../types/rental.types";
 import Layout from "../../components/Layout";
 import { rentalStatusLabel } from "../../utils/statusLabels";
 import { formatDateNoTimezoneShift, formatCurrencyBr } from "../../utils/formatters";
@@ -21,6 +21,9 @@ type RentalSortKey =
   | "period"
   | "value"
   | "status";
+
+type RentalsListResult = Awaited<ReturnType<typeof rentalService.getRentals>>;
+
 const RentalsPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -47,7 +50,7 @@ const RentalsPage: React.FC = () => {
   }, [location.state]);
   window.history.replaceState({}, document.title);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error } = useQuery<RentalsListResult>({
     queryKey: ["rentals", filters],
     queryFn: () => rentalService.getRentals(filters),
   });
@@ -104,7 +107,7 @@ const RentalsPage: React.FC = () => {
     },
   });
 
-  const rentals = useMemo(() => data?.data || [], [data?.data]);
+  const rentals = useMemo<Rental[]>(() => data?.data ?? [], [data?.data]);
   const pagination = data?.pagination;
 
   const sortedRentalsList = useMemo(

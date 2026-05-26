@@ -7,7 +7,7 @@ import {
   keepPreviousData,
 } from "@tanstack/react-query";
 import { customerService } from "./customer.service";
-import { CustomerFilters } from "../../types/customer.types";
+import { Customer, CustomerFilters } from "../../types/customer.types";
 import Layout from "../../components/Layout";
 import {
   formatDocumentForDisplay,
@@ -21,6 +21,10 @@ import {
 } from "../../utils/tableSort";
 
 type CustomerSortKey = "name" | "document" | "contact" | "status";
+
+type CustomersListResult = Awaited<
+  ReturnType<typeof customerService.getCustomers>
+>;
 
 const CustomersPage: React.FC = () => {
   const navigate = useNavigate();
@@ -36,7 +40,7 @@ const CustomersPage: React.FC = () => {
 
   const queryClient = useQueryClient();
 
-  const { data, isPending, error, isFetching } = useQuery({
+  const { data, isPending, error, isFetching } = useQuery<CustomersListResult>({
     queryKey: ["customers", filters],
     queryFn: () => customerService.getCustomers(filters),
     placeholderData: keepPreviousData,
@@ -66,7 +70,10 @@ const CustomersPage: React.FC = () => {
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
   };
 
-  const customers = useMemo(() => data?.data || [], [data?.data]);
+  const customers = useMemo<Customer[]>(
+    () => data?.data ?? [],
+    [data?.data],
+  );
   const pagination = data?.pagination;
 
   const sortedCustomers = useMemo(

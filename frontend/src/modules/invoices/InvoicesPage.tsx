@@ -2,7 +2,11 @@ import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { invoiceService } from "./invoice.service";
-import { InvoiceFilters, InvoiceStatus } from "../../types/invoice.types";
+import {
+  Invoice,
+  InvoiceFilters,
+  InvoiceStatus,
+} from "../../types/invoice.types";
 import Layout from "../../components/Layout";
 import { toast } from "react-toastify";
 import {
@@ -33,6 +37,11 @@ type InvoiceSortKey =
   | "due"
   | "total"
   | "status";
+
+type InvoicesListResult = Awaited<
+  ReturnType<typeof invoiceService.getInvoices>
+>;
+
 const InvoicesPage: React.FC = () => {
   const [filters, setFilters] = useState<InvoiceFilters>({
     page: 1,
@@ -50,7 +59,7 @@ const InvoicesPage: React.FC = () => {
     queryFn: () => companyService.getInvoiceIssuers(),
   });
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useQuery<InvoicesListResult>({
     queryKey: ["invoices", filters, statusFilter],
     queryFn: () =>
       invoiceService.getInvoices({
@@ -131,13 +140,13 @@ const InvoicesPage: React.FC = () => {
     };
   };
 
-  const invoices = useMemo(() => data?.data || [], [data?.data]);
+  const invoices = useMemo<Invoice[]>(() => data?.data ?? [], [data?.data]);
   const pagination = data?.pagination;
   const totals = calculateTotals(invoices);
 
   const filteredInvoices = useMemo(() => {
     const searchLower = searchTerm.toLowerCase();
-    return invoices.filter((invoice: any) => {
+    return invoices.filter((invoice) => {
       return (
         invoice.invoiceNumber?.toLowerCase().includes(searchLower) ||
         (typeof invoice.customerId === "object" &&

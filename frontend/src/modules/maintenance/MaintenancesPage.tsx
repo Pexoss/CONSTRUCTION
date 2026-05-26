@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { maintenanceService } from "./maintenance.service";
 import {
+  Maintenance,
   MaintenanceFilters,
   MaintenanceType,
   MaintenanceStatus,
@@ -25,6 +26,10 @@ type MaintenanceSortKey =
   | "cost"
   | "status";
 
+type MaintenancesListResult = Awaited<
+  ReturnType<typeof maintenanceService.getMaintenances>
+>;
+
 const MaintenancesPage: React.FC = () => {
   const [filters, setFilters] = useState<MaintenanceFilters>({
     page: 1,
@@ -40,7 +45,7 @@ const MaintenancesPage: React.FC = () => {
 
   const queryClient = useQueryClient();
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error } = useQuery<MaintenancesListResult>({
     queryKey: ["maintenances", filters],
     queryFn: () => maintenanceService.getMaintenances(filters),
   });
@@ -78,7 +83,10 @@ const MaintenancesPage: React.FC = () => {
     return type === "preventive" ? "Preventiva" : "Corretiva";
   };
 
-  const maintenances = useMemo(() => data?.data || [], [data?.data]);
+  const maintenances = useMemo<Maintenance[]>(
+    () => data?.data ?? [],
+    [data?.data],
+  );
 
   const sortedMaintenances = useMemo(
     () =>

@@ -19,6 +19,10 @@ import {
   toggleColumnSort,
 } from "../../utils/tableSort";
 
+type CustomersListResult = Awaited<
+  ReturnType<typeof customerService.getCustomers>
+>;
+
 type BillSortKey =
   | "equipment"
   | "customer"
@@ -47,10 +51,11 @@ const BillingsPage: React.FC = () => {
     dir: "desc",
   });
 
-  const { data: customersData, isLoading: customersCatalogLoading } = useQuery({
-    queryKey: ["customers", "billing-list"],
-    queryFn: () => customerService.getCustomers({ limit: 500, page: 1 }),
-  });
+  const { data: customersData, isLoading: customersCatalogLoading } =
+    useQuery<CustomersListResult>({
+      queryKey: ["customers", "billing-list"],
+      queryFn: () => customerService.getCustomers({ limit: 500, page: 1 }),
+    });
 
   const { data, isLoading } = useQuery({
     queryKey: [
