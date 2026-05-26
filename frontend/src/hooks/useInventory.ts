@@ -1,6 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { inventoryService } from '../modules/inventory/inventory.service';
-import { CreateItemData, ItemFilters, AdjustQuantityData, EditItemData } from '../types/inventory.types';
+import {
+  CreateItemData,
+  ItemFilters,
+  AdjustQuantityData,
+  EditItemData,
+} from '../types/inventory.types';
+
+type CategoriesListResult = Awaited<
+  ReturnType<typeof inventoryService.getCategories>
+>;
+type SubcategoriesListResult = Awaited<
+  ReturnType<typeof inventoryService.getSubcategories>
+>;
 
 export const useItems = (filters: ItemFilters = {}) => {
   return useQuery({
@@ -94,7 +106,7 @@ export const useCalculateDepreciation = () => {
 
 // Categories
 export const useCategories = (isActive?: boolean) => {
-  return useQuery({
+  return useQuery<CategoriesListResult>({
     queryKey: ['categories', isActive],
     queryFn: () => inventoryService.getCategories(isActive),
   });
@@ -137,7 +149,7 @@ export const useDeleteCategory = () => {
 
 // Subcategories
 export const useSubcategories = (categoryId?: string, isActive?: boolean) => {
-  return useQuery({
+  return useQuery<SubcategoriesListResult>({
     queryKey: ['subcategories', categoryId, isActive],
     queryFn: () => inventoryService.getSubcategories(categoryId, isActive),
     enabled: !categoryId || !!categoryId,

@@ -8,6 +8,7 @@ import {
 import { Link } from "react-router-dom";
 import { createCategorySchema } from "../../utils/inventory.validation";
 import Layout from "../../components/Layout";
+import { Category } from "../../types/inventory.types";
 
 const CategoriesPage: React.FC = () => {
   const { data: categoriesData, isLoading } = useCategories();
@@ -92,7 +93,7 @@ const CategoriesPage: React.FC = () => {
     }
   };
 
-  const startEdit = (category: any) => {
+  const startEdit = (category: Category) => {
     setEditingId(category._id);
     setFormData({
       name: category.name,
@@ -101,7 +102,7 @@ const CategoriesPage: React.FC = () => {
     });
   };
 
-  const categories = categoriesData?.data || [];
+  const categories: Category[] = categoriesData?.data ?? [];
 
   if (isLoading) {
     return (
