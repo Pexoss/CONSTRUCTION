@@ -30,6 +30,33 @@ import {
   EMPTY_COMPANY_INVOICE_ISSUERS,
   type CompanyInvoiceIssuerRow,
 } from "../company/company.service";
+import {
+  FinancialReport,
+  InventoryReport,
+  InvoicesGeneratedReport,
+  MostRentedItem,
+  ReceivablesReport,
+  RentalItemsPeriodsReport,
+  RentalsReport,
+  TopCustomer,
+  MaintenanceReport,
+} from "../../types/report.types";
+
+type ReportApiResult<T> = { success: boolean; data: T };
+
+type InventoryMostUsedRow = NonNullable<InventoryReport["mostUsedItems"]>[number];
+type GeneratedInvoiceRow = InvoicesGeneratedReport["invoices"][number];
+type RentalItemsPeriodRow = RentalItemsPeriodsReport["items"][number];
+type ReceivablesPaidRow = ReceivablesReport["paidInPeriod"][number];
+type ReceivablesPendingRow = ReceivablesReport["pending"][number];
+
+const EMPTY_INVENTORY_MOST_USED: InventoryMostUsedRow[] = [];
+const EMPTY_MOST_RENTED: MostRentedItem[] = [];
+const EMPTY_GENERATED_INVOICES: GeneratedInvoiceRow[] = [];
+const EMPTY_RENTAL_ITEMS_PERIOD: RentalItemsPeriodRow[] = [];
+const EMPTY_RECEIVABLES_PAID: ReceivablesPaidRow[] = [];
+const EMPTY_RECEIVABLES_PENDING: ReceivablesPendingRow[] = [];
+const EMPTY_TOP_CUSTOMERS: TopCustomer[] = [];
 
 type InventoryMostUsedSortKey = "itemName" | "quantity" | "totalValue";
 
@@ -130,19 +157,21 @@ const ReportsPage: React.FC = () => {
   const invoiceIssuerRowsForReport: CompanyInvoiceIssuerRow[] =
     invoiceIssuerRowsForReportRaw ?? EMPTY_COMPANY_INVOICE_ISSUERS;
 
-  const { data: rentalsReport } = useQuery({
+  const { data: rentalsReport } = useQuery<ReportApiResult<RentalsReport>>({
     queryKey: ["rentals-report", startDate, endDate],
     queryFn: () => reportService.getRentalsReport(startDate, endDate),
     enabled: reportType === "rentals",
   });
 
-  const { data: financialReport } = useQuery({
+  const { data: financialReport } = useQuery<ReportApiResult<FinancialReport>>({
     queryKey: ["financial-report", startDate, endDate],
     queryFn: () => reportService.getFinancialReport(startDate, endDate),
     enabled: reportType === "financial",
   });
 
-  const { data: invoicesGeneratedReport } = useQuery({
+  const { data: invoicesGeneratedReport } = useQuery<
+    ReportApiResult<InvoicesGeneratedReport>
+  >({
     queryKey: ["invoices-generated-report", startDate, endDate, invoiceReportIssuerFilter],
     queryFn: () =>
       reportService.getInvoicesGeneratedReport(
@@ -153,36 +182,40 @@ const ReportsPage: React.FC = () => {
     enabled: reportType === "invoices",
   });
 
-  const { data: rentalItemsPeriodsReport } = useQuery({
+  const { data: rentalItemsPeriodsReport } = useQuery<
+    ReportApiResult<RentalItemsPeriodsReport>
+  >({
     queryKey: ["rental-items-periods-report", startDate, endDate],
     queryFn: () =>
       reportService.getRentalItemsPeriodsReport(startDate, endDate),
     enabled: reportType === "rental-items",
   });
 
-  const { data: maintenanceReport } = useQuery({
+  const { data: maintenanceReport } = useQuery<ReportApiResult<MaintenanceReport>>({
     queryKey: ["maintenance-report", startDate, endDate],
     queryFn: () => reportService.getMaintenanceReport(startDate, endDate),
     enabled: reportType === "maintenance",
   });
 
-  const { data: mostRentedItems } = useQuery({
+  const { data: mostRentedItems } = useQuery<ReportApiResult<MostRentedItem[]>>({
     queryKey: ["most-rented-items", startDate, endDate],
     queryFn: () => reportService.getMostRentedItems(startDate, endDate, 10),
   });
 
-  const { data: topCustomers } = useQuery({
+  const { data: topCustomers } = useQuery<ReportApiResult<TopCustomer[]>>({
     queryKey: ["top-customers", startDate, endDate],
     queryFn: () => reportService.getTopCustomers(startDate, endDate, 10),
   });
 
-  const { data: inventoryReport } = useQuery({
+  const { data: inventoryReport } = useQuery<ReportApiResult<InventoryReport>>({
     queryKey: ["inventory-report"],
     queryFn: () => reportService.getInventoryReport(),
     enabled: reportType === "inventory",
   });
 
-  const { data: receivablesReport, isLoading: receivablesLoading } = useQuery({
+  const { data: receivablesReport, isLoading: receivablesLoading } = useQuery<
+    ReportApiResult<ReceivablesReport>
+  >({
     queryKey: ["receivables-report", startDate, endDate],
     queryFn: () => reportService.getReceivablesReport(startDate, endDate),
     enabled: reportType === "receivables",
@@ -271,7 +304,8 @@ const ReportsPage: React.FC = () => {
   };
 
   const sortedInventoryMostUsed = useMemo(() => {
-    const rows = inventoryReport?.data?.mostUsedItems ?? [];
+    const rows: InventoryMostUsedRow[] =
+      inventoryReport?.data?.mostUsedItems ?? EMPTY_INVENTORY_MOST_USED;
     return sortedTableRows(rows, inventoryMostUsedSort, {
       itemName: (r) => String(r.itemName || "").toLowerCase(),
       quantity: (r) => Number(r.quantity ?? 0),
@@ -280,7 +314,7 @@ const ReportsPage: React.FC = () => {
   }, [inventoryReport?.data?.mostUsedItems, inventoryMostUsedSort]);
 
   const sortedMostRented = useMemo(() => {
-    const rows = mostRentedItems?.data ?? [];
+    const rows: MostRentedItem[] = mostRentedItems?.data ?? EMPTY_MOST_RENTED;
     return sortedTableRows(rows, mostRentedSort, {
       itemName: (r) => String(r.itemName || "").toLowerCase(),
       rentalCount: (r) => Number(r.rentalCount ?? 0),
@@ -289,7 +323,8 @@ const ReportsPage: React.FC = () => {
   }, [mostRentedItems?.data, mostRentedSort]);
 
   const sortedInvoicesGenerated = useMemo(() => {
-    const rows = invoicesGeneratedReport?.data?.invoices ?? [];
+    const rows: GeneratedInvoiceRow[] =
+      invoicesGeneratedReport?.data?.invoices ?? EMPTY_GENERATED_INVOICES;
     return sortedTableRows(rows, invoicesGeneratedSort, {
       invoiceNumber: (r) => String(r.invoiceNumber || "").toLowerCase(),
       customerName: (r) => String(r.customerName || "").toLowerCase(),
@@ -303,7 +338,8 @@ const ReportsPage: React.FC = () => {
   }, [invoicesGeneratedReport?.data?.invoices, invoicesGeneratedSort]);
 
   const sortedRentalItemsPeriod = useMemo(() => {
-    const rows = rentalItemsPeriodsReport?.data?.items ?? [];
+    const rows: RentalItemsPeriodRow[] =
+      rentalItemsPeriodsReport?.data?.items ?? EMPTY_RENTAL_ITEMS_PERIOD;
     return sortedTableRows(rows, rentalItemsPeriodSort, {
       billingNumber: (r) => String(r.billingNumber || "").toLowerCase(),
       rentalNumber: (r) => String(r.rentalNumber || "").toLowerCase(),
@@ -322,7 +358,8 @@ const ReportsPage: React.FC = () => {
   }, [rentalItemsPeriodsReport?.data?.items, rentalItemsPeriodSort]);
 
   const sortedReceivablesPaid = useMemo(() => {
-    const rows = receivablesReport?.data?.paidInPeriod ?? [];
+    const rows: ReceivablesPaidRow[] =
+      receivablesReport?.data?.paidInPeriod ?? EMPTY_RECEIVABLES_PAID;
     return sortedTableRows(rows, receivablesPaidSort, {
       kind: (r) => (r.kind === "fechamento" ? "Fechamento" : "Fatura"),
       documentNumber: (r) => String(r.documentNumber || "").toLowerCase(),
@@ -335,7 +372,8 @@ const ReportsPage: React.FC = () => {
   }, [receivablesReport?.data?.paidInPeriod, receivablesPaidSort]);
 
   const sortedReceivablesPending = useMemo(() => {
-    const rows = receivablesReport?.data?.pending ?? [];
+    const rows: ReceivablesPendingRow[] =
+      receivablesReport?.data?.pending ?? EMPTY_RECEIVABLES_PENDING;
     return sortedTableRows(rows, receivablesPendingSort, {
       kind: (r) =>
         r.kind === "fechamento" ? "Fechamento" : "Fatura",
@@ -349,7 +387,7 @@ const ReportsPage: React.FC = () => {
   }, [receivablesReport?.data?.pending, receivablesPendingSort]);
 
   const sortedTopCustomers = useMemo(() => {
-    const rows = topCustomers?.data ?? [];
+    const rows: TopCustomer[] = topCustomers?.data ?? EMPTY_TOP_CUSTOMERS;
     return sortedTableRows(rows, topCustomersSort, {
       customerName: (r) => String(r.customerName || "").toLowerCase(),
       rentalCount: (r) => Number(r.rentalCount ?? 0),

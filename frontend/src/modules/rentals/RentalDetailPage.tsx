@@ -384,7 +384,7 @@ const RentalDetailPage: React.FC = () => {
     enabled: !!id,
   });
 
-  const billings = useMemo(
+  const billings = useMemo<Billing[]>(
     () => billingsData?.data?.billings ?? EMPTY_BILLINGS,
     [billingsData?.data?.billings],
   );

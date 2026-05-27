@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoiceService } from "./invoice.service";
+import { InvoiceItem } from "../../types/invoice.types";
 import Layout from "../../components/Layout";
 import { toast } from "react-toastify";
 import { formatPhoneForDisplay, formatDocumentForDisplay, formatCurrencyBr } from "../../utils/formatters";
@@ -127,15 +128,13 @@ const InvoiceDetails = () => {
   };
 
   const sortedInvoiceItems = useMemo(() => {
-    const raw = invoice?.items ?? [];
+    const raw: InvoiceItem[] = invoice?.items ?? [];
     return sortedTableRows(raw, invoiceItemSort, {
-      description: (it: { description?: string }) =>
-        cleanDescription(it.description || "Item"),
-      period: (it: { description?: string }) =>
-        extractPeriod(it.description || ""),
-      quantity: (it: { quantity?: number }) => Number(it.quantity ?? 1),
-      unitPrice: (it: { unitPrice?: number }) => Number(it.unitPrice ?? 0),
-      total: (it: { total?: number }) => Number(it.total ?? 0),
+      description: (it) => cleanDescription(it.description || "Item"),
+      period: (it) => extractPeriod(it.description || ""),
+      quantity: (it) => Number(it.quantity ?? 1),
+      unitPrice: (it) => Number(it.unitPrice ?? 0),
+      total: (it) => Number(it.total ?? 0),
     });
   }, [invoice?.items, invoiceItemSort]);
 

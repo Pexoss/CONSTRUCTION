@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { maintenanceService } from "./maintenance.service";
-import { MaintenanceStatus } from "../../types/maintenance.types";
+import { MaintenanceStatus, Maintenance } from "../../types/maintenance.types";
 import Layout from "../../components/Layout";
 import { formatCurrencyBr } from "../../utils/formatters";
 
@@ -17,7 +17,7 @@ const MaintenanceDetailPage: React.FC = () => {
     notes: "",
   });
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading } = useQuery<{ success: boolean; data: Maintenance }>({
     queryKey: ["maintenance", id],
     queryFn: () => maintenanceService.getMaintenanceById(id!),
     enabled: !!id,
@@ -79,7 +79,7 @@ const MaintenanceDetailPage: React.FC = () => {
     );
   }
 
-  const maintenance = data.data;
+  const maintenance: Maintenance = data.data;
   const item =
     typeof maintenance.itemId === "object" ? maintenance.itemId : null;
 
