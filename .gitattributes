@@ -1,0 +1,21 @@
+# Normalize line endings across platforms (avoids LF/CRLF warnings on Windows)
+* text=auto
+
+*.sh eol=lf
+
+*.js text
+*.jsx text
+*.ts text
+*.tsx text
+*.css text
+*.html text
+*.json text
+*.md text
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.xlsx binary
