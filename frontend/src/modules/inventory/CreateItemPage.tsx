@@ -15,7 +15,8 @@ import {
   Subcategory,
 } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
-import { formatMoneyInputBr, parseMoneyBr } from "../../utils/formatters";
+import { formatMoneyInputBr, formatMoneyInputBrLive, parseMoneyBr } from "../../utils/formatters";
+import { selectInputText } from "../../utils/selectInputText";
 
 const CreateItemPage: React.FC = () => {
   const navigate = useNavigate();
@@ -65,7 +66,10 @@ const CreateItemPage: React.FC = () => {
   });
 
   const handlePricingInputChange = (field: string, value: string) => {
-    setPricingInputs((prev) => ({ ...prev, [field]: value }));
+    setPricingInputs((prev) => ({
+      ...prev,
+      [field]: formatMoneyInputBrLive(value),
+    }));
   };
 
   const handlePricingInputBlur = (field: string, value: string) => {
@@ -667,6 +671,8 @@ const CreateItemPage: React.FC = () => {
                         min="0"
                         required
                         value={formData.quantity.total}
+                        onFocus={selectInputText}
+                        onClick={selectInputText}
                         onChange={handleChange}
                         className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
@@ -690,6 +696,8 @@ const CreateItemPage: React.FC = () => {
                         type="number"
                         min="0"
                         value={formData.quantity.available}
+                        onFocus={selectInputText}
+                        onClick={selectInputText}
                         onChange={handleChange}
                         className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
@@ -708,6 +716,8 @@ const CreateItemPage: React.FC = () => {
                         type="number"
                         min="0"
                         value={formData.lowStockThreshold}
+                        onFocus={selectInputText}
+                        onClick={selectInputText}
                         onChange={handleChange}
                         className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                       />
@@ -765,6 +775,8 @@ const CreateItemPage: React.FC = () => {
                           min="0"
                           required
                           value={formData.depreciation.initialValue ?? ""}
+                          onFocus={selectInputText}
+                          onClick={selectInputText}
                           onChange={(e) =>
                             setFormData((prev) => ({
                               ...prev,
@@ -816,6 +828,8 @@ const CreateItemPage: React.FC = () => {
                           min="0"
                           max="100"
                           value={formData.depreciation.depreciationRate ?? 10}
+                          onFocus={selectInputText}
+                          onClick={selectInputText}
                           onChange={(e) =>
                             setFormData((prev) => ({
                               ...prev,
@@ -854,6 +868,8 @@ const CreateItemPage: React.FC = () => {
                       placeholder="0,00"
                       required
                       value={pricingInputs.dailyRate}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
                       onChange={(e) =>
                         handlePricingInputChange("dailyRate", e.target.value)
                       }
@@ -878,6 +894,8 @@ const CreateItemPage: React.FC = () => {
                       inputMode="decimal"
                       placeholder="0,00"
                       value={pricingInputs.weeklyRate}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
                       onChange={(e) =>
                         handlePricingInputChange("weeklyRate", e.target.value)
                       }
@@ -902,6 +920,8 @@ const CreateItemPage: React.FC = () => {
                       inputMode="decimal"
                       placeholder="0,00"
                       value={pricingInputs.biweeklyRate}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
                       onChange={(e) =>
                         handlePricingInputChange("biweeklyRate", e.target.value)
                       }
@@ -926,6 +946,8 @@ const CreateItemPage: React.FC = () => {
                       inputMode="decimal"
                       placeholder="0,00"
                       value={pricingInputs.monthlyRate}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
                       onChange={(e) =>
                         handlePricingInputChange("monthlyRate", e.target.value)
                       }

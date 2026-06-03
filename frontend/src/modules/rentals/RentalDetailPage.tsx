@@ -28,10 +28,12 @@ import {
   formatRentalTypeLabel,
   formatCurrencyBr,
   formatMoneyInputBr,
+  formatMoneyInputBrLive,
   getBillingOutstandingAmount,
   // parseMoneyBr,
   todayDateInputValue,
 } from "../../utils/formatters";
+import { selectInputText } from "../../utils/selectInputText";
 import {
   periodRateFromInventory,
   type RentalTypePricing,
@@ -1520,6 +1522,8 @@ const RentalDetailPage: React.FC = () => {
                       type="number"
                       min="1"
                       value={newItemForm.quantity}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
                       onChange={(e) =>
                         setNewItemForm({
                           ...newItemForm,
@@ -3372,10 +3376,12 @@ const RentalDetailPage: React.FC = () => {
                           inputMode="decimal"
                           placeholder="0,00"
                           value={closeForm.equipmentSubtotal}
+                          onFocus={selectInputText}
+                          onClick={selectInputText}
                           onChange={(e) =>
                             setCloseForm({
                               ...closeForm,
-                              equipmentSubtotal: e.target.value,
+                              equipmentSubtotal: formatMoneyInputBrLive(e.target.value),
                             })
                           }
                           onBlur={(e) =>
@@ -3396,10 +3402,12 @@ const RentalDetailPage: React.FC = () => {
                           inputMode="decimal"
                           placeholder="0,00"
                           value={closeForm.servicesSubtotal}
+                          onFocus={selectInputText}
+                          onClick={selectInputText}
                           onChange={(e) =>
                             setCloseForm({
                               ...closeForm,
-                              servicesSubtotal: e.target.value,
+                              servicesSubtotal: formatMoneyInputBrLive(e.target.value),
                             })
                           }
                           onBlur={(e) =>
@@ -3420,10 +3428,12 @@ const RentalDetailPage: React.FC = () => {
                           inputMode="decimal"
                           placeholder="0,00"
                           value={closeForm.discount}
+                          onFocus={selectInputText}
+                          onClick={selectInputText}
                           onChange={(e) =>
                             setCloseForm({
                               ...closeForm,
-                              discount: e.target.value,
+                              discount: formatMoneyInputBrLive(e.target.value),
                             })
                           }
                           onBlur={(e) =>
@@ -3444,10 +3454,12 @@ const RentalDetailPage: React.FC = () => {
                           inputMode="decimal"
                           placeholder="0,00"
                           value={closeForm.lateFee}
+                          onFocus={selectInputText}
+                          onClick={selectInputText}
                           onChange={(e) =>
                             setCloseForm({
                               ...closeForm,
-                              lateFee: e.target.value,
+                              lateFee: formatMoneyInputBrLive(e.target.value),
                             })
                           }
                           onBlur={(e) =>
@@ -3470,8 +3482,13 @@ const RentalDetailPage: React.FC = () => {
                         inputMode="decimal"
                         placeholder="0,00"
                         value={closeForm.total}
+                        onFocus={selectInputText}
+                        onClick={selectInputText}
                         onChange={(e) =>
-                          setCloseForm({ ...closeForm, total: e.target.value })
+                          setCloseForm({
+                            ...closeForm,
+                            total: formatMoneyInputBrLive(e.target.value),
+                          })
                         }
                         onBlur={(e) =>
                           setCloseForm((prev) => ({
@@ -3660,6 +3677,8 @@ const RentalDetailPage: React.FC = () => {
                     min={1}
                     max={selectedCloseItem.quantity}
                     value={closeItemReturnedQuantity}
+                    onFocus={selectInputText}
+                    onClick={selectInputText}
                     onChange={(e) =>
                       setCloseItemReturnedQuantity(
                         Math.max(
@@ -3994,6 +4013,8 @@ const RentalDetailPage: React.FC = () => {
                     type="number"
                     min="1"
                     value={newItemForm.quantity}
+                    onFocus={selectInputText}
+                    onClick={selectInputText}
                     onChange={(e) =>
                       setNewItemForm({
                         ...newItemForm,

@@ -17,7 +17,8 @@ import {
   Subcategory,
 } from "../../types/inventory.types";
 import Layout from "../../components/Layout";
-import { formatMoneyInputBr, parseMoneyBr } from "../../utils/formatters";
+import { formatMoneyInputBr, formatMoneyInputBrLive, parseMoneyBr } from "../../utils/formatters";
+import { selectInputText } from "../../utils/selectInputText";
 
 const EditItemPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -48,7 +49,10 @@ const EditItemPage: React.FC = () => {
   });
 
   const handlePricingInputChange = (field: string, value: string) => {
-    setPricingInputs((prev) => ({ ...prev, [field]: value }));
+    setPricingInputs((prev) => ({
+      ...prev,
+      [field]: formatMoneyInputBrLive(value),
+    }));
   };
 
   const handlePricingInputBlur = (field: string, value: string) => {
@@ -644,6 +648,8 @@ const EditItemPage: React.FC = () => {
                           type="number"
                           min="0"
                           value={formData.quantity?.total ?? 0}
+                          onFocus={selectInputText}
+                          onClick={selectInputText}
                           onChange={handleChange}
                           className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                         />
@@ -662,6 +668,8 @@ const EditItemPage: React.FC = () => {
                           type="number"
                           min="0"
                           value={formData.quantity?.available ?? 0}
+                          onFocus={selectInputText}
+                          onClick={selectInputText}
                           onChange={handleChange}
                           className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                         />
@@ -680,6 +688,8 @@ const EditItemPage: React.FC = () => {
                           type="number"
                           min="0"
                           value={formData.lowStockThreshold || 0}
+                          onFocus={selectInputText}
+                          onClick={selectInputText}
                           onChange={handleChange}
                           className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                         />
@@ -739,6 +749,8 @@ const EditItemPage: React.FC = () => {
                         type="number"
                         placeholder="Valor inicial"
                         value={formData.depreciation?.initialValue ?? ""}
+                        onFocus={selectInputText}
+                        onClick={selectInputText}
                         onChange={(e) =>
                           setFormData((prev) => ({
                             ...prev,
@@ -780,6 +792,8 @@ const EditItemPage: React.FC = () => {
                         type="number"
                         placeholder="Taxa (%)"
                         value={formData.depreciation?.depreciationRate ?? ""}
+                        onFocus={selectInputText}
+                        onClick={selectInputText}
                         onChange={(e) =>
                           setFormData((prev) => ({
                             ...prev,
@@ -816,6 +830,8 @@ const EditItemPage: React.FC = () => {
                       inputMode="decimal"
                       placeholder="0,00"
                       value={pricingInputs.dailyRate}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
                       onChange={(e) =>
                         handlePricingInputChange("dailyRate", e.target.value)
                       }
@@ -840,6 +856,8 @@ const EditItemPage: React.FC = () => {
                       inputMode="decimal"
                       placeholder="0,00"
                       value={pricingInputs.weeklyRate}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
                       onChange={(e) =>
                         handlePricingInputChange("weeklyRate", e.target.value)
                       }
@@ -864,6 +882,8 @@ const EditItemPage: React.FC = () => {
                       inputMode="decimal"
                       placeholder="0,00"
                       value={pricingInputs.biweeklyRate}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
                       onChange={(e) =>
                         handlePricingInputChange("biweeklyRate", e.target.value)
                       }
@@ -888,6 +908,8 @@ const EditItemPage: React.FC = () => {
                       inputMode="decimal"
                       placeholder="0,00"
                       value={pricingInputs.monthlyRate}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
                       onChange={(e) =>
                         handlePricingInputChange("monthlyRate", e.target.value)
                       }

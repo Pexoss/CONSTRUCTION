@@ -10,6 +10,7 @@ import { adjustQuantitySchema } from "../../utils/inventory.validation";
 import { inventoryService } from "./inventory.service";
 import Layout from "../../components/Layout";
 import { formatCurrencyBr } from "../../utils/formatters";
+import { selectInputText } from "../../utils/selectInputText";
 import SortableTh from "../../components/SortableTh";
 import {
   ColumnSort,
@@ -1050,6 +1051,8 @@ const ItemDetailPage: React.FC = () => {
                           min="1"
                           required
                           value={adjustForm.quantity}
+                          onFocus={selectInputText}
+                          onClick={selectInputText}
                           onChange={(e) =>
                             setAdjustForm((prev) => ({
                               ...prev,

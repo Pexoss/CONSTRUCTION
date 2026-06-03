@@ -1,4 +1,10 @@
 /** Filtros do quadro financeiro (query params: customer, item, obra, start, end, semcobranca). */
+export const WITHOUT_CHARGE_FILTER_PARAM = "semcobranca";
+
+/** Padrão da aba Fechamentos: só fechamentos sem cobrança (`semcobranca` ausente ou ≠ `0`). */
+export const isWithoutChargeOnlyFromSearchParams = (
+  params: URLSearchParams | { get: (key: string) => string | null },
+): boolean => params.get(WITHOUT_CHARGE_FILTER_PARAM) !== "0";
 
 export type FinancialBoardUrlFilters = {
   customerId: string;

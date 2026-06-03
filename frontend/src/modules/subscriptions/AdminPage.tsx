@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { subscriptionService } from "./subscription.service";
 import Layout from "../../components/Layout";
 import { formatDocumentForDisplay, formatCurrencyBr } from "../../utils/formatters";
+import { selectInputText } from "../../utils/selectInputText";
 import {
   Company,
   EMPTY_COMPANIES,
@@ -658,6 +659,8 @@ const AdminPage: React.FC = () => {
                         min="0.01"
                         step="0.01"
                         value={paymentData.amount}
+                        onFocus={selectInputText}
+                        onClick={selectInputText}
                         onChange={(e) =>
                           setPaymentData({
                             ...paymentData,

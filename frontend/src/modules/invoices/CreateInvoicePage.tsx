@@ -21,10 +21,12 @@ import { Billing, BillingItem, EMPTY_BILLINGS } from "../../types/billing.types"
 import {
   formatCurrencyBr,
   formatDocumentForDisplay,
+  formatMoneyInputBrLive,
   formatMoneyInputBr,
   parseMoneyBr,
 } from "../../utils/formatters";
 import { billingStatusLabel } from "../../utils/statusLabels";
+import { selectInputText } from "../../utils/selectInputText";
 import SortableTh from "../../components/SortableTh";
 import {
   ColumnSort,
@@ -565,7 +567,9 @@ const CreateInvoicePage: React.FC = () => {
                     inputMode="decimal"
                     placeholder="0,00"
                     value={tax}
-                    onChange={(e) => setTax(e.target.value)}
+                    onFocus={selectInputText}
+                    onClick={selectInputText}
+                    onChange={(e) => setTax(formatMoneyInputBrLive(e.target.value))}
                     onBlur={(e) => setTax(formatMoneyInputBr(e.target.value))}
                     className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm tabular-nums"
                   />
@@ -579,7 +583,9 @@ const CreateInvoicePage: React.FC = () => {
                     inputMode="decimal"
                     placeholder="0,00"
                     value={discount}
-                    onChange={(e) => setDiscount(e.target.value)}
+                    onFocus={selectInputText}
+                    onClick={selectInputText}
+                    onChange={(e) => setDiscount(formatMoneyInputBrLive(e.target.value))}
                     onBlur={(e) => setDiscount(formatMoneyInputBr(e.target.value))}
                     className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm tabular-nums"
                   />

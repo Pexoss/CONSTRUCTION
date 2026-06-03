@@ -6,7 +6,8 @@ import { useItem, useItems } from "../../hooks/useInventory";
 import { CreateMaintenanceData } from "../../types/maintenance.types";
 import Layout from "../../components/Layout";
 import { EMPTY_ITEMS, EMPTY_ITEM_UNITS, Item, ItemUnit } from "../../types/inventory.types";
-import { formatMoneyInputBr, parseMoneyBr } from "../../utils/formatters";
+import { formatMoneyInputBr, formatMoneyInputBrLive, parseMoneyBr } from "../../utils/formatters";
+import { selectInputText } from "../../utils/selectInputText";
 
 const CreateMaintenancePage: React.FC = () => {
   const navigate = useNavigate();
@@ -70,7 +71,7 @@ const CreateMaintenancePage: React.FC = () => {
     }
 
     if (name === "cost") {
-      setCostInput(value);
+      setCostInput(formatMoneyInputBrLive(value));
       return;
     }
 
@@ -398,6 +399,8 @@ const CreateMaintenancePage: React.FC = () => {
                       required
                       placeholder="0,00"
                       value={costInput}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
                       onChange={handleChange}
                       onBlur={(e) => setCostInput(formatMoneyInputBr(e.target.value))}
                       className="pl-10 w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"

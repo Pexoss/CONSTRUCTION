@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "react-toastify";
 import { Link, useSearchParams } from "react-router-dom";
@@ -14,6 +14,8 @@ import { customerService } from "../customers/customer.service";
 import {
   billingMatchesBoardFilters,
   FinancialBoardUrlFilters,
+  isWithoutChargeOnlyFromSearchParams,
+  WITHOUT_CHARGE_FILTER_PARAM,
 } from "./financialBoardFilters";
 import { RentalDeliveryQuickModal } from "./RentalDeliveryQuickModal";
 import {
@@ -27,11 +29,13 @@ import {
   formatDateTimeForDisplay,
   formatDocumentForDisplay,
   formatCurrencyBr,
+  formatMoneyInputBrLive,
   formatMoneyInputBr,
   getBillingOutstandingAmount,
   parseMoneyBr,
   toDateInputValue,
 } from "../../utils/formatters";
+import { selectInputText } from "../../utils/selectInputText";
 import SortableTh from "../../components/SortableTh";
 import {
   ColumnSort,
@@ -146,6 +150,10 @@ const FinancialCenterPage: React.FC = () => {
   /** Campos para registrar baixa no modal da cobrança (aba Cobranças). */
   const [chargePartialAmount, setChargePartialAmount] = useState<string>("");
   const [chargePartialDiscount, setChargePartialDiscount] = useState<string>("");
+  /** Saldo em aberto usado como base da baixa (valor + desconto = abatimento nesta operação). */
+  const [chargePartialSettleBase, setChargePartialSettleBase] = useState<number>(0);
+  /** Desconto reduz valor a partir do saldo total (não do valor já reduzido). */
+  const chargePartialDiscountLinksAmountRef = useRef(false);
   const [chargePartialMethod, setChargePartialMethod] = useState<string>("manual");
   const [invoiceDueDate, setInvoiceDueDate] = useState<string>("");
   const [invoicePaymentMethod, setInvoicePaymentMethod] = useState<string>("boleto/PIX");
@@ -157,6 +165,10 @@ const FinancialCenterPage: React.FC = () => {
   const [chargeModalDueDate, setChargeModalDueDate] = useState<string>("");
   const [chargeModalTotal, setChargeModalTotal] = useState<string>("");
   const [chargeModalBillingIds, setChargeModalBillingIds] = useState<string[]>([]);
+  const [chargeModalBillingsEditMode, setChargeModalBillingsEditMode] = useState(false);
+  const [chargeModalBillingIdsSnapshot, setChargeModalBillingIdsSnapshot] = useState<
+    string[]
+  >([]);
   const [invoiceModalNotes, setInvoiceModalNotes] = useState<string>("");
   const [refreshPreviewModal, setRefreshPreviewModal] = useState<{
     billingId: string;
@@ -171,28 +183,28 @@ const FinancialCenterPage: React.FC = () => {
   const obraFilter = searchParams.get("obra") || "";
   const periodStartFilter = searchParams.get("start") || "";
   const periodEndFilter = searchParams.get("end") || "";
-  const withoutChargeOnlyFilter = searchParams.get("semcobranca") === "1";
+  const withoutChargeOnlyFilter = isWithoutChargeOnlyFromSearchParams(searchParams);
   const emitenteInvoiceBoardFilter = searchParams.get("emitente") || "";
 
   const [invoiceBillingIssuerForCreate, setInvoiceBillingIssuerForCreate] = useState<string>("");
 
-  const filterParams: FinancialBoardUrlFilters = useMemo(
+  const filterParamsShared: Omit<FinancialBoardUrlFilters, "withoutChargeOnly"> = useMemo(
     () => ({
       customerId: customerFilter,
       itemText: itemFilter,
       obraText: obraFilter,
       periodStart: periodStartFilter,
       periodEnd: periodEndFilter,
+    }),
+    [customerFilter, itemFilter, obraFilter, periodStartFilter, periodEndFilter],
+  );
+
+  const filterParamsBillings: FinancialBoardUrlFilters = useMemo(
+    () => ({
+      ...filterParamsShared,
       withoutChargeOnly: withoutChargeOnlyFilter,
     }),
-    [
-      customerFilter,
-      itemFilter,
-      obraFilter,
-      periodStartFilter,
-      periodEndFilter,
-      withoutChargeOnlyFilter,
-    ],
+    [filterParamsShared, withoutChargeOnlyFilter],
   );
 
   const updateFilterParam = (key: string, value: string) => {
@@ -221,9 +233,18 @@ const FinancialCenterPage: React.FC = () => {
     }
   }, [invoiceIssuerBoardOptions, invoiceBillingIssuerForCreate]);
 
-  const boardQuery = useQuery({
-    queryKey: [
-      "financial-board",
+  const financialBoardQueryKey = useMemo(
+    () =>
+      [
+        "financial-board",
+        customerFilter,
+        itemFilter,
+        obraFilter,
+        periodStartFilter,
+        periodEndFilter,
+        emitenteInvoiceBoardFilter,
+      ] as const,
+    [
       customerFilter,
       itemFilter,
       obraFilter,
@@ -231,13 +252,42 @@ const FinancialCenterPage: React.FC = () => {
       periodEndFilter,
       emitenteInvoiceBoardFilter,
     ],
-    queryFn: () =>
+  );
+
+  const fetchFinancialBoard = useCallback(
+    () =>
       financialService.getBoard({
         customerId: customerFilter || undefined,
         startDate: periodStartFilter || undefined,
         endDate: periodEndFilter || undefined,
         billingIssuerId: emitenteInvoiceBoardFilter || undefined,
       }),
+    [
+      customerFilter,
+      periodStartFilter,
+      periodEndFilter,
+      emitenteInvoiceBoardFilter,
+    ],
+  );
+
+  const applyChargeModalState = useCallback((charge: any) => {
+    setChargeModal(charge);
+    setChargeModalBillingsEditMode(false);
+    setChargeModalNotes(String(charge.notes || ""));
+    setChargeModalDueDate(toDateInputValue(charge.dueDate));
+    setChargeModalTotal(formatMoneyInputBr(Number(charge.total || 0)));
+    setChargeModalBillingIds((charge.billingIds || []).map((b: any) => String(b?._id || b)));
+    const outstanding = Math.max(0, Number(charge.outstandingAmount || 0));
+    setChargePartialSettleBase(outstanding);
+    setChargePartialAmount(formatMoneyInputBr(outstanding));
+    setChargePartialDiscount(formatMoneyInputBr(0));
+    chargePartialDiscountLinksAmountRef.current = false;
+    setChargePartialMethod("manual");
+  }, []);
+
+  const boardQuery = useQuery({
+    queryKey: financialBoardQueryKey,
+    queryFn: fetchFinancialBoard,
     enabled: features.financialUnifiedModule,
   });
   const boardData = boardQuery.data?.data;
@@ -337,11 +387,26 @@ const FinancialCenterPage: React.FC = () => {
         paymentMethod: method || "manual",
       });
     },
-    onSuccess: () => {
-      setChargePartialAmount("");
-      setChargePartialDiscount("");
+    onSuccess: async (_result, { chargeId }) => {
       toast.success("Baixa registrada com sucesso.");
-      queryClient.invalidateQueries({ queryKey: ["financial-board"] });
+      await queryClient.invalidateQueries({ queryKey: ["financial-board"] });
+      const boardResult = await queryClient.fetchQuery({
+        queryKey: financialBoardQueryKey,
+        queryFn: fetchFinancialBoard,
+      });
+      const updatedCharge = (boardResult?.data?.charges || []).find(
+        (c: any) => String(c._id) === String(chargeId),
+      );
+      if (
+        !updatedCharge ||
+        Number(updatedCharge.outstandingAmount || 0) <= 0.01 ||
+        updatedCharge.status === "paid"
+      ) {
+        setChargeModal(null);
+        setChargeModalBillingsEditMode(false);
+        return;
+      }
+      applyChargeModalState(updatedCharge);
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message || "Não foi possível registrar a baixa.";
@@ -514,8 +579,8 @@ const FinancialCenterPage: React.FC = () => {
 
   const billingsFilteredForTable = useMemo(
     () =>
-      billings.filter((b: any) => billingMatchesBoardFilters(b, filterParams)),
-    [billings, filterParams],
+      billings.filter((b: any) => billingMatchesBoardFilters(b, filterParamsBillings)),
+    [billings, filterParamsBillings],
   );
 
   const tableBillings = useMemo(() => {
@@ -543,8 +608,8 @@ const FinancialCenterPage: React.FC = () => {
   }, [billingsFilteredForTable, finBillSort]);
 
   const billingMatchesGlobalFilter = useCallback(
-    (billing: any) => billingMatchesBoardFilters(billing, filterParams),
-    [filterParams],
+    (billing: any) => billingMatchesBoardFilters(billing, filterParamsShared),
+    [filterParamsShared],
   );
 
   const filteredCharges = useMemo(() => {
@@ -663,14 +728,104 @@ const FinancialCenterPage: React.FC = () => {
   };
 
   const openChargeModal = (charge: any) => {
-    setChargeModal(charge);
-    setChargeModalNotes(String(charge.notes || ""));
-    setChargeModalDueDate(toDateInputValue(charge.dueDate));
-    setChargeModalTotal(formatMoneyInputBr(Number(charge.total || 0)));
-    setChargeModalBillingIds((charge.billingIds || []).map((b: any) => String(b?._id || b)));
-    setChargePartialAmount(formatMoneyInputBr(Number(charge.total || 0)));
-    setChargePartialDiscount(formatMoneyInputBr(0));
-    setChargePartialMethod("manual");
+    applyChargeModalState(charge);
+  };
+
+  const chargePartialAmountIsFullSettle = (amount: number) =>
+    Math.abs(amount - chargePartialSettleBase) < 0.01;
+
+  const applyChargePartialDiscount = (
+    discountRaw: string,
+    amountRawForCheck: string,
+    finalize: boolean,
+  ) => {
+    const discountFormatted = finalize
+      ? formatMoneyInputBr(parseMoneyBr(discountRaw))
+      : formatMoneyInputBrLive(discountRaw);
+    const discount = parseMoneyBr(discountFormatted);
+    const currentAmount = parseMoneyBr(amountRawForCheck);
+    const safeAmount = Number.isFinite(currentAmount) ? Math.max(0, currentAmount) : 0;
+
+    if (!Number.isFinite(discount)) {
+      setChargePartialDiscount(discountFormatted);
+      return;
+    }
+
+    if (chargePartialAmountIsFullSettle(safeAmount)) {
+      chargePartialDiscountLinksAmountRef.current = true;
+    }
+
+    if (chargePartialDiscountLinksAmountRef.current) {
+      const cappedDiscount = Math.min(Math.max(0, discount), chargePartialSettleBase);
+      const nextAmount = Math.max(0, chargePartialSettleBase - cappedDiscount);
+      setChargePartialDiscount(
+        finalize
+          ? formatMoneyInputBr(cappedDiscount)
+          : cappedDiscount !== discount
+            ? formatMoneyInputBr(cappedDiscount)
+            : discountFormatted,
+      );
+      setChargePartialAmount(formatMoneyInputBr(nextAmount));
+      return;
+    }
+
+    const maxDiscount = Math.max(0, chargePartialSettleBase - safeAmount);
+    const cappedDiscount = Math.min(Math.max(0, discount), maxDiscount);
+    setChargePartialDiscount(
+      finalize
+        ? formatMoneyInputBr(cappedDiscount)
+        : cappedDiscount !== discount
+          ? formatMoneyInputBr(cappedDiscount)
+          : discountFormatted,
+    );
+  };
+
+  const syncChargePartialFromDiscount = (discountRaw: string) => {
+    applyChargePartialDiscount(discountRaw, chargePartialAmount, false);
+  };
+
+  const finalizeChargePartialFromDiscount = (discountRaw: string) => {
+    applyChargePartialDiscount(discountRaw, chargePartialAmount, true);
+  };
+
+  const syncChargePartialFromAmount = (amountRaw: string) => {
+    chargePartialDiscountLinksAmountRef.current = false;
+    setChargePartialAmount(formatMoneyInputBrLive(amountRaw));
+  };
+
+  const finalizeChargePartialFromAmount = (amountRaw: string) => {
+    chargePartialDiscountLinksAmountRef.current = false;
+    const amount = parseMoneyBr(amountRaw);
+    const cappedAmount = Number.isFinite(amount)
+      ? Math.min(Math.max(0, amount), chargePartialSettleBase)
+      : 0;
+    setChargePartialAmount(formatMoneyInputBr(cappedAmount));
+  };
+
+  const chargeModalLinkedBillings = useMemo(() => {
+    if (!chargeModal) return [];
+    const idSet = new Set(chargeModalBillingIds);
+    const fromBoard = billings.filter((b: any) => idSet.has(String(b._id)));
+    if (fromBoard.length >= idSet.size) return fromBoard;
+    const boardIds = new Set(fromBoard.map((b: any) => String(b._id)));
+    const fromCharge = (chargeModal.billingIds || []).filter(
+      (b: any) => b && typeof b === "object" && idSet.has(String(b._id)) && !boardIds.has(String(b._id)),
+    );
+    return [...fromBoard, ...fromCharge];
+  }, [chargeModal, chargeModalBillingIds, billings]);
+
+  const startChargeModalBillingsEdit = () => {
+    setChargeModalBillingIdsSnapshot([...chargeModalBillingIds]);
+    setChargeModalBillingsEditMode(true);
+  };
+
+  const cancelChargeModalBillingsEdit = () => {
+    setChargeModalBillingIds(chargeModalBillingIdsSnapshot);
+    setChargeModalBillingsEditMode(false);
+  };
+
+  const finishChargeModalBillingsEdit = () => {
+    setChargeModalBillingsEditMode(false);
   };
 
   const openInvoiceModal = (invoice: any) => {
@@ -739,6 +894,17 @@ const FinancialCenterPage: React.FC = () => {
     setChargeModalTotal(formatMoneyInputBr(chargeModalSelectedBillingsTotal));
   }, [chargeModal, chargeModalSelectedBillingsTotal, chargeModalViewOnly]);
 
+  const chargePartialBaixaSummary = useMemo(() => {
+    const outstanding = Math.max(0, Number(chargeModal?.outstandingAmount || 0));
+    const amount = parseMoneyBr(chargePartialAmount);
+    const discount = parseMoneyBr(chargePartialDiscount);
+    const received = Number.isFinite(amount) && amount > 0 ? amount : 0;
+    const discountValue = Number.isFinite(discount) && discount > 0 ? discount : 0;
+    const totalSettled = Math.round((received + discountValue) * 100) / 100;
+    const remaining = Math.max(0, Math.round((outstanding - totalSettled) * 100) / 100);
+    return { outstanding, received, discountValue, totalSettled, remaining };
+  }, [chargeModal, chargePartialAmount, chargePartialDiscount]);
+
   const selectBoardCustomerFilter = (id: string) => {
     updateFilterParam("customer", id);
     setBoardCustomerSearch("");
@@ -774,7 +940,7 @@ const FinancialCenterPage: React.FC = () => {
 
         <details className="border rounded-md p-4 bg-white dark:bg-gray-800">
           <summary className="cursor-pointer font-semibold">
-            Filtros (fechamentos, cobranças e lista de faturas)
+            Filtros (cliente, item, obra e período — todas as abas)
           </summary>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
             <div className="relative min-w-0">
@@ -874,9 +1040,19 @@ const FinancialCenterPage: React.FC = () => {
               type="checkbox"
               className="rounded border-gray-300"
               checked={withoutChargeOnlyFilter}
-              onChange={(e) => updateFilterParam("semcobranca", e.target.checked ? "1" : "")}
+              onChange={(e) => {
+                const next = new URLSearchParams(searchParams);
+                if (e.target.checked) {
+                  next.delete(WITHOUT_CHARGE_FILTER_PARAM);
+                } else {
+                  next.set(WITHOUT_CHARGE_FILTER_PARAM, "0");
+                }
+                setSearchParams(next, { replace: true });
+              }}
             />
-            <span>Apenas fechamentos sem cobrança gerada</span>
+            <span>
+              Na aba Fechamentos: apenas sem cobrança gerada (não afeta Cobranças nem Faturas)
+            </span>
           </label>
 
           <div className="mt-3">
@@ -1499,7 +1675,9 @@ const FinancialCenterPage: React.FC = () => {
                         }`}
                         disabled={chargeModalViewOnly}
                         value={chargeModalTotal}
-                        onChange={(e) => setChargeModalTotal(e.target.value)}
+                        onFocus={selectInputText}
+                        onClick={selectInputText}
+                        onChange={(e) => setChargeModalTotal(formatMoneyInputBrLive(e.target.value))}
                         onBlur={(e) =>
                           setChargeModalTotal(formatMoneyInputBr(e.target.value))
                         }
@@ -1526,41 +1704,114 @@ const FinancialCenterPage: React.FC = () => {
               </section>
 
               <section className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-                <div className="bg-gray-50/90 dark:bg-gray-800/60 px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-                    Fechamentos vinculados
-                  </h4>
-                  {!chargeModalViewOnly ? (
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      Mesmo cliente; marque ou desmarque para alterar o agrupamento antes de salvar.
-                    </p>
+                <div className="bg-gray-50/90 dark:bg-gray-800/60 px-4 py-2.5 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                      Fechamentos vinculados
+                    </h4>
+                    {chargeModalBillingsEditMode && !chargeModalViewOnly ? (
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                        Mesmo cliente: marque ou desmarque fechamentos e use Concluir; depois
+                        salve a cobrança.
+                      </p>
+                    ) : null}
+                  </div>
+                  {!chargeModalViewOnly && !chargeModalBillingsEditMode ? (
+                    <button
+                      type="button"
+                      className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-md border border-indigo-300 text-indigo-700 dark:border-indigo-600 dark:text-indigo-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                      onClick={startChargeModalBillingsEdit}
+                    >
+                      Editar fechamentos
+                    </button>
+                  ) : null}
+                  {chargeModalBillingsEditMode && !chargeModalViewOnly ? (
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800"
+                        onClick={cancelChargeModalBillingsEdit}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                        onClick={finishChargeModalBillingsEdit}
+                      >
+                        Concluir edição
+                      </button>
+                    </div>
                   ) : null}
                 </div>
                 <div className="p-3 max-h-64 overflow-y-auto space-y-2">
-                  {availableBillingsForChargeModal.map((bill: any) => {
-                    const billId = String(bill._id);
-                    const itemNames = getBillingItemNamesLabel(bill);
-                    return (
-                      <label
-                        key={billId}
-                        className={`flex items-start gap-3 text-sm rounded-lg border border-gray-200 dark:border-gray-600 p-3 bg-white dark:bg-gray-900/40 ${
-                          chargeModalViewOnly
-                            ? "cursor-default"
-                            : "cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-600"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          className="mt-1 rounded border-gray-300"
-                          disabled={chargeModalViewOnly}
-                          checked={chargeModalBillingIds.includes(billId)}
-                          onChange={(e) => {
-                            setChargeModalBillingIds((curr) =>
-                              e.target.checked ? [...curr, billId] : curr.filter((id) => id !== billId),
-                            );
-                          }}
-                        />
-                        <span className="min-w-0 flex-1">
+                  {chargeModalBillingsEditMode && !chargeModalViewOnly ? (
+                    availableBillingsForChargeModal.length === 0 ? (
+                      <p className="text-sm text-gray-500 dark:text-gray-400 px-1">
+                        Nenhum outro fechamento elegível para este cliente.
+                      </p>
+                    ) : (
+                      availableBillingsForChargeModal.map((bill: any) => {
+                        const billId = String(bill._id);
+                        const itemNames = getBillingItemNamesLabel(bill);
+                        return (
+                          <label
+                            key={billId}
+                            className="flex items-start gap-3 text-sm rounded-lg border border-gray-200 dark:border-gray-600 p-3 bg-white dark:bg-gray-900/40 cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-600"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-1 rounded border-gray-300"
+                              checked={chargeModalBillingIds.includes(billId)}
+                              onChange={(e) => {
+                                setChargeModalBillingIds((curr) =>
+                                  e.target.checked
+                                    ? [...curr, billId]
+                                    : curr.filter((id) => id !== billId),
+                                );
+                              }}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="font-medium text-gray-900 dark:text-white">
+                                {bill.billingNumber || bill._id}
+                              </span>
+                              {itemNames ? (
+                                <span className="text-gray-600 dark:text-gray-300">
+                                  {" "}
+                                  — {itemNames}
+                                </span>
+                              ) : null}
+                              <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                {bill.periodStart
+                                  ? formatDateNoTimezoneShift(bill.periodStart)
+                                  : "-"}{" "}
+                                até{" "}
+                                {bill.periodEnd
+                                  ? formatDateNoTimezoneShift(bill.periodEnd)
+                                  : "-"}{" "}
+                                ·{" "}
+                                <span className="tabular-nums font-medium">
+                                  {formatCurrencyBr(getBillingOutstanding(bill))}
+                                </span>
+                              </span>
+                            </span>
+                          </label>
+                        );
+                      })
+                    )
+                  ) : chargeModalLinkedBillings.length === 0 ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 px-1">
+                      Nenhum fechamento vinculado a esta cobrança.
+                    </p>
+                  ) : (
+                    chargeModalLinkedBillings.map((bill: any) => {
+                      const billId = String(bill._id);
+                      const itemNames = getBillingItemNamesLabel(bill);
+                      return (
+                        <div
+                          key={billId}
+                          className="text-sm rounded-lg border border-gray-200 dark:border-gray-600 p-3 bg-white dark:bg-gray-900/40"
+                        >
                           <span className="font-medium text-gray-900 dark:text-white">
                             {bill.billingNumber || bill._id}
                           </span>
@@ -1568,16 +1819,22 @@ const FinancialCenterPage: React.FC = () => {
                             <span className="text-gray-600 dark:text-gray-300"> — {itemNames}</span>
                           ) : null}
                           <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {bill.periodStart ? formatDateNoTimezoneShift(bill.periodStart) : "-"} até{" "}
-                            {bill.periodEnd ? formatDateNoTimezoneShift(bill.periodEnd) : "-"} ·{" "}
+                            {bill.periodStart
+                              ? formatDateNoTimezoneShift(bill.periodStart)
+                              : "-"}{" "}
+                            até{" "}
+                            {bill.periodEnd
+                              ? formatDateNoTimezoneShift(bill.periodEnd)
+                              : "-"}{" "}
+                            ·{" "}
                             <span className="tabular-nums font-medium">
                               {formatCurrencyBr(getBillingOutstanding(bill))}
                             </span>
                           </span>
-                        </span>
-                      </label>
-                    );
-                  })}
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </section>
 
@@ -1588,8 +1845,9 @@ const FinancialCenterPage: React.FC = () => {
                       Registrar baixa
                     </h4>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      Informe o valor recebido e, se precisar, desconto concedido na baixa (somam até o máximo do saldo em aberto).
-                      Para quitar o saldo por completo, use valor + desconto igual ao valor em aberto.
+                      Alterar o valor não muda o desconto. O desconto só reduz o valor quando ele
+                      estiver igual ao saldo em aberto ({formatCurrencyBr(chargePartialSettleBase)}).
+                      Valor + desconto abatem o saldo (baixa parcial ou total).
                     </p>
                   </div>
                   <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-slate-50/80 dark:bg-gray-800/40 overflow-hidden flex flex-col max-w-full lg:max-w-3xl">
@@ -1610,10 +1868,10 @@ const FinancialCenterPage: React.FC = () => {
                             className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums"
                             placeholder="0,00"
                             value={chargePartialAmount}
-                            onChange={(e) => setChargePartialAmount(e.target.value)}
-                            onBlur={(e) =>
-                              setChargePartialAmount(formatMoneyInputBr(e.target.value))
-                            }
+                            onFocus={selectInputText}
+                            onClick={selectInputText}
+                            onChange={(e) => syncChargePartialFromAmount(e.target.value)}
+                            onBlur={(e) => finalizeChargePartialFromAmount(e.target.value)}
                           />
                         </div>
                         <div className="space-y-1.5">
@@ -1626,10 +1884,10 @@ const FinancialCenterPage: React.FC = () => {
                             className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums"
                             placeholder="0,00"
                             value={chargePartialDiscount}
-                            onChange={(e) => setChargePartialDiscount(e.target.value)}
-                            onBlur={(e) =>
-                              setChargePartialDiscount(formatMoneyInputBr(e.target.value))
-                            }
+                            onFocus={selectInputText}
+                            onClick={selectInputText}
+                            onChange={(e) => syncChargePartialFromDiscount(e.target.value)}
+                            onBlur={(e) => finalizeChargePartialFromDiscount(e.target.value)}
                           />
                         </div>
                         <div className="space-y-1.5">
@@ -1657,12 +1915,32 @@ const FinancialCenterPage: React.FC = () => {
                       >
                         {payChargeMutation.isPending ? "Registrando…" : "Registrar baixa"}
                       </button>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-auto">
-                        Saldo em aberto nesta cobrança:{" "}
-                        <span className="font-semibold tabular-nums text-gray-700 dark:text-gray-200">
-                          {formatCurrencyBr(chargeModal.outstandingAmount || 0)}
-                        </span>
-                      </p>
+                      <div className="rounded-md border border-gray-200 dark:border-gray-600 bg-white/80 dark:bg-gray-900/50 px-3 py-2.5 space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
+                        <p>
+                          Total desta baixa (valor + desconto):{" "}
+                          <span className="font-semibold tabular-nums text-gray-900 dark:text-white">
+                            {formatCurrencyBr(chargePartialBaixaSummary.totalSettled)}
+                          </span>
+                        </p>
+                        {chargePartialBaixaSummary.remaining > 0.01 ? (
+                          <p>
+                            Saldo remanescente após esta baixa:{" "}
+                            <span className="font-semibold tabular-nums text-indigo-700 dark:text-indigo-300">
+                              {formatCurrencyBr(chargePartialBaixaSummary.remaining)}
+                            </span>
+                          </p>
+                        ) : chargePartialBaixaSummary.totalSettled > 0.01 ? (
+                          <p className="text-emerald-700 dark:text-emerald-300 font-medium">
+                            Esta baixa quita o saldo em aberto da cobrança.
+                          </p>
+                        ) : null}
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400 pt-0.5 border-t border-gray-100 dark:border-gray-700">
+                          Saldo em aberto antes da baixa:{" "}
+                          <span className="tabular-nums font-medium">
+                            {formatCurrencyBr(chargePartialBaixaSummary.outstanding)}
+                          </span>
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </section>

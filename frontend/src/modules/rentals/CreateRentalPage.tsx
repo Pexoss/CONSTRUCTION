@@ -24,9 +24,11 @@ import {
   isValidCpfCnpj,
   todayDateInputValue,
   formatCurrencyBr,
+  formatMoneyInputBrLive,
   formatMoneyInputBr,
   parseMoneyBr,
 } from "../../utils/formatters";
+import { selectInputText } from "../../utils/selectInputText";
 import {
   formatBrazilZipCodeDigits,
   lookupBrazilZipViaCep,
@@ -63,12 +65,6 @@ const workAddressFromCustomerAddress = (addr: CustomerAddress): RentalWorkAddres
   zipCode: addr.zipCode || "",
   workId: addr._id,
 });
-
-const selectNumericInputContents = (
-  e: React.FocusEvent<HTMLInputElement> | React.MouseEvent<HTMLInputElement>,
-) => {
-  e.currentTarget.select();
-};
 
 interface SelectedItem {
   itemId: string;
@@ -1407,8 +1403,8 @@ const CreateRentalPage: React.FC = () => {
                                     min="1"
                                     max={selectedItem.item.quantity.available}
                                     value={selectedItem.quantity}
-                                    onFocus={selectNumericInputContents}
-                                    onClick={selectNumericInputContents}
+                                    onFocus={selectInputText}
+                                    onClick={selectInputText}
                                     onChange={(e) =>
                                       handleQuantityChange(
                                         selectedItem.itemId,
@@ -1574,11 +1570,13 @@ const CreateRentalPage: React.FC = () => {
                                   inputMode="decimal"
                                   placeholder="0,00"
                                   value={service.priceInput}
+                                  onFocus={selectInputText}
+                                  onClick={selectInputText}
                                   onChange={(e) =>
                                     updateService(
                                       index,
                                       "priceInput",
-                                      e.target.value,
+                                      formatMoneyInputBrLive(e.target.value),
                                     )
                                   }
                                   onBlur={(e) =>
@@ -1597,8 +1595,8 @@ const CreateRentalPage: React.FC = () => {
                                 type="number"
                                 min="1"
                                 value={service.quantity}
-                                onFocus={selectNumericInputContents}
-                                onClick={selectNumericInputContents}
+                                onFocus={selectInputText}
+                                onClick={selectInputText}
                                 onChange={(e) =>
                                   updateService(
                                     index,
@@ -1923,6 +1921,8 @@ const CreateRentalPage: React.FC = () => {
                             ? discount
                             : discountValueInput
                         }
+                        onFocus={selectInputText}
+                        onClick={selectInputText}
                         onChange={(e) => {
                           if (discountType === "percentage") {
                             setDiscount(
@@ -1930,7 +1930,9 @@ const CreateRentalPage: React.FC = () => {
                             );
                             return;
                           }
-                          setDiscountValueInput(e.target.value);
+                          setDiscountValueInput(
+                            formatMoneyInputBrLive(e.target.value),
+                          );
                         }}
                         onBlur={(e) => {
                           if (discountType !== "value") return;

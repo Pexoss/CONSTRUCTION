@@ -9,7 +9,8 @@ import {
   MaintenanceType,
 } from "../../types/maintenance.types";
 import { useItem, useItems } from "../../hooks/useInventory";
-import { formatMoneyInputBr, parseMoneyBr } from "../../utils/formatters";
+import { formatMoneyInputBr, formatMoneyInputBrLive, parseMoneyBr } from "../../utils/formatters";
+import { selectInputText } from "../../utils/selectInputText";
 
 const EditMaintenancePage: React.FC = () => {
   const navigate = useNavigate();
@@ -82,7 +83,7 @@ const EditMaintenancePage: React.FC = () => {
       return;
     }
     if (name === "cost") {
-      setCostInput(value);
+      setCostInput(formatMoneyInputBrLive(value));
       return;
     }
     setFormData((prev) => ({
@@ -377,6 +378,8 @@ const EditMaintenancePage: React.FC = () => {
                     name="cost"
                     placeholder="0,00"
                     value={costInput}
+                    onFocus={selectInputText}
+                    onClick={selectInputText}
                     onChange={handleChange}
                     onBlur={(e) => setCostInput(formatMoneyInputBr(e.target.value))}
                     required

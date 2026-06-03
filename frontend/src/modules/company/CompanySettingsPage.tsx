@@ -5,6 +5,7 @@ import {
   companyService,
   type CompanyInvoiceIssuerRow,
 } from './company.service';
+import { selectInputText } from '../../utils/selectInputText';
 
 const CompanySettingsPage: React.FC = () => {
   const { data, isLoading, refetch } = useQuery({
@@ -280,6 +281,8 @@ const CompanySettingsPage: React.FC = () => {
                       min={1}
                       step={1}
                       value={row.initialInvoiceNumber}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
                       onChange={(e) => {
                         const parsed = Number(e.target.value);
                         const v = Number.isFinite(parsed) ? Math.max(1, Math.floor(parsed)) : 1;

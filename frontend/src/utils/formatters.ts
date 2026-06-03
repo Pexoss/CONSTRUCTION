@@ -167,6 +167,15 @@ export const parseMoneyBr = (
   let normalized = trimmed.replace(/\s/g, "").replace(/^R\$\s?/i, "");
   if (normalized.includes(",")) {
     normalized = normalized.replace(/\./g, "").replace(",", ".");
+  } else if (normalized.includes(".")) {
+    const lastDot = normalized.lastIndexOf(".");
+    const afterDot = normalized.slice(lastDot + 1);
+    const dotCount = (normalized.match(/\./g) || []).length;
+    const looksLikeDecimal =
+      dotCount === 1 && /^\d{1,2}$/.test(afterDot);
+    if (!looksLikeDecimal) {
+      normalized = normalized.replace(/\./g, "");
+    }
   }
   const num = Number(normalized);
   return Number.isFinite(num) ? num : NaN;
@@ -206,6 +215,66 @@ export const formatMoneyInputBr = (
   }
   if (!Number.isFinite(value)) return "";
   return formatMoneyBr(value);
+};
+
+/**
+ * Máscara monetária em tempo real para inputs (pt-BR).
+ * - Pontos na tela são só milhar; vírgula (ou ponto digitado antes dos centavos) inicia decimais.
+ * - `1760` -> `1.760`; ao continuar `17605` -> `17.605`
+ * - `1760,5` -> `1.760,5` — `,00` completo no blur via formatMoneyInputBr
+ */
+export const formatMoneyInputBrLive = (rawValue: string): string => {
+  const raw = String(rawValue ?? "");
+  if (!raw.trim()) return "";
+
+  const lastComma = raw.lastIndexOf(",");
+  const lastDot = raw.lastIndexOf(".");
+  let decimalIndex = -1;
+
+  if (lastComma >= 0) {
+    decimalIndex = lastComma;
+  } else if (lastDot >= 0) {
+    const afterDot = raw.slice(lastDot + 1).replace(/\D/g, "");
+    // Ponto só é decimal se houver até 2 dígitos depois (evita confundir com 1.760).
+    if (afterDot.length <= 2) {
+      decimalIndex = lastDot;
+    }
+  }
+
+  const hasDecimalSeparator = decimalIndex >= 0;
+
+  let intDigits: string;
+  let fracDigits: string;
+
+  if (hasDecimalSeparator) {
+    intDigits = raw.slice(0, decimalIndex).replace(/\D/g, "");
+    fracDigits = raw
+      .slice(decimalIndex + 1)
+      .replace(/\D/g, "")
+      .slice(0, 2);
+  } else {
+    intDigits = raw.replace(/\D/g, "");
+    fracDigits = "";
+  }
+
+  if (!intDigits && !fracDigits) {
+    return hasDecimalSeparator ? "," : "";
+  }
+
+  const intFormatted = new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Number(intDigits || "0"));
+
+  if (!hasDecimalSeparator) {
+    return intFormatted;
+  }
+
+  if (!fracDigits) {
+    return intDigits ? `${intFormatted},` : ",";
+  }
+
+  return `${intFormatted},${fracDigits}`;
 };
 
 export const formatRentalTypeLabel = (value?: string | null): string => {
