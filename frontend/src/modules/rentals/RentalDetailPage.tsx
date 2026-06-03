@@ -3543,214 +3543,225 @@ const RentalDetailPage: React.FC = () => {
         )}
 
         {closeItemModal && selectedCloseItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75">
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl p-6 w-full max-w-md">
-              <div className="flex items-center mb-4">
-                <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
-                  <svg
-                    className="w-5 h-5 text-gray-700 dark:text-gray-300"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.746 3.746 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z"
-                    />
-                  </svg>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+              <div className="px-6 pt-6 pb-3 shrink-0">
+                <div className="flex items-center mb-2">
+                  <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg mr-3">
+                    <svg
+                      className="w-5 h-5 text-gray-700 dark:text-gray-300"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.746 3.746 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z"
+                      />
+                    </svg>
+                  </div>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Finalizar devolução do item
+                  </h2>
                 </div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Finalizar devolução do item
-                </h2>
+
+                <div className="text-sm text-gray-700 dark:text-gray-300">
+                  {selectedCloseItem.name}
+                  {rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
+                    <span className="block mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Equipamento por unidade — devolução integral nesta linha. Você pode
+                      ajustar o tipo de cobrança usado neste fechamento abaixo.
+                    </span>
+                  )}
+                </div>
               </div>
 
-              <div className="text-sm text-gray-700 dark:text-gray-300 mb-3">
-                {selectedCloseItem.name}
-                {rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
-                  <span className="block mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Equipamento por unidade — devolução integral nesta linha. Você pode
-                    ajustar o tipo de cobrança usado neste fechamento abaixo.
-                  </span>
+              <div className="px-6 overflow-y-auto flex-1 min-h-0 space-y-4">
+                {closeItemLoading ? (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    Calculando fechamento...
+                  </div>
+                ) : closeItemPreview ? (
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-600">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-600">
+                          <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            Dias utilizados
+                          </th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            Valor original
+                          </th>
+                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                            Valor recalculado
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="px-3 py-2 font-medium text-gray-900 dark:text-white tabular-nums">
+                            {closeItemPreview.usedDays}
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium text-gray-900 dark:text-white tabular-nums whitespace-nowrap">
+                            {formatCurrencyBr(closeItemPreview.originalTotal)}
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium text-gray-900 dark:text-white tabular-nums whitespace-nowrap">
+                            {formatCurrencyBr(closeItemPreview.recalculatedTotal)}
+                          </td>
+                        </tr>
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t border-gray-200 dark:border-gray-600 bg-gray-50/80 dark:bg-gray-900/30">
+                          <td
+                            colSpan={2}
+                            className="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200"
+                          >
+                            Total do aluguel
+                          </td>
+                          <td className="px-3 py-2 text-right font-bold text-gray-900 dark:text-white tabular-nums whitespace-nowrap">
+                            {formatCurrencyBr(closeItemPreview.rentalTotalAfterClose)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                ) : null}
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Data real da devolução (somente informativa)
+                    </label>
+                    <input
+                      type="date"
+                      value={closeItemInformativeDate}
+                      onChange={(e) =>
+                        setCloseItemInformativeDate(e.target.value)
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                    <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      Opcional — registro histórico quando a entrega física foi em
+                      outro dia do que o usado nos cálculos abaixo.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Data e hora para cálculo da cobrança
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <input
+                        type="date"
+                        value={closeItemReturnDate}
+                        onChange={(e) =>
+                          setCloseItemReturnDate(e.target.value)
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                      <input
+                        type="time"
+                        value={closeItemReturnTime}
+                        onChange={(e) =>
+                          setCloseItemReturnTime(e.target.value)
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      />
+                    </div>
+                    <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      Usada nos fechamentos e períodos cobrados (ex.: diária por relógio a
+                      partir deste instante).
+                    </p>
+                  </div>
+                </div>
+                {selectedCloseItem &&
+                  !rentalLineHasUnitTracked(selectedCloseItem.unitId) &&
+                  selectedCloseItem.quantity > 1 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Quantidade a devolver
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={selectedCloseItem.quantity}
+                      value={closeItemReturnedQuantity}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
+                      onChange={(e) =>
+                        setCloseItemReturnedQuantity(
+                          Math.max(
+                            1,
+                            Math.min(
+                              selectedCloseItem.quantity,
+                              Number(e.target.value || 1),
+                            ),
+                          ),
+                        )
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                )}
+                {selectedCloseItem && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Tipo de cobrança desta devolução (opcional)
+                    </label>
+                    <select
+                      value={closeItemBillingRentalType}
+                      onChange={(e) =>
+                        setCloseItemBillingRentalType(
+                          e.target.value as
+                            | "daily"
+                            | "weekly"
+                            | "biweekly"
+                            | "monthly"
+                            | "",
+                        )
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    >
+                      <option value="">Igual ao contrato atual</option>
+                      <option value="daily">Diário</option>
+                      <option value="weekly">Semanal</option>
+                      <option value="biweekly">Quinzenal</option>
+                      <option value="monthly">Mensal</option>
+                    </select>
+                  </div>
+                )}
+                {selectedCloseItem &&
+                  !rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Tipo para quantidade que permanece no aluguel (opcional)
+                    </label>
+                    <select
+                      value={closeItemNewRentalType}
+                      onChange={(e) =>
+                        setCloseItemNewRentalType(
+                          e.target.value as
+                            | "daily"
+                            | "weekly"
+                            | "biweekly"
+                            | "monthly"
+                            | "",
+                        )
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    >
+                      <option value="">Manter tipo atual</option>
+                      <option value="daily">Diário</option>
+                      <option value="weekly">Semanal</option>
+                      <option value="biweekly">Quinzenal</option>
+                      <option value="monthly">Mensal</option>
+                    </select>
+                  </div>
                 )}
               </div>
 
-              {closeItemLoading ? (
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  Calculando fechamento...
-                </div>
-              ) : closeItemPreview ? (
-                <div className="space-y-2 text-sm mb-4">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">
-                      Dias utilizados:
-                    </span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {closeItemPreview.usedDays}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">
-                      Valor original:
-                    </span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {formatCurrencyBr(closeItemPreview.originalTotal)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">
-                      Valor recalculado:
-                    </span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {formatCurrencyBr(closeItemPreview.recalculatedTotal)}
-                    </span>
-                  </div>
-                  <div className="border-t border-gray-300 dark:border-gray-600 pt-2 mt-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400 font-semibold">
-                        Total do aluguel:
-                      </span>
-                      <span className="font-bold text-gray-900 dark:text-white text-base">
-                        {formatCurrencyBr(closeItemPreview.rentalTotalAfterClose)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="mb-4 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Data real da devolução (somente informativa)
-                  </label>
-                  <input
-                    type="date"
-                    value={closeItemInformativeDate}
-                    onChange={(e) =>
-                      setCloseItemInformativeDate(e.target.value)
-                    }
-                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                  />
-                  <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    Opcional — registro histórico quando a entrega física foi em
-                    outro dia do que o usado nos cálculos abaixo.
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Data e hora para cálculo da cobrança
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <input
-                      type="date"
-                      value={closeItemReturnDate}
-                      onChange={(e) =>
-                        setCloseItemReturnDate(e.target.value)
-                      }
-                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                    />
-                    <input
-                      type="time"
-                      value={closeItemReturnTime}
-                      onChange={(e) =>
-                        setCloseItemReturnTime(e.target.value)
-                      }
-                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                    />
-                  </div>
-                  <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    Usada nos fechamentos e períodos cobrados (ex.: diária por relógio a
-                    partir deste instante).
-                  </p>
-                </div>
-              </div>
-              {selectedCloseItem &&
-                !rentalLineHasUnitTracked(selectedCloseItem.unitId) &&
-                selectedCloseItem.quantity > 1 && (
-                <>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Quantidade a devolver
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={selectedCloseItem.quantity}
-                    value={closeItemReturnedQuantity}
-                    onFocus={selectInputText}
-                    onClick={selectInputText}
-                    onChange={(e) =>
-                      setCloseItemReturnedQuantity(
-                        Math.max(
-                          1,
-                          Math.min(
-                            selectedCloseItem.quantity,
-                            Number(e.target.value || 1),
-                          ),
-                        ),
-                      )
-                    }
-                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm mb-4"
-                  />
-                </>
-              )}
-              {selectedCloseItem && (
-                <>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Tipo de cobrança desta devolução (opcional)
-                  </label>
-                  <select
-                    value={closeItemBillingRentalType}
-                    onChange={(e) =>
-                      setCloseItemBillingRentalType(
-                        e.target.value as
-                          | "daily"
-                          | "weekly"
-                          | "biweekly"
-                          | "monthly"
-                          | "",
-                      )
-                    }
-                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm mb-4"
-                  >
-                    <option value="">Igual ao contrato atual</option>
-                    <option value="daily">Diário</option>
-                    <option value="weekly">Semanal</option>
-                    <option value="biweekly">Quinzenal</option>
-                    <option value="monthly">Mensal</option>
-                  </select>
-                </>
-              )}
-              {selectedCloseItem &&
-                !rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
-                <>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Tipo para quantidade que permanece no aluguel (opcional)
-                  </label>
-                  <select
-                    value={closeItemNewRentalType}
-                    onChange={(e) =>
-                      setCloseItemNewRentalType(
-                        e.target.value as
-                          | "daily"
-                          | "weekly"
-                          | "biweekly"
-                          | "monthly"
-                          | "",
-                      )
-                    }
-                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm mb-4"
-                  >
-                    <option value="">Manter tipo atual</option>
-                    <option value="daily">Diário</option>
-                    <option value="weekly">Semanal</option>
-                    <option value="biweekly">Quinzenal</option>
-                    <option value="monthly">Mensal</option>
-                  </select>
-                </>
-              )}
-
-              <div className="flex justify-end gap-2">
+              <div className="px-6 py-4 shrink-0 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2 bg-white dark:bg-gray-800 rounded-b-lg">
                 <button
                   onClick={() => setCloseItemModal(false)}
                   className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
