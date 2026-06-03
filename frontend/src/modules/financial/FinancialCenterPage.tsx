@@ -17,7 +17,6 @@ import {
   isWithoutChargeOnlyFromSearchParams,
   WITHOUT_CHARGE_FILTER_PARAM,
 } from "./financialBoardFilters";
-import { RentalDeliveryQuickModal } from "./RentalDeliveryQuickModal";
 import {
   companyService,
   EMPTY_COMPANY_INVOICE_ISSUERS,
@@ -144,7 +143,6 @@ const FinancialCenterPage: React.FC = () => {
     key: "period",
     dir: "desc",
   });
-  const [deliveryModalRentalId, setDeliveryModalRentalId] = useState<string | null>(null);
   const [boardCustomerSearch, setBoardCustomerSearch] = useState("");
   const [showBoardCustomerDropdown, setShowBoardCustomerDropdown] = useState(false);
   /** Campos para registrar baixa no modal da cobrança (aba Cobranças). */
@@ -1292,18 +1290,10 @@ const FinancialCenterPage: React.FC = () => {
                                     <Link
                                       to={`/rentals/${rentalIdStr}`}
                                       className="px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
+                                      title="Abrir o aluguel (consulta, edição e devoluções de itens)"
                                     >
-                                      Aluguel
+                                      Aluguel / devoluções
                                     </Link>
-                                  ) : null}
-                                  {rentalIdStr ? (
-                                    <button
-                                      type="button"
-                                      className="px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                                      onClick={() => setDeliveryModalRentalId(rentalIdStr)}
-                                    >
-                                      Devoluções
-                                    </button>
                                   ) : null}
                                   <button
                                     type="button"
@@ -1550,8 +1540,6 @@ const FinancialCenterPage: React.FC = () => {
           </p>
         </div>
       </div>
-
-      <RentalDeliveryQuickModal rentalId={deliveryModalRentalId} onClose={() => setDeliveryModalRentalId(null)} />
 
       {chargeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
