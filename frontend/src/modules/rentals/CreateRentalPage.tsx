@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
 import { customerService } from "../customers/customer.service";
 import { useItems } from "../../hooks/useInventory";
@@ -66,6 +66,33 @@ const workAddressFromCustomerAddress = (addr: CustomerAddress): RentalWorkAddres
   workId: addr._id,
 });
 
+const workAddressCompareKey = (street?: string, zip?: string, city?: string) =>
+  `${(street || "").trim().toLowerCase()}|${normalizeBrazilZipDigits(zip || "")}|${(city || "").trim().toLowerCase()}`;
+
+const workAddressMatchesCustomerAddress = (
+  wa: RentalWorkAddress,
+  addr: CustomerAddress,
+): boolean =>
+  workAddressCompareKey(wa.street, wa.zipCode, wa.city) ===
+  workAddressCompareKey(addr.street, addr.zipCode, addr.city);
+
+const isCompleteNewWorkAddress = (
+  wa: RentalWorkAddress | null,
+  savedAddresses: CustomerAddress[],
+): wa is RentalWorkAddress => {
+  if (!wa || wa.workId) return false;
+  if (
+    !wa.workName?.trim() ||
+    !wa.street?.trim() ||
+    !wa.city?.trim() ||
+    !wa.state?.trim() ||
+    !wa.zipCode?.trim()
+  ) {
+    return false;
+  }
+  return !savedAddresses.some((a) => workAddressMatchesCustomerAddress(wa, a));
+};
+
 interface SelectedItem {
   itemId: string;
   quantity: number;
@@ -121,6 +148,7 @@ const getRateForRentalType = (item: Item, rentalType: RentalTypeUI): number => {
 
 const CreateRentalPage: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
@@ -129,7 +157,6 @@ const CreateRentalPage: React.FC = () => {
   const [workAddress, setWorkAddress] = useState<RentalWorkAddress | null>(
     null,
   );
-  const [saveWorkAddress] = useState(false);
   const [selectedWorkAddressIndex, setSelectedWorkAddressIndex] =
     useState<string>("");
   const [pickupDate, setPickupDate] = useState("");
@@ -226,12 +253,15 @@ const CreateRentalPage: React.FC = () => {
   const customerHasValidDocument = isValidCpfCnpj(selectedCustomerDocumentDigits);
 
   const mergeWorkAddress = (partial: Partial<RentalWorkAddress>) => {
-    setWorkAddress((prev) =>
-      ({
+    setSelectedWorkAddressIndex("");
+    setWorkAddress((prev) => {
+      const next = {
         ...(prev ?? ({} as RentalWorkAddress)),
         ...partial,
-      }) as RentalWorkAddress,
-    );
+      } as RentalWorkAddress;
+      delete next.workId;
+      return next;
+    });
   };
 
   const lookupWorkAddressFromCep = async (digitsFromInput?: string) => {
@@ -728,40 +758,17 @@ const CreateRentalPage: React.FC = () => {
 
     createMutation.mutate(data, {
       onSuccess: async (res) => {
-        if (
-          saveWorkAddress &&
-          selectedCustomer &&
-          workAddress &&
-          !workAddress.workId
-        ) {
-          const missing = [];
-          if (!workAddress.workName?.trim()) missing.push("nome da obra");
-          if (!workAddress.street?.trim()) missing.push("rua");
-          if (!workAddress.city?.trim()) missing.push("cidade");
-          if (!workAddress.state?.trim()) missing.push("estado");
-          if (!workAddress.zipCode?.trim()) missing.push("CEP");
-          if (missing.length > 0) {
-            toast.warning(`Preencha o endereço da obra: ${missing.join(", ")}.`);
-            return;
+        try {
+          const saved = await persistNewWorkAddressToCustomer();
+          if (saved) {
+            toast.info(
+              "Endereço da obra salvo no cadastro do cliente para usar em outros aluguéis.",
+            );
           }
-          try {
-            await customerService.addAddress(selectedCustomer, {
-              addressName: workAddress.workName || "Obra",
-              type: "work",
-              workName: workAddress.workName,
-              street: workAddress.street,
-              number: workAddress.number,
-              complement: workAddress.complement,
-              neighborhood: workAddress.neighborhood,
-              city: workAddress.city,
-              state: workAddress.state,
-              zipCode: workAddress.zipCode,
-              country: "Brasil",
-              isDefault: false,
-            });
-          } catch {
-            toast.error("Aluguel criado, mas não foi possível salvar o endereço no cadastro do cliente.");
-          }
+        } catch {
+          toast.error(
+            "Aluguel criado, mas não foi possível salvar o endereço no cadastro do cliente.",
+          );
         }
 
         if (res?.data?._id) {
@@ -814,6 +821,28 @@ const CreateRentalPage: React.FC = () => {
     },
     [customerAddresses],
   );
+
+  const persistNewWorkAddressToCustomer = useCallback(async (): Promise<boolean> => {
+    if (!selectedCustomer || !isCompleteNewWorkAddress(workAddress, customerAddresses)) {
+      return false;
+    }
+    await customerService.addAddress(selectedCustomer, {
+      addressName: workAddress.workName.trim(),
+      type: "work",
+      workName: workAddress.workName.trim(),
+      street: workAddress.street.trim(),
+      number: workAddress.number,
+      complement: workAddress.complement,
+      neighborhood: workAddress.neighborhood,
+      city: workAddress.city.trim(),
+      state: workAddress.state.trim(),
+      zipCode: workAddress.zipCode.trim(),
+      country: "Brasil",
+      isDefault: false,
+    });
+    await queryClient.invalidateQueries({ queryKey: ["customers"] });
+    return true;
+  }, [selectedCustomer, workAddress, customerAddresses, queryClient]);
 
   const totalsWithRentalType = {
     ...totals,
@@ -1661,7 +1690,8 @@ const CreateRentalPage: React.FC = () => {
                           Endereço da Obra
                         </h2>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                          Opcional - para devolução no local
+                          Opcional — para devolução no local. Endereços novos são salvos
+                          automaticamente no cliente para reutilizar em outros aluguéis.
                         </p>
                       </div>
                       {customerAddresses.length > 0 && (
@@ -1705,12 +1735,7 @@ const CreateRentalPage: React.FC = () => {
                           <input
                             type="text"
                             value={workAddress?.workName || ""}
-                            onChange={(e) =>
-                              setWorkAddress({
-                                ...(workAddress || ({} as RentalWorkAddress)),
-                                workName: e.target.value,
-                              } as RentalWorkAddress)
-                            }
+                            onChange={(e) => mergeWorkAddress({ workName: e.target.value })}
                             placeholder="Ex: Construção Residencial"
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                           />
@@ -1768,12 +1793,7 @@ const CreateRentalPage: React.FC = () => {
                           <input
                             type="text"
                             value={workAddress?.street || ""}
-                            onChange={(e) =>
-                              setWorkAddress({
-                                ...(workAddress || ({} as RentalWorkAddress)),
-                                street: e.target.value,
-                              } as RentalWorkAddress)
-                            }
+                            onChange={(e) => mergeWorkAddress({ street: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                           />
                         </div>
@@ -1784,12 +1804,7 @@ const CreateRentalPage: React.FC = () => {
                           <input
                             type="text"
                             value={workAddress?.number || ""}
-                            onChange={(e) =>
-                              setWorkAddress({
-                                ...(workAddress || ({} as RentalWorkAddress)),
-                                number: e.target.value,
-                              } as RentalWorkAddress)
-                            }
+                            onChange={(e) => mergeWorkAddress({ number: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                           />
                         </div>
@@ -1803,12 +1818,7 @@ const CreateRentalPage: React.FC = () => {
                           <input
                             type="text"
                             value={workAddress?.neighborhood || ""}
-                            onChange={(e) =>
-                              setWorkAddress({
-                                ...(workAddress || ({} as RentalWorkAddress)),
-                                neighborhood: e.target.value,
-                              } as RentalWorkAddress)
-                            }
+                            onChange={(e) => mergeWorkAddress({ neighborhood: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                           />
                         </div>
@@ -1819,12 +1829,7 @@ const CreateRentalPage: React.FC = () => {
                           <input
                             type="text"
                             value={workAddress?.city || ""}
-                            onChange={(e) =>
-                              setWorkAddress({
-                                ...(workAddress || ({} as RentalWorkAddress)),
-                                city: e.target.value,
-                              } as RentalWorkAddress)
-                            }
+                            onChange={(e) => mergeWorkAddress({ city: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                           />
                         </div>
@@ -1836,10 +1841,7 @@ const CreateRentalPage: React.FC = () => {
                             type="text"
                             value={workAddress?.state || ""}
                             onChange={(e) =>
-                              setWorkAddress({
-                                ...(workAddress || ({} as RentalWorkAddress)),
-                                state: e.target.value,
-                              } as RentalWorkAddress)
+                              mergeWorkAddress({ state: e.target.value.toUpperCase() })
                             }
                             maxLength={2}
                             placeholder="UF"
