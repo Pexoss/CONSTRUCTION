@@ -2660,7 +2660,7 @@ class RentalService {
   ): Promise<IRental | null> {
     const rental = await Rental.findOne({ _id: rentalId, companyId })
       .populate("customerId", "name cpfCnpj email phone addresses")
-      .populate("items.itemId", "name sku pricing photos")
+      .populate("items.itemId", "name sku pricing photos trackingType")
       .populate("createdBy", "name email")
       .populate("checklistPickup.completedBy", "name email")
       .populate("checklistReturn.completedBy", "name email");
@@ -4190,6 +4190,7 @@ class RentalService {
     const itemChanges: Record<string, any>[] = [];
     const workAddressChanged = data.workAddress !== undefined;
     const itemUpdates = Array.isArray(data.items) ? data.items : [];
+    const keptFromPayload = new Set<IRentalItem>();
     if (itemUpdates.length > 0) {
       for (const itemUpdate of itemUpdates) {
         const existingItem = this.findRentalLineItemForPatch(rental, {
@@ -4200,6 +4201,7 @@ class RentalService {
               ? itemUpdate.lineId
               : undefined,
         });
+        if (existingItem) keptFromPayload.add(existingItem);
         itemChanges.push({
           itemId: itemUpdate.itemId,
           unitId: itemUpdate.unitId,
@@ -4211,8 +4213,20 @@ class RentalService {
           newPickupScheduled: itemUpdate.pickupScheduled,
           previousReturnScheduled: existingItem?.returnScheduled,
           newReturnScheduled: itemUpdate.returnScheduled,
-          quantity: itemUpdate.quantity,
+          previousQuantity: existingItem?.quantity,
+          newQuantity: itemUpdate.quantity,
         });
+      }
+      for (const item of rental.items || []) {
+        if (!keptFromPayload.has(item)) {
+          itemChanges.push({
+            itemId: asIdString(item.itemId),
+            unitId: item.unitId,
+            lineId: item.lineId,
+            removed: true,
+            previousQuantity: item.quantity,
+          });
+        }
       }
     }
 
@@ -4333,6 +4347,66 @@ class RentalService {
       const touchedSnapshots: Array<{ item: IRentalItem; snapKey: string }> =
         [];
 
+      const originalItems = [...(rental.items || [])];
+      const keptExisting = new Set<IRentalItem>();
+      for (const itemUpdate of itemUpdates) {
+        const keptLine = this.findRentalLineItemForPatch(rental, {
+          itemId: itemUpdate.itemId,
+          unitId: itemUpdate.unitId,
+          lineId:
+            typeof itemUpdate.lineId === "string"
+              ? itemUpdate.lineId
+              : undefined,
+        });
+        if (keptLine) keptExisting.add(keptLine);
+      }
+
+      const itemsToRemove = originalItems.filter(
+        (item) => !keptExisting.has(item),
+      );
+      if (itemsToRemove.length > 0) {
+        if (originalItems.length - itemsToRemove.length < 1) {
+          throw badRequest("O aluguel deve manter ao menos um item.");
+        }
+        if (["completed", "cancelled"].includes(rental.status)) {
+          throw badRequest(
+            "Não é possível remover itens deste aluguel no status atual.",
+          );
+        }
+
+        for (const removed of itemsToRemove) {
+          if (removed.returnActual) {
+            throw badRequest(
+              "Não é possível remover itens já devolvidos. Use a devolução parcial se ainda houver quantidade em aberto.",
+            );
+          }
+          const snapKey = buildRentalLineKey(removed as any);
+          const lockedEnd = await this.getLatestLockedItemBillingEnd(
+            companyId,
+            rental._id,
+            removed.itemId,
+            removed.unitId,
+            snapKey,
+          );
+          if (lockedEnd) {
+            throw badRequest(
+              "Não é possível remover este item: existe fechamento quitado ou com baixa vinculada.",
+            );
+          }
+          keysToInvalidate.add(snapKey);
+          await this.releaseRentalLineInventory(
+            companyId,
+            rental,
+            removed,
+            userId,
+          );
+        }
+
+        rental.items = (rental.items || []).filter((item) =>
+          keptExisting.has(item),
+        );
+      }
+
       for (const itemUpdate of itemUpdates) {
         const inventoryItem = await Item.findOne({
           _id: itemUpdate.itemId,
@@ -4408,6 +4482,92 @@ class RentalService {
               itemUpdate.historicalDelivery,
               new Date(),
             );
+          }
+
+          if (itemUpdate.quantity !== undefined && !isUnit) {
+            const newQty = Math.max(1, Math.floor(Number(itemUpdate.quantity)));
+            const oldQty = Number(existingItem.quantity || 1);
+            if (newQty !== oldQty) {
+              if (existingItem.returnActual) {
+                throw badRequest(
+                  `Não é possível alterar a quantidade de "${inventoryItem.name}" após a devolução.`,
+                );
+              }
+              const delta = newQty - oldQty;
+              const customerIdStr = rental.customerId.toString();
+              const onField =
+                rental.status === "active" ||
+                rental.status === "overdue" ||
+                rental.status === "ready_to_close";
+
+              if (delta > 0) {
+                const available = inventoryItem.quantity.available || 0;
+                if (available < delta) {
+                  throw badRequest(
+                    `Estoque insuficiente para "${inventoryItem.name}". Disponível: ${available}, adicional solicitado: ${delta}.`,
+                  );
+                }
+                if (onField) {
+                  await this.updateItemQuantityForRental(
+                    companyId,
+                    itemUpdate.itemId,
+                    delta,
+                    "reserve",
+                    userId,
+                    rental._id,
+                    undefined,
+                    customerIdStr,
+                  );
+                  await this.updateItemQuantityForRental(
+                    companyId,
+                    itemUpdate.itemId,
+                    delta,
+                    "activate",
+                    userId,
+                    rental._id,
+                    undefined,
+                    customerIdStr,
+                  );
+                } else {
+                  await this.updateItemQuantityForRental(
+                    companyId,
+                    itemUpdate.itemId,
+                    delta,
+                    "reserve",
+                    userId,
+                    rental._id,
+                    undefined,
+                    customerIdStr,
+                  );
+                }
+              } else {
+                const absDelta = -delta;
+                if (onField) {
+                  await this.updateItemQuantityForRental(
+                    companyId,
+                    itemUpdate.itemId,
+                    absDelta,
+                    "return",
+                    userId,
+                    rental._id,
+                    undefined,
+                    customerIdStr,
+                  );
+                } else {
+                  await this.updateItemQuantityForRental(
+                    companyId,
+                    itemUpdate.itemId,
+                    absDelta,
+                    "cancel",
+                    userId,
+                    rental._id,
+                    undefined,
+                    customerIdStr,
+                  );
+                }
+              }
+              existingItem.quantity = newQty;
+            }
           }
         } else {
           const quantity = itemUpdate.quantity || 1;
@@ -4692,6 +4852,79 @@ class RentalService {
         totalActive: activeCount,
       },
     };
+  }
+
+  /** Libera estoque de uma linha removida do aluguel (reserva cancelada ou devolução em campo). */
+  private async releaseRentalLineInventory(
+    companyId: string,
+    rental: IRental,
+    line: IRentalItem,
+    userId: string,
+  ): Promise<void> {
+    const itemId =
+      typeof line.itemId === "object" && (line.itemId as any)?._id
+        ? ((line.itemId as any)._id as mongoose.Types.ObjectId)
+        : (line.itemId as mongoose.Types.ObjectId);
+    const customerIdStr = rental.customerId.toString();
+    const qty = Math.max(1, Math.floor(Number(line.quantity || 1)));
+    const onField =
+      rental.status === "active" ||
+      rental.status === "overdue" ||
+      rental.status === "ready_to_close";
+
+    const inventoryItem = await Item.findOne({ _id: itemId, companyId });
+    const isUnit = inventoryItem?.trackingType === "unit";
+
+    if (isUnit) {
+      if (onField) {
+        await this.updateItemQuantityForRental(
+          companyId,
+          itemId,
+          1,
+          "return",
+          userId,
+          rental._id,
+          line.unitId,
+          customerIdStr,
+        );
+      } else {
+        await this.updateItemQuantityForRental(
+          companyId,
+          itemId,
+          1,
+          "cancel",
+          userId,
+          rental._id,
+          line.unitId,
+          customerIdStr,
+        );
+      }
+      return;
+    }
+
+    if (onField) {
+      await this.updateItemQuantityForRental(
+        companyId,
+        itemId,
+        qty,
+        "return",
+        userId,
+        rental._id,
+        undefined,
+        customerIdStr,
+      );
+    } else {
+      await this.updateItemQuantityForRental(
+        companyId,
+        itemId,
+        qty,
+        "cancel",
+        userId,
+        rental._id,
+        undefined,
+        customerIdStr,
+      );
+    }
   }
 
   /** Nova linha em aluguel já em campo: mesmo fluxo da criação (reserva → ativa). */
@@ -5263,7 +5496,69 @@ class RentalService {
             snapKey: string;
           }> = [];
 
-          for (const itemChange of requestDetails.items) {
+          const removalChanges = requestDetails.items.filter(
+            (c: { removed?: boolean }) => c.removed,
+          );
+          const otherChanges = requestDetails.items.filter(
+            (c: { removed?: boolean }) => !c.removed,
+          );
+
+          if (removalChanges.length > 0) {
+            if (["completed", "cancelled"].includes(rental.status)) {
+              throw badRequest(
+                "Não é possível remover itens deste aluguel no status atual.",
+              );
+            }
+            if (
+              (rental.items?.length || 0) - removalChanges.length <
+              1
+            ) {
+              throw badRequest("O aluguel deve manter ao menos um item.");
+            }
+
+            for (const itemChange of removalChanges) {
+              const existingItem = this.findRentalLineItemForPatch(rental, {
+                itemId: itemChange.itemId,
+                unitId: itemChange.unitId,
+                lineId:
+                  typeof itemChange.lineId === "string"
+                    ? itemChange.lineId
+                    : undefined,
+              });
+              if (!existingItem) continue;
+
+              if (existingItem.returnActual) {
+                throw badRequest(
+                  "Não é possível remover itens já devolvidos. Use a devolução parcial se ainda houver quantidade em aberto.",
+                );
+              }
+              const snapKey = buildRentalLineKey(existingItem as any);
+              const lockedEnd = await this.getLatestLockedItemBillingEnd(
+                rental.companyId.toString(),
+                rental._id,
+                existingItem.itemId,
+                existingItem.unitId,
+                snapKey,
+              );
+              if (lockedEnd) {
+                throw badRequest(
+                  "Não é possível remover este item: existe fechamento quitado ou com baixa vinculada.",
+                );
+              }
+              keysToInvalidate.add(snapKey);
+              await this.releaseRentalLineInventory(
+                rental.companyId.toString(),
+                rental,
+                existingItem,
+                userId,
+              );
+              rental.items = (rental.items || []).filter(
+                (i) => i !== existingItem,
+              );
+            }
+          }
+
+          for (const itemChange of otherChanges) {
             const inventoryItem = await Item.findOne({
               _id: itemChange.itemId,
               companyId: rental.companyId,

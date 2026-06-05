@@ -14,9 +14,9 @@ import {
 } from "../../utils/tableSort";
 
 type RentalSortKey =
-  | "number"
   | "createdAt"
   | "customer"
+  | "work"
   | "itemsCount"
   | "period"
   | "value"
@@ -113,10 +113,6 @@ const RentalsPage: React.FC = () => {
   const sortedRentalsList = useMemo(
     () =>
       sortedTableRows(rentals, rentalSort, {
-        number: (r) =>
-          typeof r.rentalNumber === "number"
-            ? r.rentalNumber
-            : String(r.rentalNumber ?? ""),
         createdAt: (r) => {
           if (!r.createdAt) return 0;
           const t = new Date(r.createdAt).getTime();
@@ -127,6 +123,7 @@ const RentalsPage: React.FC = () => {
             ? r.customerId.name
             : ""
           ).toLowerCase(),
+        work: (r) => (r.workAddress?.workName || "").toLowerCase(),
         itemsCount: (r) => r.items?.length ?? 0,
         period: (r) =>
           r.dates?.pickupScheduled
@@ -369,13 +366,6 @@ const RentalsPage: React.FC = () => {
                   <thead className="bg-gray-50 dark:bg-gray-700">
                     <tr>
                       <SortableTh<RentalSortKey>
-                        columnKey="number"
-                        label="Número"
-                        sort={rentalSort}
-                        onSort={handleRentalSort}
-                        thClassName="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap"
-                      />
-                      <SortableTh<RentalSortKey>
                         columnKey="createdAt"
                         label="Cadastro"
                         sort={rentalSort}
@@ -385,6 +375,13 @@ const RentalsPage: React.FC = () => {
                       <SortableTh<RentalSortKey>
                         columnKey="customer"
                         label="Cliente"
+                        sort={rentalSort}
+                        onSort={handleRentalSort}
+                        thClassName="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap"
+                      />
+                      <SortableTh<RentalSortKey>
+                        columnKey="work"
+                        label="Obra"
                         sort={rentalSort}
                         onSort={handleRentalSort}
                         thClassName="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider whitespace-nowrap"
@@ -447,11 +444,6 @@ const RentalsPage: React.FC = () => {
                             }
                           >
                             <td className="px-4 py-4 whitespace-nowrap">
-                              <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                {rental.rentalNumber}
-                              </div>
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap">
                               <div className="text-sm text-gray-600 dark:text-gray-300">
                                 {rental.createdAt
                                   ? formatDateNoTimezoneShift(rental.createdAt)
@@ -461,6 +453,14 @@ const RentalsPage: React.FC = () => {
                             <td className="px-4 py-4 whitespace-nowrap">
                               <div className="text-sm text-gray-900 dark:text-white">
                                 {customer.name}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4 max-w-[200px]">
+                              <div
+                                className="text-sm text-gray-700 dark:text-gray-300 truncate"
+                                title={rental.workAddress?.workName || ""}
+                              >
+                                {rental.workAddress?.workName?.trim() || "—"}
                               </div>
                             </td>
                             <td className="px-4 py-4">

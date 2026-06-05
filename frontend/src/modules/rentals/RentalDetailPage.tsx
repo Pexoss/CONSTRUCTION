@@ -554,6 +554,15 @@ const RentalDetailPage: React.FC = () => {
   const rentalLineHasUnitTracked = (unitId?: string | null) =>
     Boolean(unitId != null && String(unitId).trim() !== "");
 
+  const rentalLineIsUnitTracked = (
+    itemInfo?: RentalItem,
+    unitId?: string | null,
+  ): boolean => {
+    const catalog =
+      itemInfo && typeof itemInfo.itemId === "object" ? itemInfo.itemId : null;
+    return catalog?.trackingType === "unit" || rentalLineHasUnitTracked(unitId);
+  };
+
   const handleDownloadBillingPDF = async (billingId: string) => {
     try {
       const blob = await billingService.generateBillingPDF(billingId);
@@ -900,6 +909,8 @@ const RentalDetailPage: React.FC = () => {
                         itemInfo && typeof itemInfo.itemId === "object"
                           ? itemInfo.itemId.name
                           : "Item";
+                      const isUnitLine = rentalLineIsUnitTracked(itemInfo, item.unitId);
+                      const isReturned = !!itemInfo?.returnActual;
                       return (
                         <div
                           key={`${item.itemId}-${item.lineId || ""}-${item.unitId || index}`}
@@ -907,7 +918,7 @@ const RentalDetailPage: React.FC = () => {
                         >
                           <div className="flex items-center justify-between">
                             <div className="text-sm font-medium text-gray-900 dark:text-white">
-                              {itemName} • Qtd: {item.quantity}
+                              {itemName}
                             </div>
                             <button
                               type="button"
@@ -922,7 +933,57 @@ const RentalDetailPage: React.FC = () => {
                               Remover
                             </button>
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mt-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 mt-2">
+                            <div>
+                              {isUnitLine ? (
+                                <>
+                                  <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                                    Unidade
+                                  </label>
+                                  <div
+                                    className="w-full px-2 py-2 border border-gray-200 dark:border-gray-700 rounded-md text-sm bg-gray-100 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300 truncate"
+                                    title={item.unitId || "Equipamento por unidade"}
+                                  >
+                                    {item.unitId?.trim() || "Por unidade"}
+                                  </div>
+                                  <p className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                                    Controle por unidade (não usa quantidade)
+                                  </p>
+                                </>
+                              ) : (
+                                <>
+                                  <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                                    Quantidade
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    disabled={isReturned}
+                                    title={
+                                      isReturned ? "Item já devolvido" : undefined
+                                    }
+                                    value={item.quantity}
+                                    onFocus={selectInputText}
+                                    onClick={selectInputText}
+                                    onChange={(e) => {
+                                      const updated = [...editForm.items];
+                                      updated[index] = {
+                                        ...updated[index],
+                                        quantity: Math.max(
+                                          1,
+                                          Number(e.target.value) || 1,
+                                        ),
+                                      };
+                                      setEditForm({
+                                        ...editForm,
+                                        items: updated,
+                                      });
+                                    }}
+                                    className="w-full px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                                  />
+                                </>
+                              )}
+                            </div>
                             <div>
                               <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
                                 Tipo
@@ -1382,6 +1443,13 @@ const RentalDetailPage: React.FC = () => {
                     }
 
                     if (editForm.items.length > 0) {
+                      const invalidQty = editForm.items.find(
+                        (item) => !Number.isFinite(item.quantity) || item.quantity < 1,
+                      );
+                      if (invalidQty) {
+                        toast.error("Informe quantidade válida (mínimo 1) em todos os itens.");
+                        return;
+                      }
                       const invalidItem = editForm.items.find(
                         (item) =>
                           item.returnDate &&
@@ -1395,7 +1463,7 @@ const RentalDetailPage: React.FC = () => {
                         return;
                       }
                       const todayStr = todayDateInputValue();
-                      payload.items = editForm.items.map((item) => {
+                      payload.items = editForm.items.map((item, index) => {
                         const row: {
                           itemId: string;
                           unitId?: string;
@@ -1416,7 +1484,12 @@ const RentalDetailPage: React.FC = () => {
                           ...(item.lineId?.trim()
                             ? { lineId: item.lineId.trim() }
                             : {}),
-                          quantity: item.quantity,
+                          quantity: rentalLineIsUnitTracked(
+                            rental.items[index],
+                            item.unitId,
+                          )
+                            ? 1
+                            : item.quantity,
                           rentalType: rentalTypeUiToApi[item.rentalType] as
                             | "daily"
                             | "weekly"
@@ -1480,19 +1553,24 @@ const RentalDetailPage: React.FC = () => {
                   />
                   <select
                     value={newItemForm.itemId}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const nextItem = filteredInventoryItems.find(
+                        (inv: Item) => inv._id === e.target.value,
+                      );
                       setNewItemForm({
                         ...newItemForm,
                         itemId: e.target.value,
                         unitId: "",
-                      })
-                    }
+                        quantity: nextItem?.trackingType === "unit" ? 1 : newItemForm.quantity,
+                      });
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   >
                     <option value="">Selecione o item</option>
                     {filteredInventoryItems.map((item: Item) => (
                       <option key={item._id} value={item._id}>
                         {item.name}
+                        {item.trackingType === "unit" ? " (por unidade)" : ""}
                       </option>
                     ))}
                   </select>
@@ -1503,6 +1581,7 @@ const RentalDetailPage: React.FC = () => {
                         setNewItemForm({
                           ...newItemForm,
                           unitId: e.target.value,
+                          quantity: 1,
                         })
                       }
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -1517,21 +1596,26 @@ const RentalDetailPage: React.FC = () => {
                         ))}
                     </select>
                   )}
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="number"
-                      min="1"
-                      value={newItemForm.quantity}
-                      onFocus={selectInputText}
-                      onClick={selectInputText}
-                      onChange={(e) =>
-                        setNewItemForm({
-                          ...newItemForm,
-                          quantity: Number(e.target.value) || 1,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    />
+                  <div
+                    className={`grid gap-2 ${selectedInventoryItem?.trackingType === "unit" ? "grid-cols-1" : "grid-cols-2"}`}
+                  >
+                    {selectedInventoryItem?.trackingType !== "unit" ? (
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="Quantidade"
+                        value={newItemForm.quantity}
+                        onFocus={selectInputText}
+                        onClick={selectInputText}
+                        onChange={(e) =>
+                          setNewItemForm({
+                            ...newItemForm,
+                            quantity: Number(e.target.value) || 1,
+                          })
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      />
+                    ) : null}
                     <select
                       value={newItemForm.rentalType}
                       onChange={(e) =>
@@ -1620,7 +1704,10 @@ const RentalDetailPage: React.FC = () => {
                             {
                               itemId: newItemForm.itemId,
                               unitId: newItemForm.unitId,
-                              quantity: newItemForm.quantity,
+                              quantity:
+                                selectedInventoryItem?.trackingType === "unit"
+                                  ? 1
+                                  : newItemForm.quantity,
                               rentalType: newItemForm.rentalType,
                               pickupDate: newItemForm.pickupDate,
                               pickupTime: newItemForm.pickupTime,
@@ -3158,6 +3245,13 @@ const RentalDetailPage: React.FC = () => {
                     }
 
                     if (editForm.items.length > 0) {
+                      const invalidQty = editForm.items.find(
+                        (item) => !Number.isFinite(item.quantity) || item.quantity < 1,
+                      );
+                      if (invalidQty) {
+                        toast.error("Informe quantidade válida (mínimo 1) em todos os itens.");
+                        return;
+                      }
                       const invalidItem = editForm.items.find(
                         (item) =>
                           item.returnDate &&
@@ -3171,7 +3265,7 @@ const RentalDetailPage: React.FC = () => {
                         return;
                       }
                       const todayStr = todayDateInputValue();
-                      payload.items = editForm.items.map((item) => {
+                      payload.items = editForm.items.map((item, index) => {
                         const row: {
                           itemId: string;
                           unitId?: string;
@@ -3192,7 +3286,12 @@ const RentalDetailPage: React.FC = () => {
                           ...(item.lineId?.trim()
                             ? { lineId: item.lineId.trim() }
                             : {}),
-                          quantity: item.quantity,
+                          quantity: rentalLineIsUnitTracked(
+                            rental.items[index],
+                            item.unitId,
+                          )
+                            ? 1
+                            : item.quantity,
                           rentalType: rentalTypeUiToApi[item.rentalType] as
                             | "daily"
                             | "weekly"
@@ -3982,19 +4081,24 @@ const RentalDetailPage: React.FC = () => {
                 />
                 <select
                   value={newItemForm.itemId}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const nextItem = filteredInventoryItems.find(
+                      (inv: Item) => inv._id === e.target.value,
+                    );
                     setNewItemForm({
                       ...newItemForm,
                       itemId: e.target.value,
                       unitId: "",
-                    })
-                  }
+                      quantity: nextItem?.trackingType === "unit" ? 1 : newItemForm.quantity,
+                    });
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="">Selecione o item</option>
                   {filteredInventoryItems.map((item: Item) => (
                     <option key={item._id} value={item._id}>
                       {item.name}
+                      {item.trackingType === "unit" ? " (por unidade)" : ""}
                     </option>
                   ))}
                 </select>
@@ -4005,6 +4109,7 @@ const RentalDetailPage: React.FC = () => {
                       setNewItemForm({
                         ...newItemForm,
                         unitId: e.target.value,
+                        quantity: 1,
                       })
                     }
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -4019,21 +4124,26 @@ const RentalDetailPage: React.FC = () => {
                       ))}
                   </select>
                 )}
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    min="1"
-                    value={newItemForm.quantity}
-                    onFocus={selectInputText}
-                    onClick={selectInputText}
-                    onChange={(e) =>
-                      setNewItemForm({
-                        ...newItemForm,
-                        quantity: Number(e.target.value) || 1,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  />
+                <div
+                  className={`grid gap-2 ${selectedInventoryItem?.trackingType === "unit" ? "grid-cols-1" : "grid-cols-2"}`}
+                >
+                  {selectedInventoryItem?.trackingType !== "unit" ? (
+                    <input
+                      type="number"
+                      min="1"
+                      placeholder="Quantidade"
+                      value={newItemForm.quantity}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
+                      onChange={(e) =>
+                        setNewItemForm({
+                          ...newItemForm,
+                          quantity: Number(e.target.value) || 1,
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                  ) : null}
                   <select
                     value={newItemForm.rentalType}
                     onChange={(e) =>
@@ -4105,7 +4215,10 @@ const RentalDetailPage: React.FC = () => {
                           {
                             itemId: newItemForm.itemId,
                             unitId: newItemForm.unitId,
-                            quantity: newItemForm.quantity,
+                            quantity:
+                              selectedInventoryItem?.trackingType === "unit"
+                                ? 1
+                                : newItemForm.quantity,
                             rentalType: newItemForm.rentalType,
                             pickupDate: newItemForm.pickupDate,
                             pickupTime: newItemForm.pickupTime,
