@@ -33,6 +33,8 @@ export interface RentalItem {
   /** Backend: devolução prevista retroativa sem devolução registrada — gera fechamentos até hoje */
   retroactiveOpenBilling?: boolean;
   subtotal: number;
+  /** Empréstimo de material — sem cobrança, com devolução */
+  isLoan?: boolean;
 }
 
 export interface RentalDates {
@@ -170,6 +172,8 @@ export interface CreateRentalData {
     returnScheduled?: string;
     /** Data de devolução anterior a hoje: item já foi entregue (só histórico) */
     historicalDelivery?: boolean;
+    /** Empréstimo de material — sem cobrança, com devolução */
+    isLoan?: boolean;
   }[];
   services?: RentalService[];
   workAddress?: RentalWorkAddress;

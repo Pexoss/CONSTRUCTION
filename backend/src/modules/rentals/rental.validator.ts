@@ -28,6 +28,8 @@ export const createRentalSchema = z.object({
         returnScheduled: dateOnlyOrDateTime.optional(),
         /** Data de devolução retroativa: item já entregue (só histórico) */
         historicalDelivery: z.boolean().optional(),
+        /** Empréstimo de material — sem cobrança, com devolução */
+        isLoan: z.boolean().optional(),
       })
     )
     .min(1, 'At least one item is required'),
@@ -89,6 +91,7 @@ export const updateRentalSchema = z.object({
         historicalDelivery: z.boolean().optional(),
         recalculateScheduledReturn: z.boolean().optional(),
         lineId: z.string().optional(),
+        isLoan: z.boolean().optional(),
       })
     )
     .optional(),
@@ -180,6 +183,19 @@ export const returnRentalItemsSchema = z.object({
       }),
     )
     .min(1, "At least one item must be informed"),
+});
+
+export const correctRentalItemReturnSchema = z.object({
+  itemId: z.string().min(1, "Item ID is required"),
+  unitId: z.string().optional(),
+  lineId: z.string().optional(),
+  returnDate: dateOnlyOrDateTime.optional(),
+  informativeReturnDate: dateOnlyOrDateTime.optional(),
+  correctedQuantity: z.number().int().min(1).optional(),
+  billingRentalType: z
+    .enum(["daily", "weekly", "biweekly", "monthly"])
+    .optional(),
+  notes: z.string().optional(),
 });
 
 export const changeRentalTypeEventSchema = z.object({

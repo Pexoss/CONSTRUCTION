@@ -10,6 +10,7 @@ import {
   approvalActionSchema,
   rejectApprovalSchema,
   returnRentalItemsSchema,
+  correctRentalItemReturnSchema,
   changeRentalTypeEventSchema,
 } from "./rental.validator";
 import { Rental } from "./rental.model";
@@ -171,6 +172,49 @@ export class RentalController {
       res.json({
         success: true,
         message: "Item closed successfully",
+        data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async correctRentalItemReturn(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const rentalId = req.params.id;
+      const data = correctRentalItemReturnSchema.parse(req.body);
+
+      const rental = await rentalService.correctRentalItemReturn(
+        companyId,
+        rentalId,
+        userId,
+        {
+          itemId: data.itemId,
+          unitId: data.unitId,
+          lineId: data.lineId,
+          returnDate: data.returnDate
+            ? parseCalendarDateBody(data.returnDate as string | Date)
+            : undefined,
+          informativeReturnDate: data.informativeReturnDate
+            ? parseCalendarDateBody(
+                data.informativeReturnDate as string | Date,
+              )
+            : undefined,
+          correctedQuantity: data.correctedQuantity,
+          billingRentalType: data.billingRentalType,
+          notes: data.notes,
+        },
+      );
+
+      res.json({
+        success: true,
+        message: "Devolução corrigida com sucesso",
         data: rental,
       });
     } catch (error) {

@@ -103,6 +103,8 @@ interface SelectedItem {
   returnDate?: string; // string ou Date
   /** Devolução anterior a hoje: item já entregue naquela data (somente histórico) */
   historicalDelivery?: boolean;
+  /** Empréstimo de material — sem cobrança, com devolução */
+  isLoan?: boolean;
   item: Item;
 }
 interface ServiceFormRow extends RentalService {
@@ -374,7 +376,7 @@ const CreateRentalPage: React.FC = () => {
       if (itemReturn && (!maxReturn || itemReturn > maxReturn))
         maxReturn = itemReturn;
 
-      if (itemPickup) {
+      if (itemPickup && !item.isLoan) {
         const rentalTypeAPI = item.rentalType
           ? rentalTypeMapper[item.rentalType]
           : "daily";
@@ -651,7 +653,10 @@ const CreateRentalPage: React.FC = () => {
 
     for (const si of refreshedSelectedItems) {
       const selectedRentalType = si.rentalType ?? rentalType;
-      if (getRateForRentalType(si.item, selectedRentalType) <= 0) {
+      if (
+        !si.isLoan &&
+        getRateForRentalType(si.item, selectedRentalType) <= 0
+      ) {
         toast.warning(
           `Cadastre o valor ${rentalTypeLabels[selectedRentalType]} do item "${si.item.name}" antes de concluir o aluguel.`,
         );
@@ -736,6 +741,9 @@ const CreateRentalPage: React.FC = () => {
           si.historicalDelivery === true
         ) {
           row.historicalDelivery = true;
+        }
+        if (si.isLoan) {
+          row.isLoan = true;
         }
         return row;
       }),
@@ -1183,23 +1191,27 @@ const CreateRentalPage: React.FC = () => {
                                 </h3>
 
                                 <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                                  {selectedItem.pickupDate
-                                    ? `${formatCurrencyBr(
-                                        calculatePrice(
-                                        selectedItem.item,
-                                        1,
-                                        new Date(selectedItem.pickupDate),
-                                        selectedItem.returnDate
-                                          ? new Date(selectedItem.returnDate)
-                                          : null,
-                                        selectedItem.rentalType
-                                          ? rentalTypeMap[
-                                              selectedItem.rentalType
-                                            ]
-                                          : "daily",
-                                      ),
-                                    )}/un`
-                                    : "Defina a retirada"}
+                                  {selectedItem.isLoan
+                                    ? "Empréstimo (R$ 0,00)"
+                                    : selectedItem.pickupDate
+                                      ? `${formatCurrencyBr(
+                                          calculatePrice(
+                                            selectedItem.item,
+                                            1,
+                                            new Date(selectedItem.pickupDate),
+                                            selectedItem.returnDate
+                                              ? new Date(
+                                                  selectedItem.returnDate,
+                                                )
+                                              : null,
+                                            selectedItem.rentalType
+                                              ? rentalTypeMap[
+                                                  selectedItem.rentalType
+                                                ]
+                                              : "daily",
+                                          ),
+                                        )}/un`
+                                      : "Defina a retirada"}
                                 </span>
                               </div>
 
@@ -1408,6 +1420,31 @@ const CreateRentalPage: React.FC = () => {
                                     </span>
                                   </label>
                                 )}
+
+                              <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedItem.isLoan === true}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setSelectedItems(
+                                      selectedItems.map((si) =>
+                                        si.itemId === selectedItem.itemId
+                                          ? {
+                                              ...si,
+                                              isLoan: checked ? true : undefined,
+                                            }
+                                          : si,
+                                      ),
+                                    );
+                                  }}
+                                  className="mt-0.5 rounded border-gray-300"
+                                />
+                                <span>
+                                  Empréstimo de material (sem cobrança). O item
+                                  entra no contrato e precisa ser devolvido.
+                                </span>
+                              </label>
 
                               <div className="text-xs text-gray-500">
                                 Os itens podem ter períodos diferentes. O

@@ -217,6 +217,9 @@ const RentalDetailPage: React.FC = () => {
     notes: "",
   });
   const [closeItemModal, setCloseItemModal] = useState(false);
+  const [closeItemMode, setCloseItemMode] = useState<"close" | "correct">(
+    "close",
+  );
   const [closeItemReturnDate, setCloseItemReturnDate] = useState("");
   const [closeItemReturnTime, setCloseItemReturnTime] = useState("");
   const [closeItemInformativeDate, setCloseItemInformativeDate] = useState("");
@@ -262,6 +265,7 @@ const RentalDetailPage: React.FC = () => {
       historicalDelivery?: boolean;
       recalculateOnSave?: boolean;
       lineId?: string;
+      isLoan?: boolean;
     }>,
     workAddress: {
       street: "",
@@ -283,6 +287,7 @@ const RentalDetailPage: React.FC = () => {
     pickupDate: string;
     pickupTime: string;
     returnDate: string;
+    isLoan?: boolean;
   }>({
     itemId: "",
     unitId: "",
@@ -291,6 +296,7 @@ const RentalDetailPage: React.FC = () => {
     pickupDate: "",
     pickupTime: "",
     returnDate: "",
+    isLoan: false,
   });
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [addItemSearch, setAddItemSearch] = useState("");
@@ -600,8 +606,51 @@ const RentalDetailPage: React.FC = () => {
     }
   };
 
+  const handleAbrirCorrecaoDevolucao = (item: RentalItem) => {
+    const itemId =
+      typeof item.itemId === "string" ? item.itemId : item.itemId._id;
+    const itemName =
+      typeof item.itemId === "object" ? item.itemId.name || "Item" : "Item";
+    setCloseItemMode("correct");
+    setSelectedCloseItem({
+      itemId,
+      unitId: item.unitId,
+      lineId:
+        typeof item.lineId === "string" && item.lineId.trim()
+          ? item.lineId.trim()
+          : undefined,
+      name: itemName,
+      quantity: Number(item.quantity || 1),
+      rentalType:
+        (item.rentalType as "daily" | "weekly" | "biweekly" | "monthly") ||
+        "daily",
+    });
+    setCloseItemReturnDate(
+      item.returnActual ? toDateInput(item.returnActual) : todayDateInputValue(),
+    );
+    setCloseItemReturnTime(
+      toTimeInput(item.returnActual) ||
+        toTimeInput(item.pickupScheduled) ||
+        "12:00",
+    );
+    setCloseItemInformativeDate(
+      item.informativeReturnDate
+        ? toDateInput(item.informativeReturnDate)
+        : "",
+    );
+    setCloseItemReturnedQuantity(Number(item.quantity || 1));
+    setCloseItemNewRentalType("");
+    setCloseItemBillingRentalType(
+      (item.rentalType as "daily" | "weekly" | "biweekly" | "monthly") || "",
+    );
+    setCloseItemPreview(null);
+    setCloseItemLoading(false);
+    setCloseItemModal(true);
+  };
+
   const handleAbrirFinalizacaoItem = async (item: any) => {
     if (!id) return;
+    setCloseItemMode("close");
     setSelectedCloseItem({
       itemId: typeof item.itemId === "string" ? item.itemId : item.itemId._id,
       unitId: item.unitId,
@@ -749,6 +798,24 @@ const RentalDetailPage: React.FC = () => {
     const d = String(date.getDate()).padStart(2, "0");
     return `${y}-${mo}-${d}`;
   };
+  const getMaxCorrectedReturnQuantity = (returnedItem: RentalItem) => {
+    const itemId = getEntityId(returnedItem.itemId);
+    const unitId = returnedItem.unitId?.trim() || "";
+    const pickupKey = normalizeBillingDateKey(returnedItem.pickupScheduled);
+    const openSibling = rental.items.find((i: RentalItem) => {
+      if (i.returnActual) return false;
+      if (getEntityId(i.itemId) !== itemId) return false;
+      if (unitId) {
+        if (String(i.unitId || "").trim() !== unitId) return false;
+      } else if (i.unitId) return false;
+      return normalizeBillingDateKey(i.pickupScheduled) === pickupKey;
+    });
+    return (
+      Number(returnedItem.quantity || 1) +
+      (openSibling ? Number(openSibling.quantity || 0) : 0)
+    );
+  };
+
   const buildRentalLineKeyForDisplay = (item: any) => {
     const base = [
       getEntityId(item.itemId),
@@ -917,8 +984,13 @@ const RentalDetailPage: React.FC = () => {
                           className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
                         >
                           <div className="flex items-center justify-between">
-                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                            <div className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
                               {itemName}
+                              {item.isLoan && (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
+                                  Empréstimo
+                                </span>
+                              )}
                             </div>
                             <button
                               type="button"
@@ -933,6 +1005,25 @@ const RentalDetailPage: React.FC = () => {
                               Remover
                             </button>
                           </div>
+                          <label className="mt-2 flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={item.isLoan === true}
+                              disabled={isReturned}
+                              onChange={(e) => {
+                                const updated = [...editForm.items];
+                                updated[index] = {
+                                  ...updated[index],
+                                  isLoan: e.target.checked,
+                                };
+                                setEditForm({ ...editForm, items: updated });
+                              }}
+                              className="mt-0.5 rounded border-gray-300"
+                            />
+                            <span>
+                              Empréstimo de material (sem cobrança, com devolução)
+                            </span>
+                          </label>
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 mt-2">
                             <div>
                               {isUnitLine ? (
@@ -1478,6 +1569,7 @@ const RentalDetailPage: React.FC = () => {
                           returnScheduled?: string;
                           historicalDelivery?: boolean;
                           recalculateScheduledReturn?: boolean;
+                          isLoan?: boolean;
                         } = {
                           itemId: item.itemId,
                           unitId: item.unitId || undefined,
@@ -1513,6 +1605,7 @@ const RentalDetailPage: React.FC = () => {
                         ) {
                           row.historicalDelivery = true;
                         }
+                        row.isLoan = item.isLoan === true;
                         return row;
                       });
                     }
@@ -1670,6 +1763,22 @@ const RentalDetailPage: React.FC = () => {
                       {newItemForm.returnDate || "calculada após a retirada"}
                     </div>
                   </div>
+                  <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newItemForm.isLoan === true}
+                      onChange={(e) =>
+                        setNewItemForm({
+                          ...newItemForm,
+                          isLoan: e.target.checked ? true : undefined,
+                        })
+                      }
+                      className="mt-0.5 rounded border-gray-300"
+                    />
+                    <span>
+                      Empréstimo de material (sem cobrança, com devolução)
+                    </span>
+                  </label>
                   <div className="flex justify-end gap-2 pt-2">
                     <button
                       type="button"
@@ -1712,6 +1821,7 @@ const RentalDetailPage: React.FC = () => {
                               pickupDate: newItemForm.pickupDate,
                               pickupTime: newItemForm.pickupTime,
                               returnDate: newItemForm.returnDate,
+                              isLoan: newItemForm.isLoan ? true : undefined,
                             },
                           ],
                         });
@@ -1723,6 +1833,7 @@ const RentalDetailPage: React.FC = () => {
                           pickupDate: "",
                           pickupTime: "",
                           returnDate: "",
+                          isLoan: false,
                         });
                         setShowAddItemModal(false);
                       }}
@@ -1872,6 +1983,7 @@ const RentalDetailPage: React.FC = () => {
                           returnActualDate: ra || undefined,
                           historicalDelivery: !!(ra && rs && ra === rs),
                           recalculateOnSave: false,
+                          isLoan: !!item.isLoan,
                         };
                       }),
                       workAddress: {
@@ -2129,8 +2241,9 @@ const RentalDetailPage: React.FC = () => {
                     cadastroTariff > 0
                       ? cadastroTariff
                       : Number(item.unitPrice ?? 0);
-                  const displayedSubtotal =
-                    getDisplayedRentalItemSubtotal(item);
+                  const displayedSubtotal = item.isLoan
+                    ? 0
+                    : getDisplayedRentalItemSubtotal(item);
                   return (
                     <div
                       key={index}
@@ -2138,12 +2251,19 @@ const RentalDetailPage: React.FC = () => {
                     >
                       <div className="flex justify-between items-start">
                         <div>
-                          <div className="font-medium text-gray-900 dark:text-white">
+                          <div className="font-medium text-gray-900 dark:text-white flex items-center gap-2 flex-wrap">
                             {itemData ? itemData.name : "Item"}
+                            {item.isLoan && (
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
+                                Empréstimo
+                              </span>
+                            )}
                           </div>
                           <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            Quantidade: {item.quantity} • Preço unitário:{" "}
-                            {formatCurrencyBr(displayUnitPrice)}
+                            Quantidade: {item.quantity} •{" "}
+                            {item.isLoan
+                              ? "Sem cobrança (empréstimo)"
+                              : `Preço unitário: ${formatCurrencyBr(displayUnitPrice)}`}
                           </div>
                           <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                             Tipo: {formatRentalTypeLabel(item.rentalType)} • Retirada:{" "}
@@ -2176,6 +2296,19 @@ const RentalDetailPage: React.FC = () => {
                                 </span>
                                 {formatDateTimeForDisplay(item.returnActual)}
                               </div>
+                              {isAdminUser &&
+                                rental.status !== "completed" &&
+                                rental.status !== "cancelled" && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleAbrirCorrecaoDevolucao(item)
+                                    }
+                                    className="mt-2 inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50"
+                                  >
+                                    Corrigir devolução
+                                  </button>
+                                )}
                             </div>
                           )}
                           {!item.returnActual && (
@@ -2819,8 +2952,13 @@ const RentalDetailPage: React.FC = () => {
                           className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
                         >
                           <div className="flex items-center justify-between">
-                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                            <div className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
                               {itemName} • Qtd: {item.quantity}
+                              {item.isLoan && (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
+                                  Empréstimo
+                                </span>
+                              )}
                             </div>
                             <button
                               type="button"
@@ -2835,6 +2973,24 @@ const RentalDetailPage: React.FC = () => {
                               Remover
                             </button>
                           </div>
+                          <label className="mt-2 flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={item.isLoan === true}
+                              onChange={(e) => {
+                                const updated = [...editForm.items];
+                                updated[index] = {
+                                  ...updated[index],
+                                  isLoan: e.target.checked,
+                                };
+                                setEditForm({ ...editForm, items: updated });
+                              }}
+                              className="mt-0.5 rounded border-gray-300"
+                            />
+                            <span>
+                              Empréstimo de material (sem cobrança, com devolução)
+                            </span>
+                          </label>
                           <div className="grid grid-cols-2 gap-2 mt-2">
                             <div>
                               <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
@@ -3280,6 +3436,7 @@ const RentalDetailPage: React.FC = () => {
                           returnScheduled?: string;
                           historicalDelivery?: boolean;
                           recalculateScheduledReturn?: boolean;
+                          isLoan?: boolean;
                         } = {
                           itemId: item.itemId,
                           unitId: item.unitId || undefined,
@@ -3311,6 +3468,7 @@ const RentalDetailPage: React.FC = () => {
                         ) {
                           row.historicalDelivery = true;
                         }
+                        row.isLoan = item.isLoan === true;
                         return row;
                       });
                     }
@@ -3641,7 +3799,31 @@ const RentalDetailPage: React.FC = () => {
           </div>
         )}
 
-        {closeItemModal && selectedCloseItem && (
+        {closeItemModal && selectedCloseItem && (() => {
+          const correctedReturnLine =
+            closeItemMode === "correct"
+              ? rental.items.find((ri: RentalItem) => {
+                  if (!ri.returnActual) return false;
+                  if (getEntityId(ri.itemId) !== selectedCloseItem.itemId) {
+                    return false;
+                  }
+                  if (selectedCloseItem.lineId) {
+                    return (
+                      String(ri.lineId || "").trim() ===
+                      selectedCloseItem.lineId.trim()
+                    );
+                  }
+                  return (
+                    String(ri.unitId || "").trim() ===
+                    String(selectedCloseItem.unitId || "").trim()
+                  );
+                })
+              : undefined;
+          const maxCorrectedQty = correctedReturnLine
+            ? getMaxCorrectedReturnQuantity(correctedReturnLine)
+            : selectedCloseItem.quantity;
+
+          return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
               <div className="px-6 pt-6 pb-3 shrink-0">
@@ -3662,27 +3844,36 @@ const RentalDetailPage: React.FC = () => {
                     </svg>
                   </div>
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                    Finalizar devolução do item
+                    {closeItemMode === "correct"
+                      ? "Corrigir devolução do item"
+                      : "Finalizar devolução do item"}
                   </h2>
                 </div>
 
                 <div className="text-sm text-gray-700 dark:text-gray-300">
                   {selectedCloseItem.name}
-                  {rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
+                  {closeItemMode === "correct" ? (
                     <span className="block mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Equipamento por unidade — devolução integral nesta linha. Você pode
-                      ajustar o tipo de cobrança usado neste fechamento abaixo.
+                      Ajuste a data de cobrança, a quantidade devolvida ou o tipo de
+                      período. Fechamentos quitados bloqueiam a correção.
                     </span>
+                  ) : (
+                    rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
+                      <span className="block mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Equipamento por unidade — devolução integral nesta linha. Você pode
+                        ajustar o tipo de cobrança usado neste fechamento abaixo.
+                      </span>
+                    )
                   )}
                 </div>
               </div>
 
               <div className="px-6 overflow-y-auto flex-1 min-h-0 space-y-4">
-                {closeItemLoading ? (
+                {closeItemMode === "close" && closeItemLoading ? (
                   <div className="text-sm text-gray-500 dark:text-gray-400">
                     Calculando fechamento...
                   </div>
-                ) : closeItemPreview ? (
+                ) : closeItemMode === "close" && closeItemPreview ? (
                   <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-600">
                     <table className="w-full text-sm">
                       <thead>
@@ -3776,15 +3967,22 @@ const RentalDetailPage: React.FC = () => {
                 </div>
                 {selectedCloseItem &&
                   !rentalLineHasUnitTracked(selectedCloseItem.unitId) &&
-                  selectedCloseItem.quantity > 1 && (
+                  (closeItemMode === "correct" ||
+                    selectedCloseItem.quantity > 1) && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Quantidade a devolver
+                      {closeItemMode === "correct"
+                        ? "Quantidade devolvida (corrigir)"
+                        : "Quantidade a devolver"}
                     </label>
                     <input
                       type="number"
                       min={1}
-                      max={selectedCloseItem.quantity}
+                      max={
+                        closeItemMode === "correct"
+                          ? maxCorrectedQty
+                          : selectedCloseItem.quantity
+                      }
                       value={closeItemReturnedQuantity}
                       onFocus={selectInputText}
                       onClick={selectInputText}
@@ -3830,7 +4028,8 @@ const RentalDetailPage: React.FC = () => {
                     </select>
                   </div>
                 )}
-                {selectedCloseItem &&
+                {closeItemMode === "close" &&
+                  selectedCloseItem &&
                   !rentalLineHasUnitTracked(selectedCloseItem.unitId) && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -3862,7 +4061,10 @@ const RentalDetailPage: React.FC = () => {
 
               <div className="px-6 py-4 shrink-0 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2 bg-white dark:bg-gray-800 rounded-b-lg">
                 <button
-                  onClick={() => setCloseItemModal(false)}
+                  onClick={() => {
+                    setCloseItemModal(false);
+                    setCloseItemMode("close");
+                  }}
                   className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
                 >
                   Cancelar
@@ -3882,6 +4084,45 @@ const RentalDetailPage: React.FC = () => {
                         closeItemInformativeDate.trim() !== ""
                           ? closeItemInformativeDate.trim()
                           : undefined;
+
+                      if (closeItemMode === "correct") {
+                        await rentalService.correctRentalItemReturn(id, {
+                          itemId: selectedCloseItem.itemId,
+                          unitId: selectedCloseItem.unitId,
+                          ...(selectedCloseItem.lineId
+                            ? { lineId: selectedCloseItem.lineId }
+                            : {}),
+                          returnDate: returnDateIso,
+                          ...(informativeReturnDatePayload
+                            ? {
+                                informativeReturnDate:
+                                  informativeReturnDatePayload,
+                              }
+                            : {}),
+                          correctedQuantity: rentalLineHasUnitTracked(
+                            selectedCloseItem.unitId,
+                          )
+                            ? 1
+                            : closeItemReturnedQuantity,
+                          ...(closeItemBillingRentalType
+                            ? {
+                                billingRentalType: closeItemBillingRentalType,
+                              }
+                            : {}),
+                        });
+                        setCloseItemModal(false);
+                        setCloseItemMode("close");
+                        queryClient.invalidateQueries({
+                          queryKey: ["rental", id],
+                        });
+                        queryClient.invalidateQueries({ queryKey: ["rentals"] });
+                        queryClient.invalidateQueries({
+                          queryKey: ["rental-billings", id],
+                        });
+                        toast.success("Devolução corrigida com sucesso.");
+                        return;
+                      }
+
                       const isUnitLine = rentalLineHasUnitTracked(
                         selectedCloseItem.unitId,
                       );
@@ -3952,6 +4193,7 @@ const RentalDetailPage: React.FC = () => {
 
                       /** Remainder type passa junto na devolução parcial (/returns); evita segunda chamada com lineId antigo. */
                       setCloseItemModal(false);
+                      setCloseItemMode("close");
                       queryClient.invalidateQueries({
                         queryKey: ["rental", id],
                       });
@@ -3970,12 +4212,13 @@ const RentalDetailPage: React.FC = () => {
                   }}
                   className="px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
                 >
-                  Confirmar
+                  {closeItemMode === "correct" ? "Salvar correção" : "Confirmar"}
                 </button>
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {showConfirmFinalClosure && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75">
@@ -4185,6 +4428,22 @@ const RentalDetailPage: React.FC = () => {
                     {newItemForm.returnDate || "calculada após a retirada"}
                   </div>
                 </div>
+                <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newItemForm.isLoan === true}
+                    onChange={(e) =>
+                      setNewItemForm({
+                        ...newItemForm,
+                        isLoan: e.target.checked ? true : undefined,
+                      })
+                    }
+                    className="mt-0.5 rounded border-gray-300"
+                  />
+                  <span>
+                    Empréstimo de material (sem cobrança, com devolução)
+                  </span>
+                </label>
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
@@ -4223,6 +4482,7 @@ const RentalDetailPage: React.FC = () => {
                             pickupDate: newItemForm.pickupDate,
                             pickupTime: newItemForm.pickupTime,
                             returnDate: newItemForm.returnDate,
+                            isLoan: newItemForm.isLoan ? true : undefined,
                           },
                         ],
                       });
@@ -4234,6 +4494,7 @@ const RentalDetailPage: React.FC = () => {
                         pickupDate: "",
                         pickupTime: "",
                         returnDate: "",
+                        isLoan: false,
                       });
                       setShowAddItemModal(false);
                     }}

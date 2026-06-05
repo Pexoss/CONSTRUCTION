@@ -107,6 +107,27 @@ export const rentalService = {
     return response.data;
   },
 
+  correctRentalItemReturn: async (
+    rentalId: string,
+    data: {
+      itemId: string;
+      unitId?: string;
+      lineId?: string;
+      returnDate?: string;
+      informativeReturnDate?: string;
+      correctedQuantity?: number;
+      billingRentalType?: "daily" | "weekly" | "biweekly" | "monthly";
+      notes?: string;
+    },
+  ) => {
+    const response = await api.put<{
+      success: boolean;
+      message: string;
+      data: Rental;
+    }>(`/rentals/${rentalId}/returns/correct`, data);
+    return response.data;
+  },
+
   returnRentalItems: async (
     rentalId: string,
     data: {

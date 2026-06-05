@@ -87,6 +87,8 @@ export interface IRentalItem {
   lastBillingDate?: Date;
   nextBillingDate?: Date;
   subtotal: number;
+  /** Empréstimo de material: aparece no contrato, exige devolução, sem cobrança. */
+  isLoan?: boolean;
 }
 
 export interface IRentalDates {

@@ -60,6 +60,10 @@ const RentalItemSchema = new Schema<IRentalItem>(
       required: true,
       min: 0,
     },
+    isLoan: {
+      type: Boolean,
+      default: false,
+    },
   },
   { _id: false }
 );
