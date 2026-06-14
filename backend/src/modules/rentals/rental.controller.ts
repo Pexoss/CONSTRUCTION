@@ -157,6 +157,11 @@ export class RentalController {
         : undefined;
       const unitId = req.body?.unitId as string | undefined;
       const lineId = req.body?.lineId as string | undefined;
+      const additionalAmountRaw = req.body?.additionalAmount;
+      const additionalAmount =
+        additionalAmountRaw != null && additionalAmountRaw !== ""
+          ? Number(additionalAmountRaw)
+          : undefined;
 
       const rental = await rentalService.closeRentalItem(
         companyId,
@@ -167,6 +172,14 @@ export class RentalController {
         unitId,
         lineId,
         informativeReturnDate,
+        {
+          additionalAmount: Number.isFinite(additionalAmount)
+            ? additionalAmount
+            : undefined,
+          additionalAmountReason: req.body?.additionalAmountReason as
+            | string
+            | undefined,
+        },
       );
 
       res.json({
@@ -208,6 +221,8 @@ export class RentalController {
             : undefined,
           correctedQuantity: data.correctedQuantity,
           billingRentalType: data.billingRentalType,
+          additionalAmount: data.additionalAmount,
+          additionalAmountReason: data.additionalAmountReason,
           notes: data.notes,
         },
       );
@@ -420,13 +435,45 @@ export class RentalController {
       const companyId = req.companyId!;
       const unitId = req.query.unitId as string | undefined;
       const lineId = req.query.lineId as string | undefined;
+      const returnDateRaw = req.query.returnDate as string | undefined;
+      const billingRentalType = req.query.billingRentalType as
+        | "daily"
+        | "weekly"
+        | "biweekly"
+        | "monthly"
+        | undefined;
+      const returnedQuantityRaw = req.query.returnedQuantity as string | undefined;
+      const additionalAmountRaw = req.query.additionalAmount as string | undefined;
+
+      const returnDate =
+        returnDateRaw && returnDateRaw.trim() !== ""
+          ? new Date(returnDateRaw)
+          : undefined;
+      const returnedQuantity =
+        returnedQuantityRaw != null && returnedQuantityRaw !== ""
+          ? Number(returnedQuantityRaw)
+          : undefined;
+      const additionalAmount =
+        additionalAmountRaw != null && additionalAmountRaw !== ""
+          ? Number(additionalAmountRaw)
+          : undefined;
 
       const preview = await rentalService.getClosePreviewItem(
         id,
         itemId,
         companyId,
-        unitId,
-        lineId,
+        {
+          unitId,
+          lineId,
+          returnDate,
+          billingRentalType,
+          returnedQuantity: Number.isFinite(returnedQuantity)
+            ? returnedQuantity
+            : undefined,
+          additionalAmount: Number.isFinite(additionalAmount)
+            ? additionalAmount
+            : undefined,
+        },
       );
 
       res.json({

@@ -13,6 +13,8 @@ export interface ChargePaymentPayload {
   paymentMethod?: string;
   notes?: string;
   paidAt?: string;
+  additionalAmount?: number;
+  additionalAmountReason?: string;
 }
 
 export const chargeService = {

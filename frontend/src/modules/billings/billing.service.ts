@@ -72,6 +72,8 @@ export const billingService = {
       notes?: string;
       discount?: number;
       discountReason?: string;
+      additionalAmount?: number;
+      additionalAmountReason?: string;
     }
   ) => {
     const response = await api.put<{ success: boolean; data: Billing }>(`/billings/${id}`, data);

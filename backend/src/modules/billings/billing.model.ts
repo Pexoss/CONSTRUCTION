@@ -115,6 +115,12 @@ const BillingCalculationSchema = new Schema<IBillingCalculation>(
       default: 0,
     },
     discountReason: String,
+    additionalAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    additionalAmountReason: String,
     total: {
       type: Number,
       required: true,

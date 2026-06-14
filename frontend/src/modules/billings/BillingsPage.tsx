@@ -399,7 +399,7 @@ const BillingsPage: React.FC = () => {
                             {c.name}
                           </span>
                           {c.cpfCnpj ? (
-                            <span className="mt-0.5 block text-[11px] text-gray-500 dark:text-gray-400">
+                            <span className="mt-0.5 block text-2xs text-gray-500 dark:text-gray-400">
                               {formatDocumentForDisplay(String(c.cpfCnpj))}
                             </span>
                           ) : null}

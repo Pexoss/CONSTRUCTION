@@ -261,7 +261,7 @@ const RentalsPage: React.FC = () => {
                   {dayRentals.slice(0, 2).map((rental) => (
                     <div
                       key={rental._id}
-                      className={`text-[10px] sm:text-xs p-1 sm:p-1.5 rounded truncate cursor-pointer ${getStatusColor(rental.status)}`}
+                      className={`text-3xs sm:text-xs p-1 sm:p-1.5 rounded truncate cursor-pointer ${getStatusColor(rental.status)}`}
                       title={`${rental.rentalNumber} — duplo clique para abrir`}
                       onDoubleClick={() =>
                         navigate(`/rentals/${rental._id}`)
@@ -271,7 +271,7 @@ const RentalsPage: React.FC = () => {
                     </div>
                   ))}
                   {dayRentals.length > 2 && (
-                    <div className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">
+                    <div className="text-3xs sm:text-xs text-gray-500 dark:text-gray-400">
                       +{dayRentals.length - 2}
                     </div>
                   )}

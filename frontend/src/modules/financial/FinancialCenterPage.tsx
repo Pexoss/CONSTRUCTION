@@ -99,16 +99,47 @@ const formatInvoiceHeading = (invoice: {
 
 const getBillingOutstanding = getBillingOutstandingAmount;
 
-/** Nomes dos equipamentos/itens ligados ao fechamento (cadastro já vem populado no board financeiro). */
+/** Nomes dos equipamentos e serviços (ex.: frete) ligados ao fechamento. */
 const getBillingItemNamesLabel = (billing: any): string => {
-  const raw = (billing?.items || [])
-    .map((it: any) => {
+  const compositionRows = getBillingCompositionRowsOrdered(
+    { items: billing?.items ?? [], services: billing?.services ?? [] },
+    (it: any) => {
       const ref = it?.itemId;
       if (ref && typeof ref === "object" && ref.name) return String(ref.name).trim();
-      return "";
-    })
-    .filter((s: string): s is string => s.length > 0);
-  return raw.filter((name: string, idx: number) => raw.indexOf(name) === idx).join(", ");
+      return "Item";
+    },
+  );
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const row of compositionRows) {
+    const label =
+      row.kind === "item"
+        ? typeof row.item.itemId === "object" && row.item.itemId?.name
+          ? String(row.item.itemId.name).trim()
+          : "Item"
+        : String(row.service.description || "Serviço").trim();
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    names.push(label);
+  }
+  return names.join(", ");
+};
+
+const getBillingWorkNameLabel = (billing: any): string =>
+  String(billing?.rentalId?.workAddress?.workName || "").trim();
+
+/** Obras distintas dos fechamentos vinculados à cobrança (board já popula rentalId.workAddress). */
+const getChargeWorkNamesLabel = (charge: any): string => {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const bill of charge?.billingIds || []) {
+    if (!bill || typeof bill !== "object") continue;
+    const label = getBillingWorkNameLabel(bill);
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    names.push(label);
+  }
+  return names.join(", ");
 };
 
 const isBillingEligibleForCharge = (billing: any): boolean =>
@@ -148,10 +179,11 @@ const FinancialCenterPage: React.FC = () => {
   /** Campos para registrar baixa no modal da cobrança (aba Cobranças). */
   const [chargePartialAmount, setChargePartialAmount] = useState<string>("");
   const [chargePartialDiscount, setChargePartialDiscount] = useState<string>("");
-  /** Saldo em aberto usado como base da baixa (valor + desconto = abatimento nesta operação). */
-  const [chargePartialSettleBase, setChargePartialSettleBase] = useState<number>(0);
+  const [chargePayAdditionalAmount, setChargePayAdditionalAmount] = useState<string>("");
+  const [chargePayAdditionalReason, setChargePayAdditionalReason] = useState<string>("");
   /** Desconto reduz valor a partir do saldo total (não do valor já reduzido). */
   const chargePartialDiscountLinksAmountRef = useRef(false);
+  const chargePartialPrevAdditionalRef = useRef(0);
   const [chargePartialMethod, setChargePartialMethod] = useState<string>("manual");
   const [invoiceDueDate, setInvoiceDueDate] = useState<string>("");
   const [invoicePaymentMethod, setInvoicePaymentMethod] = useState<string>("boleto/PIX");
@@ -276,12 +308,22 @@ const FinancialCenterPage: React.FC = () => {
     setChargeModalTotal(formatMoneyInputBr(Number(charge.total || 0)));
     setChargeModalBillingIds((charge.billingIds || []).map((b: any) => String(b?._id || b)));
     const outstanding = Math.max(0, Number(charge.outstandingAmount || 0));
-    setChargePartialSettleBase(outstanding);
     setChargePartialAmount(formatMoneyInputBr(outstanding));
     setChargePartialDiscount(formatMoneyInputBr(0));
+    setChargePayAdditionalAmount("");
+    setChargePayAdditionalReason("");
+    chargePartialPrevAdditionalRef.current = 0;
     chargePartialDiscountLinksAmountRef.current = false;
     setChargePartialMethod("manual");
   }, []);
+
+  const chargePartialEffectiveSettleBase = useMemo(() => {
+    const outstanding = Math.max(0, Number(chargeModal?.outstandingAmount || 0));
+    const additionalRaw = parseMoneyBr(chargePayAdditionalAmount);
+    const additional =
+      Number.isFinite(additionalRaw) && additionalRaw > 0 ? additionalRaw : 0;
+    return Math.round((outstanding + additional) * 100) / 100;
+  }, [chargeModal, chargePayAdditionalAmount]);
 
   const boardQuery = useQuery({
     queryKey: financialBoardQueryKey,
@@ -373,16 +415,22 @@ const FinancialCenterPage: React.FC = () => {
       amount,
       discount,
       method,
+      additionalAmount,
+      additionalAmountReason,
     }: {
       chargeId: string;
       amount: number;
       discount?: number;
       method?: string;
+      additionalAmount?: number;
+      additionalAmountReason?: string;
     }) => {
       return chargeService.pay(chargeId, {
         amount,
         discount,
         paymentMethod: method || "manual",
+        additionalAmount,
+        additionalAmountReason,
       });
     },
     onSuccess: async (_result, { chargeId }) => {
@@ -470,8 +518,22 @@ const FinancialCenterPage: React.FC = () => {
   });
 
   const editBillingMutation = useMutation({
-    mutationFn: ({ billingId, notes }: { billingId: string; notes: string }) =>
-      billingService.updateBilling(billingId, { notes }),
+    mutationFn: ({
+      billingId,
+      notes,
+      additionalAmount,
+      additionalAmountReason,
+    }: {
+      billingId: string;
+      notes?: string;
+      additionalAmount?: number;
+      additionalAmountReason?: string;
+    }) =>
+      billingService.updateBilling(billingId, {
+        notes,
+        additionalAmount,
+        additionalAmountReason,
+      }),
     onSuccess: () => {
       toast.success("Fechamento atualizado.");
       queryClient.invalidateQueries({ queryKey: ["financial-board"] });
@@ -679,6 +741,9 @@ const FinancialCenterPage: React.FC = () => {
     const outstanding = Number(chargeModal.outstandingAmount || 0);
     const amount = parseMoneyBr(chargePartialAmount);
     const discount = parseMoneyBr(chargePartialDiscount);
+    const additionalAmount = parseMoneyBr(chargePayAdditionalAmount);
+    const additional =
+      Number.isFinite(additionalAmount) && additionalAmount > 0 ? additionalAmount : 0;
     if (!Number.isFinite(amount) || amount < 0) {
       toast.warning("Informe um valor de baixa válido.");
       return;
@@ -687,12 +752,13 @@ const FinancialCenterPage: React.FC = () => {
       toast.warning("Informe um desconto válido.");
       return;
     }
-    if (amount + discount <= 0) {
-      toast.warning("Informe baixa ou desconto maior que zero.");
+    if (amount + discount + additional <= 0) {
+      toast.warning("Informe baixa, desconto ou valor adicional maior que zero.");
       return;
     }
-    if (amount + discount - outstanding > 0.01) {
-      toast.warning("Baixa + desconto não pode exceder o saldo da cobrança.");
+    const effectiveOutstanding = Number((outstanding + additional).toFixed(2));
+    if (amount + discount - effectiveOutstanding > 0.01) {
+      toast.warning("Baixa + desconto não pode exceder o saldo da cobrança (incluindo adicional).");
       return;
     }
     payChargeMutation.mutate({
@@ -700,6 +766,11 @@ const FinancialCenterPage: React.FC = () => {
       amount,
       discount: Number.isFinite(discount) && discount > 0 ? discount : 0,
       method: chargePartialMethod,
+      additionalAmount: additional > 0 ? additional : undefined,
+      additionalAmountReason:
+        additional > 0 && chargePayAdditionalReason.trim()
+          ? chargePayAdditionalReason.trim()
+          : undefined,
     });
   };
 
@@ -730,7 +801,36 @@ const FinancialCenterPage: React.FC = () => {
   };
 
   const chargePartialAmountIsFullSettle = (amount: number) =>
-    Math.abs(amount - chargePartialSettleBase) < 0.01;
+    Math.abs(amount - chargePartialEffectiveSettleBase) < 0.01;
+
+  const applyChargePayAdditionalAmount = (raw: string, finalize: boolean) => {
+    const formatted = finalize
+      ? formatMoneyInputBr(parseMoneyBr(raw))
+      : formatMoneyInputBrLive(raw);
+    const nextAdditional = parseMoneyBr(formatted);
+    const safeAdditional =
+      Number.isFinite(nextAdditional) && nextAdditional > 0 ? nextAdditional : 0;
+    const outstanding = Math.max(0, Number(chargeModal?.outstandingAmount || 0));
+    const prevAdditional = chargePartialPrevAdditionalRef.current;
+    const prevEffectiveBase = Math.round((outstanding + prevAdditional) * 100) / 100;
+    const nextEffectiveBase = Math.round((outstanding + safeAdditional) * 100) / 100;
+    const currentAmount = parseMoneyBr(chargePartialAmount);
+    const discount = parseMoneyBr(chargePartialDiscount);
+    const safeDiscount = Number.isFinite(discount) && discount > 0 ? discount : 0;
+    const safeAmount = Number.isFinite(currentAmount) ? Math.max(0, currentAmount) : 0;
+    const atFullSettle =
+      Math.abs(safeAmount + safeDiscount - prevEffectiveBase) < 0.01 ||
+      Math.abs(safeAmount - prevEffectiveBase) < 0.01 ||
+      chargePartialDiscountLinksAmountRef.current;
+
+    chargePartialPrevAdditionalRef.current = safeAdditional;
+    setChargePayAdditionalAmount(formatted);
+
+    if (atFullSettle) {
+      const nextAmount = Math.max(0, nextEffectiveBase - safeDiscount);
+      setChargePartialAmount(formatMoneyInputBr(nextAmount));
+    }
+  };
 
   const applyChargePartialDiscount = (
     discountRaw: string,
@@ -754,8 +854,8 @@ const FinancialCenterPage: React.FC = () => {
     }
 
     if (chargePartialDiscountLinksAmountRef.current) {
-      const cappedDiscount = Math.min(Math.max(0, discount), chargePartialSettleBase);
-      const nextAmount = Math.max(0, chargePartialSettleBase - cappedDiscount);
+      const cappedDiscount = Math.min(Math.max(0, discount), chargePartialEffectiveSettleBase);
+      const nextAmount = Math.max(0, chargePartialEffectiveSettleBase - cappedDiscount);
       setChargePartialDiscount(
         finalize
           ? formatMoneyInputBr(cappedDiscount)
@@ -767,7 +867,7 @@ const FinancialCenterPage: React.FC = () => {
       return;
     }
 
-    const maxDiscount = Math.max(0, chargePartialSettleBase - safeAmount);
+    const maxDiscount = Math.max(0, chargePartialEffectiveSettleBase - safeAmount);
     const cappedDiscount = Math.min(Math.max(0, discount), maxDiscount);
     setChargePartialDiscount(
       finalize
@@ -795,7 +895,7 @@ const FinancialCenterPage: React.FC = () => {
     chargePartialDiscountLinksAmountRef.current = false;
     const amount = parseMoneyBr(amountRaw);
     const cappedAmount = Number.isFinite(amount)
-      ? Math.min(Math.max(0, amount), chargePartialSettleBase)
+      ? Math.min(Math.max(0, amount), chargePartialEffectiveSettleBase)
       : 0;
     setChargePartialAmount(formatMoneyInputBr(cappedAmount));
   };
@@ -811,6 +911,18 @@ const FinancialCenterPage: React.FC = () => {
     );
     return [...fromBoard, ...fromCharge];
   }, [chargeModal, chargeModalBillingIds, billings]);
+
+  const chargeModalObraLabel = useMemo(() => {
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (const bill of chargeModalLinkedBillings) {
+      const label = getBillingWorkNameLabel(bill);
+      if (!label || seen.has(label)) continue;
+      seen.add(label);
+      names.push(label);
+    }
+    return names.join(", ");
+  }, [chargeModalLinkedBillings]);
 
   const startChargeModalBillingsEdit = () => {
     setChargeModalBillingIdsSnapshot([...chargeModalBillingIds]);
@@ -896,12 +1008,24 @@ const FinancialCenterPage: React.FC = () => {
     const outstanding = Math.max(0, Number(chargeModal?.outstandingAmount || 0));
     const amount = parseMoneyBr(chargePartialAmount);
     const discount = parseMoneyBr(chargePartialDiscount);
+    const additionalRaw = parseMoneyBr(chargePayAdditionalAmount);
+    const additional =
+      Number.isFinite(additionalRaw) && additionalRaw > 0 ? additionalRaw : 0;
     const received = Number.isFinite(amount) && amount > 0 ? amount : 0;
     const discountValue = Number.isFinite(discount) && discount > 0 ? discount : 0;
     const totalSettled = Math.round((received + discountValue) * 100) / 100;
-    const remaining = Math.max(0, Math.round((outstanding - totalSettled) * 100) / 100);
-    return { outstanding, received, discountValue, totalSettled, remaining };
-  }, [chargeModal, chargePartialAmount, chargePartialDiscount]);
+    const effectiveOutstanding = Math.round((outstanding + additional) * 100) / 100;
+    const remaining = Math.max(0, Math.round((effectiveOutstanding - totalSettled) * 100) / 100);
+    return {
+      outstanding,
+      additional,
+      effectiveOutstanding,
+      received,
+      discountValue,
+      totalSettled,
+      remaining,
+    };
+  }, [chargeModal, chargePartialAmount, chargePartialDiscount, chargePayAdditionalAmount]);
 
   const selectBoardCustomerFilter = (id: string) => {
     updateFilterParam("customer", id);
@@ -942,7 +1066,7 @@ const FinancialCenterPage: React.FC = () => {
           </summary>
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
             <div className="relative min-w-0">
-              <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">
+              <label className="block text-2xs font-medium text-gray-600 dark:text-gray-400 mb-1">
                 Cliente
               </label>
               <div className="relative">
@@ -994,7 +1118,7 @@ const FinancialCenterPage: React.FC = () => {
                       >
                         <span className="font-medium text-gray-900 dark:text-gray-100">{c.name}</span>
                         {c.cpfCnpj ? (
-                          <span className="mt-0.5 block text-[11px] text-gray-500 dark:text-gray-400">
+                          <span className="mt-0.5 block text-2xs text-gray-500 dark:text-gray-400">
                             {formatDocumentForDisplay(String(c.cpfCnpj))}
                           </span>
                         ) : null}
@@ -1095,7 +1219,7 @@ const FinancialCenterPage: React.FC = () => {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex flex-col gap-1 min-w-[200px]">
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Lista de fechamentos</p>
-                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  <p className="text-2xs text-gray-500 dark:text-gray-400">
                     {canManageFinancialUser
                       ? "Marque linhas elegíveis e use Criar cobrança."
                       : "Consulte os fechamentos e use o botão PDF em cada linha."}
@@ -1114,12 +1238,12 @@ const FinancialCenterPage: React.FC = () => {
                       {createChargeMutation.isPending ? "Criando…" : "Criar cobrança"}
                     </button>
                     {selectedEligibleBillingIds.length > 0 && (
-                      <span className="text-[11px] text-gray-500 dark:text-gray-400 text-right max-w-[220px]">
+                      <span className="text-2xs text-gray-500 dark:text-gray-400 text-right max-w-[220px]">
                         {selectedEligibleBillingIds.length} fechamento(s) elegível(is) para nova cobrança
                       </span>
                     )}
                     {hasMixedCustomers && (
-                      <p className="text-[11px] text-amber-600 dark:text-amber-400 text-right max-w-[260px]">
+                      <p className="text-2xs text-amber-600 dark:text-amber-400 text-right max-w-[260px]">
                         Fechamentos de clientes diferentes — agrupe apenas o mesmo cliente.
                       </p>
                     )}
@@ -1264,7 +1388,7 @@ const FinancialCenterPage: React.FC = () => {
                               <td className="px-2 py-2 whitespace-nowrap">{tipo}</td>
                               <td className="px-2 py-2 text-gray-700 dark:text-gray-300 max-w-[220px]">
                                 {itemNames.length > 0 ? (
-                                  <div className="max-h-16 overflow-y-auto pr-1 space-y-0.5 text-[11px] leading-tight">
+                                  <div className="max-h-16 overflow-y-auto pr-1 space-y-0.5 text-2xs leading-tight">
                                     {itemNames.map((name: string) => (
                                       <div key={name} className="truncate" title={name}>
                                         {name}
@@ -1282,7 +1406,24 @@ const FinancialCenterPage: React.FC = () => {
                                 {stageLabel[String(bill.financialStage)] || bill.financialStage || "—"}
                               </td>
                               <td className="px-2 py-2 text-right whitespace-nowrap">
-                                {formatCurrencyBr(getBillingOutstanding(bill))}
+                                <div>
+                                  {formatCurrencyBr(getBillingOutstanding(bill))}
+                                  {Number(bill.calculation?.additionalAmount || 0) > 0.01 ? (
+                                    <div
+                                      className="text-2xs text-amber-700 dark:text-amber-300"
+                                      title={
+                                        bill.calculation?.additionalAmountReason ||
+                                        "Valor adicional"
+                                      }
+                                    >
+                                      +{" "}
+                                      {formatCurrencyBr(
+                                        bill.calculation?.additionalAmount || 0,
+                                      )}{" "}
+                                      adicional
+                                    </div>
+                                  ) : null}
+                                </div>
                               </td>
                               <td className="px-2 py-2">
                                 <div className="flex flex-wrap gap-1">
@@ -1318,6 +1459,41 @@ const FinancialCenterPage: React.FC = () => {
                                       >
                                         Obs.
                                       </button>
+                                      {bill.status !== "paid" && bill.status !== "cancelled" ? (
+                                        <button
+                                          type="button"
+                                          className="px-2 py-0.5 border rounded text-xs text-amber-800 dark:text-amber-200"
+                                          onClick={() => {
+                                            const amountStr = window.prompt(
+                                              "Valor adicional (R$) — somado ao fechamento:",
+                                              formatMoneyInputBr(
+                                                bill.calculation?.additionalAmount || 0,
+                                              ),
+                                            );
+                                            if (amountStr === null) return;
+                                            const reason =
+                                              window.prompt(
+                                                "Motivo do adicional (danos, defeitos…):",
+                                                bill.calculation?.additionalAmountReason || "",
+                                              ) ?? "";
+                                            const additionalAmount = parseMoneyBr(amountStr);
+                                            if (
+                                              !Number.isFinite(additionalAmount) ||
+                                              additionalAmount < 0
+                                            ) {
+                                              toast.error("Valor adicional inválido.");
+                                              return;
+                                            }
+                                            editBillingMutation.mutate({
+                                              billingId: bill._id,
+                                              additionalAmount,
+                                              additionalAmountReason: reason.trim(),
+                                            });
+                                          }}
+                                        >
+                                          Adicional
+                                        </button>
+                                      ) : null}
                                       <button
                                         type="button"
                                         className="px-2 py-0.5 border rounded text-xs text-red-600"
@@ -1379,7 +1555,9 @@ const FinancialCenterPage: React.FC = () => {
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {filteredCharges.map((charge: any) => (
+                  {filteredCharges.map((charge: any) => {
+                    const chargeObraLabel = getChargeWorkNamesLabel(charge);
+                    return (
                     <div
                       key={charge._id}
                       className={`border rounded-md p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2 cursor-pointer ${
@@ -1394,7 +1572,15 @@ const FinancialCenterPage: React.FC = () => {
                         <p className="text-base font-semibold text-gray-900 dark:text-white truncate">
                           {charge.customerId?.name || "Cliente"}
                         </p>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                        {chargeObraLabel ? (
+                          <p
+                            className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 truncate"
+                            title={chargeObraLabel}
+                          >
+                            Obra{chargeObraLabel.includes(",") ? "s" : ""}: {chargeObraLabel}
+                          </p>
+                        ) : null}
+                        <p className="text-2xs text-gray-500 dark:text-gray-400 mt-0.5">
                           <span className="text-gray-600 dark:text-gray-300 font-medium tabular-nums">
                             {charge.chargeNumber}
                           </span>
@@ -1443,7 +1629,8 @@ const FinancialCenterPage: React.FC = () => {
                         </button>
                       </div>
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               )}
             </div>
@@ -1567,6 +1754,14 @@ const FinancialCenterPage: React.FC = () => {
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 truncate">
                   {chargeModal.customerId?.name || "Cliente"}
                 </p>
+                {chargeModalObraLabel ? (
+                    <p
+                      className="text-sm text-gray-600 dark:text-gray-400 mt-0.5 truncate"
+                      title={chargeModalObraLabel}
+                    >
+                      Obra{chargeModalObraLabel.includes(",") ? "s" : ""}: {chargeModalObraLabel}
+                    </p>
+                  ) : null}
               </div>
               <button
                 type="button"
@@ -1592,7 +1787,7 @@ const FinancialCenterPage: React.FC = () => {
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 px-4 py-3">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <p className="text-2xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     Total
                   </p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-gray-900 dark:text-white">
@@ -1600,7 +1795,7 @@ const FinancialCenterPage: React.FC = () => {
                   </p>
                 </div>
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 px-4 py-3">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <p className="text-2xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     Recebido
                   </p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-gray-900 dark:text-white">
@@ -1608,7 +1803,7 @@ const FinancialCenterPage: React.FC = () => {
                   </p>
                 </div>
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 px-4 py-3 col-span-2 lg:col-span-1">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <p className="text-2xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     Em aberto
                   </p>
                   <p className="mt-1 text-lg font-semibold tabular-nums text-indigo-700 dark:text-indigo-300">
@@ -1616,7 +1811,7 @@ const FinancialCenterPage: React.FC = () => {
                   </p>
                 </div>
                 <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/50 px-4 py-3 col-span-2 lg:col-span-1">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <p className="text-2xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     Vencimento
                   </p>
                   <p className="mt-1 text-sm font-medium text-gray-900 dark:text-white">
@@ -1698,7 +1893,7 @@ const FinancialCenterPage: React.FC = () => {
                       Fechamentos vinculados
                     </h4>
                     {chargeModalBillingsEditMode && !chargeModalViewOnly ? (
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      <p className="text-2xs text-gray-500 dark:text-gray-400 mt-0.5">
                         Mesmo cliente: marque ou desmarque fechamentos e use Concluir; depois
                         salve a cobrança.
                       </p>
@@ -1742,6 +1937,7 @@ const FinancialCenterPage: React.FC = () => {
                       availableBillingsForChargeModal.map((bill: any) => {
                         const billId = String(bill._id);
                         const itemNames = getBillingItemNamesLabel(bill);
+                        const obraName = getBillingWorkNameLabel(bill);
                         return (
                           <label
                             key={billId}
@@ -1770,6 +1966,12 @@ const FinancialCenterPage: React.FC = () => {
                                 </span>
                               ) : null}
                               <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                {obraName ? (
+                                  <>
+                                    Obra: {obraName}
+                                    {" · "}
+                                  </>
+                                ) : null}
                                 {bill.periodStart
                                   ? formatDateNoTimezoneShift(bill.periodStart)
                                   : "-"}{" "}
@@ -1795,6 +1997,7 @@ const FinancialCenterPage: React.FC = () => {
                     chargeModalLinkedBillings.map((bill: any) => {
                       const billId = String(bill._id);
                       const itemNames = getBillingItemNamesLabel(bill);
+                      const obraName = getBillingWorkNameLabel(bill);
                       return (
                         <div
                           key={billId}
@@ -1807,6 +2010,12 @@ const FinancialCenterPage: React.FC = () => {
                             <span className="text-gray-600 dark:text-gray-300"> — {itemNames}</span>
                           ) : null}
                           <span className="block text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {obraName ? (
+                              <>
+                                Obra: {obraName}
+                                {" · "}
+                              </>
+                            ) : null}
                             {bill.periodStart
                               ? formatDateNoTimezoneShift(bill.periodStart)
                               : "-"}{" "}
@@ -1832,10 +2041,15 @@ const FinancialCenterPage: React.FC = () => {
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                       Registrar baixa
                     </h4>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                    <p className="text-2xs text-gray-500 dark:text-gray-400 mt-0.5">
                       Alterar o valor não muda o desconto. O desconto só reduz o valor quando ele
-                      estiver igual ao saldo em aberto ({formatCurrencyBr(chargePartialSettleBase)}).
-                      Valor + desconto abatem o saldo (baixa parcial ou total).
+                      estiver igual ao saldo a quitar (
+                      {formatCurrencyBr(chargePartialEffectiveSettleBase)}
+                      {chargePartialBaixaSummary.additional > 0.01
+                        ? ", incluindo adicional"
+                        : ""}
+                      ). Valor + desconto abatem o saldo. Ao informar adicional com quitação total,
+                      o valor da baixa é ajustado automaticamente.
                     </p>
                   </div>
                   <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-slate-50/80 dark:bg-gray-800/40 overflow-hidden flex flex-col max-w-full lg:max-w-3xl">
@@ -1845,7 +2059,7 @@ const FinancialCenterPage: React.FC = () => {
                       </h4>
                     </div>
                     <div className="p-4 space-y-3 flex-1 flex flex-col">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         <div className="space-y-1.5">
                           <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
                             Valor (R$)
@@ -1894,6 +2108,34 @@ const FinancialCenterPage: React.FC = () => {
                             <option value="transferencia">Transferência</option>
                           </select>
                         </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                            Valor adicional (R$)
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900 tabular-nums"
+                            placeholder="0,00"
+                            value={chargePayAdditionalAmount}
+                            onFocus={selectInputText}
+                            onClick={selectInputText}
+                            onChange={(e) => applyChargePayAdditionalAmount(e.target.value, false)}
+                            onBlur={(e) => applyChargePayAdditionalAmount(e.target.value, true)}
+                          />
+                        </div>
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                            Motivo do adicional
+                          </label>
+                          <input
+                            type="text"
+                            className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900"
+                            placeholder="Ex.: dano no equipamento"
+                            value={chargePayAdditionalReason}
+                            onChange={(e) => setChargePayAdditionalReason(e.target.value)}
+                          />
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -1904,6 +2146,14 @@ const FinancialCenterPage: React.FC = () => {
                         {payChargeMutation.isPending ? "Registrando…" : "Registrar baixa"}
                       </button>
                       <div className="rounded-md border border-gray-200 dark:border-gray-600 bg-white/80 dark:bg-gray-900/50 px-3 py-2.5 space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
+                        {chargePartialBaixaSummary.additional > 0.01 ? (
+                          <p>
+                            Valor adicional nesta operação:{" "}
+                            <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
+                              + {formatCurrencyBr(chargePartialBaixaSummary.additional)}
+                            </span>
+                          </p>
+                        ) : null}
                         <p>
                           Total desta baixa (valor + desconto):{" "}
                           <span className="font-semibold tabular-nums text-gray-900 dark:text-white">
@@ -1917,16 +2167,28 @@ const FinancialCenterPage: React.FC = () => {
                               {formatCurrencyBr(chargePartialBaixaSummary.remaining)}
                             </span>
                           </p>
-                        ) : chargePartialBaixaSummary.totalSettled > 0.01 ? (
+                        ) : chargePartialBaixaSummary.totalSettled > 0.01 ||
+                          chargePartialBaixaSummary.additional > 0.01 ? (
                           <p className="text-emerald-700 dark:text-emerald-300 font-medium">
-                            Esta baixa quita o saldo em aberto da cobrança.
+                            {chargePartialBaixaSummary.totalSettled > 0.01
+                              ? "Esta baixa quita o saldo em aberto da cobrança."
+                              : "O adicional foi aplicado ao saldo da cobrança."}
                           </p>
                         ) : null}
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 pt-0.5 border-t border-gray-100 dark:border-gray-700">
+                        <p className="text-2xs text-gray-500 dark:text-gray-400 pt-0.5 border-t border-gray-100 dark:border-gray-700">
                           Saldo em aberto antes da baixa:{" "}
                           <span className="tabular-nums font-medium">
                             {formatCurrencyBr(chargePartialBaixaSummary.outstanding)}
                           </span>
+                          {chargePartialBaixaSummary.additional > 0.01 ? (
+                            <>
+                              {" "}
+                              · Saldo com adicional:{" "}
+                              <span className="tabular-nums font-medium">
+                                {formatCurrencyBr(chargePartialBaixaSummary.effectiveOutstanding)}
+                              </span>
+                            </>
+                          ) : null}
                         </p>
                       </div>
                     </div>
@@ -2000,7 +2262,7 @@ const FinancialCenterPage: React.FC = () => {
 
               <div className="flex flex-col gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <span className="text-2xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                     Ações
                   </span>
                   <div className="flex flex-wrap gap-2 sm:justify-end">

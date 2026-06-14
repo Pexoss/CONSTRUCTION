@@ -41,4 +41,6 @@ export const updateBillingSchema = z.object({
   notes: z.string().optional(),
   discount: z.number().min(0).optional(),
   discountReason: z.string().optional(),
+  additionalAmount: z.number().min(0).optional(),
+  additionalAmountReason: z.string().optional(),
 });

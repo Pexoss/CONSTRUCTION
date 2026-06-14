@@ -21,6 +21,16 @@ import {
 } from '../../shared/utils/billing-display-order.util';
 import { formatCurrencyBr } from '../../shared/utils/money-display.util';
 
+export function resolveBillingTotal(calculation: {
+  subtotal: number;
+  discount?: number;
+  additionalAmount?: number;
+}): number {
+  const discount = Number(calculation.discount || 0);
+  const additional = Number(calculation.additionalAmount || 0);
+  return Math.max(0, Number((calculation.subtotal - discount + additional).toFixed(2)));
+}
+
 /**
  * Alinha com RentalService.getEffectivePricingForRentalLines:
  * período mensal/semanal/quinzenal derivado da diária quando o cadastro não tem o período específico.
@@ -663,7 +673,8 @@ class BillingService {
     const { services, servicesSubtotal } = this.buildBillingServices(rental, isServiceOnlyBilling);
     const subtotal = equipmentSubtotal + servicesSubtotal;
     const discount = billing.calculation?.discount || 0;
-    const total = Math.max(0, subtotal - discount + (rental.pricing?.lateFee || 0));
+    const additionalAmount = billing.calculation?.additionalAmount || 0;
+    const total = resolveBillingTotal({ subtotal, discount, additionalAmount });
     this.enforcePositiveBillingTotals(equipmentSubtotal, servicesSubtotal, total);
 
     const paidAmount = Math.max(0, (billing.calculation?.total || 0) - (billing.outstandingAmount ?? billing.calculation?.total ?? 0));
@@ -680,6 +691,8 @@ class BillingService {
       subtotal,
       discount,
       discountReason: billing.calculation?.discountReason,
+      additionalAmount,
+      additionalAmountReason: billing.calculation?.additionalAmountReason,
       total,
     } as IBillingCalculation;
     billing.outstandingAmount = Math.max(0, total - paidAmount);
@@ -735,6 +748,8 @@ class BillingService {
       notes?: string;
       discount?: number;
       discountReason?: string;
+      additionalAmount?: number;
+      additionalAmountReason?: string;
     }
   ): Promise<IBilling> {
     const billing = await Billing.findOne({ _id: billingId, companyId });
@@ -749,15 +764,46 @@ class BillingService {
     if (typeof data.discount === "number") {
       billing.calculation.discount = data.discount;
       billing.calculation.discountReason = data.discountReason;
-      billing.calculation.total = Math.max(0, billing.calculation.subtotal - data.discount);
-      billing.outstandingAmount = Math.min(
-        billing.outstandingAmount ?? billing.calculation.total,
-        billing.calculation.total
-      );
+    }
+    if (typeof data.additionalAmount === "number") {
+      billing.calculation.additionalAmount = data.additionalAmount;
+    }
+    if (typeof data.additionalAmountReason === "string") {
+      billing.calculation.additionalAmountReason = data.additionalAmountReason;
     }
 
+    const paidAmount = Math.max(
+      0,
+      (billing.calculation?.total || 0) -
+        (billing.outstandingAmount ?? billing.calculation?.total ?? 0),
+    );
+    billing.calculation.total = resolveBillingTotal(billing.calculation);
+    billing.outstandingAmount = Math.max(0, billing.calculation.total - paidAmount);
+
     await billing.save();
+    await this.syncLinkedChargeTotals(companyId, billing);
     return billing;
+  }
+
+  private async syncLinkedChargeTotals(companyId: string, billing: IBilling): Promise<void> {
+    if (!billing.chargeId) return;
+    const charge = await Charge.findOne({ _id: billing.chargeId, companyId });
+    if (!charge || charge.status === "paid" || charge.status === "cancelled") return;
+    const related = await Billing.find({ _id: { $in: charge.billingIds }, companyId });
+    const totalCharge =
+      related.reduce(
+        (acc, b) => acc + Number(b.outstandingAmount ?? b.calculation.total ?? 0),
+        0,
+      ) + Number(charge.paidAmount || 0);
+    charge.total = Number(totalCharge.toFixed(2));
+    charge.outstandingAmount = Math.max(0, charge.total - charge.paidAmount);
+    charge.status =
+      charge.outstandingAmount === 0
+        ? "paid"
+        : charge.paidAmount > 0
+          ? "partial"
+          : "pending";
+    await charge.save();
   }
 
   async cancelBilling(companyId: string, billingId: string): Promise<IBilling> {
@@ -1029,6 +1075,8 @@ class BillingService {
       discount?: number;
       discountReason?: string;
       status?: BillingStatus;
+      additionalAmount?: number;
+      additionalAmountReason?: string;
     }
   ): Promise<IBilling> {
     if (!rental) {
@@ -1097,7 +1145,12 @@ class BillingService {
     const equipmentSubtotal = Number(itemSubtotal.toFixed(2));
     const subtotal = equipmentSubtotal + servicesSubtotal;
     const appliedDiscount = options?.discount ?? 0;
-    const total = subtotal - appliedDiscount + (rental.pricing?.lateFee || 0);
+    const additionalAmount = Math.max(0, Number(options?.additionalAmount || 0));
+    const total = resolveBillingTotal({
+      subtotal,
+      discount: appliedDiscount,
+      additionalAmount,
+    });
 
     this.enforcePositiveBillingTotals(equipmentSubtotal, servicesSubtotal, total);
 
@@ -1111,6 +1164,8 @@ class BillingService {
       subtotal,
       discount: appliedDiscount,
       discountReason: options?.discountReason,
+      additionalAmount,
+      additionalAmountReason: options?.additionalAmountReason,
       total,
     };
 
@@ -1645,6 +1700,15 @@ class BillingService {
       if (billing.calculation.discount && billing.calculation.discount > 0) {
         doc.text(`Desconto:`, 350, y, { width: 80, align: 'right' });
         doc.text(formatCurrencyBr(billing.calculation.discount), 450, y, { width: 80, align: 'right' });
+        y += itemHeight;
+      }
+
+      if (billing.calculation.additionalAmount && billing.calculation.additionalAmount > 0) {
+        const addLabel = billing.calculation.additionalAmountReason
+          ? `Adicional (${billing.calculation.additionalAmountReason}):`
+          : 'Adicional:';
+        doc.text(addLabel, 50, y, { width: 280 });
+        doc.text(formatCurrencyBr(billing.calculation.additionalAmount), 450, y, { width: 80, align: 'right' });
         y += itemHeight;
       }
 

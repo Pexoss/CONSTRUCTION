@@ -180,6 +180,8 @@ export const returnRentalItemsSchema = z.object({
         remainderRentalType: z
           .enum(["daily", "weekly", "biweekly", "monthly"])
           .optional(),
+        additionalAmount: z.number().min(0).optional(),
+        additionalAmountReason: z.string().optional(),
       }),
     )
     .min(1, "At least one item must be informed"),
@@ -195,6 +197,8 @@ export const correctRentalItemReturnSchema = z.object({
   billingRentalType: z
     .enum(["daily", "weekly", "biweekly", "monthly"])
     .optional(),
+  additionalAmount: z.number().min(0).optional(),
+  additionalAmountReason: z.string().optional(),
   notes: z.string().optional(),
 });
 

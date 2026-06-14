@@ -236,7 +236,7 @@ const Dashboard: React.FC = () => {
                       <p className="text-sm text-gray-500">
                         Vencimentos próximos
                       </p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">
+                      <p className="text-2xs text-gray-400 mt-0.5">
                         Fechamentos em aberto (vencidos ou até 7 dias)
                       </p>
                     </div>

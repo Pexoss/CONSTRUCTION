@@ -267,6 +267,8 @@ class BillingController {
         notes: data.notes,
         discount: data.discount,
         discountReason: data.discountReason,
+        additionalAmount: data.additionalAmount,
+        additionalAmountReason: data.additionalAmountReason,
       });
       res.json({ success: true, data: billing, message: 'Billing updated successfully' });
     } catch (error: any) {

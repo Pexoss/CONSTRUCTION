@@ -9,6 +9,7 @@ import { financialService } from "../financial/financial.service";
 import { transactionService } from "../transactions/transaction.service";
 import { formatDateBrNoTimezoneShift } from "../../shared/utils/date-display.util";
 import { formatCurrencyBr } from "../../shared/utils/money-display.util";
+import { resolveBillingTotal } from "../billings/billing.service";
 
 const DOC_HEADER_BRAND_LINES = [
   "ALUGUE EQUIPAMENTOS PARA CONSTRUÇÃO CIVIL",
@@ -128,14 +129,36 @@ class ChargeService {
     companyId: string,
     chargeId: string,
     userId: string,
-    data: { amount: number; discount?: number; paymentMethod?: string; notes?: string; paidAt?: Date },
+    data: {
+      amount: number;
+      discount?: number;
+      paymentMethod?: string;
+      notes?: string;
+      paidAt?: Date;
+      additionalAmount?: number;
+      additionalAmountReason?: string;
+    },
   ) {
-    const charge = await Charge.findOne({ _id: chargeId, companyId });
+    let charge = await Charge.findOne({ _id: chargeId, companyId });
     if (!charge) {
       throw new Error("Cobrança não encontrada");
     }
     if (charge.status === "cancelled" || charge.status === "paid") {
       throw new Error("Cobrança não permite novas baixas");
+    }
+
+    const additionalAmount = Math.max(0, Number(data.additionalAmount || 0));
+    if (additionalAmount > 0) {
+      await this.applyAdditionalToChargeBillings(
+        charge,
+        companyId,
+        additionalAmount,
+        data.additionalAmountReason,
+      );
+      charge = await Charge.findOne({ _id: chargeId, companyId });
+      if (!charge) {
+        throw new Error("Cobrança não encontrada");
+      }
     }
 
     const paidAt = data.paidAt || new Date();
@@ -150,7 +173,10 @@ class ChargeService {
 
     const net = Number((amount + discount).toFixed(2));
     if (net <= 0) {
-      throw new Error("Informe um valor de baixa ou desconto maior que zero");
+      if (additionalAmount <= 0) {
+        throw new Error("Informe um valor de baixa, desconto ou adicional maior que zero");
+      }
+      return charge;
     }
     const chargeOutstanding = Number(charge.outstandingAmount || 0);
     if (net - chargeOutstanding > 0.01) {
@@ -248,6 +274,70 @@ class ChargeService {
     }, userId);
 
     return charge;
+  }
+
+  private async applyAdditionalToChargeBillings(
+    charge: ICharge,
+    companyId: string,
+    additionalAmount: number,
+    additionalAmountReason?: string,
+  ): Promise<void> {
+    const billings = await Billing.find({
+      _id: { $in: charge.billingIds },
+      companyId,
+      status: { $nin: ["paid", "cancelled"] },
+    }).sort({ billingDate: 1, billingNumber: 1, _id: 1 });
+
+    const target = billings.find((billing) => {
+      const outstanding = Number(
+        billing.outstandingAmount ?? billing.calculation?.total ?? 0,
+      );
+      return outstanding > 0.01;
+    });
+    if (!target) {
+      throw new Error("Nenhum fechamento em aberto para aplicar valor adicional");
+    }
+
+    if (!target.calculation) {
+      throw new Error("Fechamento sem cálculo para aplicar valor adicional");
+    }
+
+    const currentAdditional = Number(target.calculation.additionalAmount || 0);
+    target.calculation.additionalAmount = Number(
+      (currentAdditional + additionalAmount).toFixed(2),
+    );
+    if (additionalAmountReason?.trim()) {
+      const previousReason = target.calculation.additionalAmountReason?.trim();
+      target.calculation.additionalAmountReason = previousReason
+        ? `${previousReason}; ${additionalAmountReason.trim()}`
+        : additionalAmountReason.trim();
+    }
+
+    const paidAmount = Math.max(
+      0,
+      (target.calculation.total || 0) -
+        (target.outstandingAmount ?? target.calculation.total ?? 0),
+    );
+    target.calculation.total = resolveBillingTotal(target.calculation);
+    target.outstandingAmount = Math.max(0, target.calculation.total - paidAmount);
+    await target.save();
+
+    const related = await Billing.find({ _id: { $in: charge.billingIds }, companyId });
+    const totalCharge =
+      related.reduce(
+        (acc, billing) =>
+          acc + Number(billing.outstandingAmount ?? billing.calculation?.total ?? 0),
+        0,
+      ) + Number(charge.paidAmount || 0);
+    charge.total = Number(totalCharge.toFixed(2));
+    charge.outstandingAmount = Math.max(0, charge.total - charge.paidAmount);
+    charge.status =
+      charge.outstandingAmount === 0
+        ? "paid"
+        : charge.paidAmount > 0
+          ? "partial"
+          : "pending";
+    await charge.save();
   }
 
   async cancelCharge(companyId: string, chargeId: string, isAdmin: boolean) {

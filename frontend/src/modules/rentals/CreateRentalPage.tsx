@@ -16,11 +16,14 @@ import { EMPTY_ITEMS, EMPTY_ITEM_UNITS, Item, ItemUnit } from "../../types/inven
 import {
   Customer,
   CustomerAddress,
+  CreateCustomerData,
   EMPTY_CUSTOMERS,
 } from "../../types/customer.types";
 import Layout from "../../components/Layout";
 import {
   formatDocumentForDisplay,
+  formatDocumentInputBr,
+  formatPhoneInputBr,
   isValidCpfCnpj,
   todayDateInputValue,
   formatCurrencyBr,
@@ -154,6 +157,13 @@ const CreateRentalPage: React.FC = () => {
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
+  const [newCustomerForm, setNewCustomerForm] = useState({
+    name: "",
+    cpfCnpj: "",
+    email: "",
+    phone: "",
+  });
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
   const [services, setServices] = useState<ServiceFormRow[]>([]);
   const [workAddress, setWorkAddress] = useState<RentalWorkAddress | null>(
@@ -299,6 +309,40 @@ const CreateRentalPage: React.FC = () => {
 
   const createMutation = useMutation({
     mutationFn: (data: CreateRentalData) => rentalService.createRental(data),
+  });
+
+  const createCustomerMutation = useMutation({
+    mutationFn: (data: CreateCustomerData) =>
+      customerService.createCustomer(data),
+    onSuccess: (customer) => {
+      queryClient.setQueryData<CustomersListResult | undefined>(
+        ["customers"],
+        (old: CustomersListResult | undefined) => {
+        if (!old?.data) return old;
+        return {
+          ...old,
+          data: [
+            customer,
+            ...old.data.filter((c: Customer) => c._id !== customer._id),
+          ],
+        };
+      },
+      );
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      setSelectedCustomer(customer._id);
+      setCustomerCpf(formatDocumentInput(customer.cpfCnpj || ""));
+      setCustomerSearch("");
+      setShowCustomerDropdown(false);
+      setShowNewCustomerModal(false);
+      setNewCustomerForm({ name: "", cpfCnpj: "", email: "", phone: "" });
+      toast.success("Cliente cadastrado e selecionado para o aluguel.");
+    },
+    onError: (error: unknown) => {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message ?? "Erro ao cadastrar cliente.";
+      toast.error(message);
+    },
   });
 
   function parseLocalDate(dateString: string) {
@@ -572,6 +616,61 @@ const CreateRentalPage: React.FC = () => {
     setWorkAddress(null);
     const customer = allCustomers.find((c) => c._id === newCustomerId);
     setCustomerCpf(formatDocumentInput(customer?.cpfCnpj || ""));
+  };
+
+  const openNewCustomerModal = () => {
+    const term = customerSearch.trim();
+    const digits = normalizeDocument(term);
+    if (digits.length >= 11) {
+      setNewCustomerForm({
+        name: "",
+        cpfCnpj: formatDocumentInputBr(digits),
+        email: "",
+        phone: "",
+      });
+    } else if (term) {
+      setNewCustomerForm({
+        name: term,
+        cpfCnpj: "",
+        email: "",
+        phone: "",
+      });
+    } else {
+      setNewCustomerForm({ name: "", cpfCnpj: "", email: "", phone: "" });
+    }
+    setShowCustomerDropdown(false);
+    setShowNewCustomerModal(true);
+  };
+
+  const handleCreateCustomer = (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newCustomerForm.name.trim();
+    const cpfDigits = normalizeDocument(newCustomerForm.cpfCnpj);
+    if (!name) {
+      toast.warning("Informe o nome do cliente.");
+      return;
+    }
+    if (!cpfDigits) {
+      toast.warning("Informe o CPF/CNPJ do cliente.");
+      return;
+    }
+    if (!isValidCpfCnpj(cpfDigits)) {
+      toast.warning("CPF/CNPJ inválido.");
+      return;
+    }
+    const payload: CreateCustomerData = {
+      name,
+      cpfCnpj: cpfDigits,
+      validateDocument: false,
+      isBlocked: false,
+    };
+    if (newCustomerForm.email.trim()) {
+      payload.email = newCustomerForm.email.trim();
+    }
+    if (newCustomerForm.phone.trim()) {
+      payload.phone = newCustomerForm.phone.trim();
+    }
+    createCustomerMutation.mutate(payload);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -980,9 +1079,18 @@ const CreateRentalPage: React.FC = () => {
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                     Cliente *
                   </h2>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                    Obrigatório
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={openNewCustomerModal}
+                      className="text-xs font-medium px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      + Novo cliente
+                    </button>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      Obrigatório
+                    </span>
+                  </div>
                 </div>
                 <div className="relative">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -1056,6 +1164,14 @@ const CreateRentalPage: React.FC = () => {
                           <p className="text-sm text-gray-500 dark:text-gray-400">
                             Nenhum cliente encontrado
                           </p>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={openNewCustomerModal}
+                            className="mt-3 w-full text-sm font-medium text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-600 hover:bg-gray-200 dark:hover:bg-gray-500 rounded-md px-3 py-2 transition-colors"
+                          >
+                            Cadastrar novo cliente
+                          </button>
                         </div>
                       )}
                   </div>
@@ -2124,6 +2240,117 @@ const CreateRentalPage: React.FC = () => {
           </div>
         </div>
       </div>
+      {showNewCustomerModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Novo cliente
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowNewCustomerModal(false)}
+                className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleCreateCustomer} className="p-6 space-y-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Cadastre o cliente sem sair do aluguel. Após salvar, ele será
+                selecionado automaticamente.
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Nome *
+                </label>
+                <input
+                  type="text"
+                  value={newCustomerForm.name}
+                  onChange={(e) =>
+                    setNewCustomerForm({
+                      ...newCustomerForm,
+                      name: e.target.value,
+                    })
+                  }
+                  placeholder="Ex: João da Silva"
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  CPF/CNPJ *
+                </label>
+                <input
+                  type="text"
+                  value={newCustomerForm.cpfCnpj}
+                  onChange={(e) =>
+                    setNewCustomerForm({
+                      ...newCustomerForm,
+                      cpfCnpj: formatDocumentInputBr(e.target.value),
+                    })
+                  }
+                  placeholder="000.000.000-00"
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    E-mail
+                  </label>
+                  <input
+                    type="email"
+                    value={newCustomerForm.email}
+                    onChange={(e) =>
+                      setNewCustomerForm({
+                        ...newCustomerForm,
+                        email: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Telefone
+                  </label>
+                  <input
+                    type="text"
+                    value={newCustomerForm.phone}
+                    onChange={(e) =>
+                      setNewCustomerForm({
+                        ...newCustomerForm,
+                        phone: formatPhoneInputBr(e.target.value),
+                      })
+                    }
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewCustomerModal(false)}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={createCustomerMutation.isPending}
+                  className="px-4 py-2 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium disabled:opacity-60"
+                >
+                  {createCustomerMutation.isPending
+                    ? "Salvando..."
+                    : "Cadastrar e usar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {showItemsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-4xl max-h-[85vh] overflow-hidden">

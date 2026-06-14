@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
@@ -30,7 +30,7 @@ import {
   formatMoneyInputBr,
   formatMoneyInputBrLive,
   getBillingOutstandingAmount,
-  // parseMoneyBr,
+  parseMoneyBr,
   todayDateInputValue,
 } from "../../utils/formatters";
 import { selectInputText } from "../../utils/selectInputText";
@@ -68,6 +68,79 @@ function resolveBillingItemDisplayForFreteGrouping(item: any, rental: any): stri
     return rentalItem.itemId.name || "Item";
   }
   return "Item";
+}
+
+function getRentalEntityId(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const obj = value as { _id?: { toString?: () => string } | string };
+    if (typeof obj._id === "string") return obj._id;
+    if (obj._id && typeof obj._id.toString === "function") {
+      return obj._id.toString();
+    }
+  }
+  return "";
+}
+
+function normalizeRentalBillingDateKey(value?: string | Date | null): string {
+  if (value === undefined || value === null || value === "") return "na";
+  if (typeof value === "string") {
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  }
+  const date =
+    value instanceof Date
+      ? value
+      : new Date(typeof value === "string" ? value : String(value));
+  if (Number.isNaN(date.getTime())) return "na";
+  const y = date.getFullYear();
+  const mo = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${d}`;
+}
+
+function buildRentalLineKeyFromItem(item: RentalItem): string {
+  const base = [
+    getRentalEntityId(item.itemId),
+    item.unitId ? String(item.unitId) : "no-unit",
+    item.rentalType || "daily",
+    normalizeRentalBillingDateKey(item.pickupScheduled),
+    normalizeRentalBillingDateKey(item.returnScheduled),
+  ].join("|");
+  if (typeof item.lineId === "string" && item.lineId.trim().length > 0) {
+    return `${base}|${item.lineId.trim()}`;
+  }
+  return base;
+}
+
+function findClosureBillingForReturnedItem(
+  billings: Billing[],
+  rentalItem: RentalItem,
+): Billing | undefined {
+  const lineKey = buildRentalLineKeyFromItem(rentalItem);
+  const itemId = getRentalEntityId(rentalItem.itemId);
+  const unitId = rentalItem.unitId || "";
+  const rentalType = rentalItem.rentalType || "daily";
+
+  const matching = billings
+    .filter((billing) => billing.status !== "cancelled")
+    .filter((billing) =>
+      (billing.items || []).some((billingItem) => {
+        if (billingItem.rentalLineKey) {
+          return billingItem.rentalLineKey === lineKey;
+        }
+        const sameItem = getRentalEntityId(billingItem.itemId) === itemId;
+        const sameUnit = (billingItem.unitId || "") === unitId;
+        const sameType = billing.rentalType === rentalType;
+        return sameItem && sameUnit && sameType;
+      }),
+    );
+
+  if (matching.length === 0) return undefined;
+  return [...matching].sort(
+    (a, b) =>
+      new Date(b.periodEnd || 0).getTime() - new Date(a.periodEnd || 0).getTime(),
+  )[0];
 }
 
 type RentalDetailBillingSortKey = "period" | "status" | "total";
@@ -230,14 +303,27 @@ const RentalDetailPage: React.FC = () => {
   const [closeItemBillingRentalType, setCloseItemBillingRentalType] = useState<
     "daily" | "weekly" | "biweekly" | "monthly" | ""
   >("");
+  const [closeItemAdditionalAmount, setCloseItemAdditionalAmount] = useState("");
+  const [closeItemAdditionalReason, setCloseItemAdditionalReason] = useState("");
   const [closeItemPreview, setCloseItemPreview] = useState<{
     originalTotal: number;
     recalculatedTotal: number;
+    expectedBillingAmount?: number;
     usedDays: number;
+    periodsCharged?: number;
     contractedDays: number;
     rentalType: string;
+    billingRentalTypeUsed?: string;
     rentalTotalAfterClose: number;
+    periodStart?: string | null;
+    periodEnd?: string | null;
+    isLoan?: boolean;
+    baseBillingAmount?: number;
+    additionalAmount?: number;
   } | null>(null);
+  const [closeItemPreviewError, setCloseItemPreviewError] = useState<string | null>(
+    null,
+  );
   const [closeItemLoading, setCloseItemLoading] = useState(false);
   const [selectedCloseItem, setSelectedCloseItem] = useState<{
     itemId: string;
@@ -246,6 +332,7 @@ const RentalDetailPage: React.FC = () => {
     name: string;
     quantity: number;
     rentalType?: "daily" | "weekly" | "biweekly" | "monthly";
+    pickupScheduled?: string;
   } | null>(null);
   const [editForm, setEditForm] = useState({
     notes: "",
@@ -624,6 +711,7 @@ const RentalDetailPage: React.FC = () => {
       rentalType:
         (item.rentalType as "daily" | "weekly" | "biweekly" | "monthly") ||
         "daily",
+      pickupScheduled: item.pickupScheduled || undefined,
     });
     setCloseItemReturnDate(
       item.returnActual ? toDateInput(item.returnActual) : todayDateInputValue(),
@@ -636,19 +724,94 @@ const RentalDetailPage: React.FC = () => {
     setCloseItemInformativeDate(
       item.informativeReturnDate
         ? toDateInput(item.informativeReturnDate)
-        : "",
+        : todayDateInputValue(),
     );
     setCloseItemReturnedQuantity(Number(item.quantity || 1));
     setCloseItemNewRentalType("");
     setCloseItemBillingRentalType(
       (item.rentalType as "daily" | "weekly" | "biweekly" | "monthly") || "",
     );
+    const closureBilling = findClosureBillingForReturnedItem(billings, item);
+    const existingAdditional = Number(
+      closureBilling?.calculation?.additionalAmount || 0,
+    );
+    setCloseItemAdditionalAmount(
+      existingAdditional > 0.01 ? formatMoneyInputBr(existingAdditional) : "",
+    );
+    setCloseItemAdditionalReason(
+      String(closureBilling?.calculation?.additionalAmountReason || ""),
+    );
     setCloseItemPreview(null);
+    setCloseItemPreviewError(null);
     setCloseItemLoading(false);
     setCloseItemModal(true);
   };
 
-  const handleAbrirFinalizacaoItem = async (item: any) => {
+  const loadCloseItemPreview = useCallback(async () => {
+    if (!id || !selectedCloseItem || !closeItemModal || closeItemMode !== "close") {
+      return;
+    }
+
+    setCloseItemLoading(true);
+    setCloseItemPreviewError(null);
+    try {
+      const returnDateIso =
+        closeItemReturnDate.trim() !== ""
+          ? toLocalDateTimeIso(
+              closeItemReturnDate,
+              closeItemReturnTime.trim() || "00:00",
+            )
+          : undefined;
+      const preview = await rentalService.getClosePreviewItem(
+        id,
+        selectedCloseItem.itemId,
+        {
+          unitId: selectedCloseItem.unitId,
+          lineId: selectedCloseItem.lineId,
+          returnDate: returnDateIso,
+          billingRentalType: closeItemBillingRentalType || undefined,
+          returnedQuantity: closeItemReturnedQuantity,
+          additionalAmount: parseMoneyBr(closeItemAdditionalAmount) || 0,
+        },
+      );
+      setCloseItemPreview(preview);
+    } catch (err: unknown) {
+      setCloseItemPreview(null);
+      setCloseItemPreviewError(
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message || "Não foi possível calcular o valor previsto.",
+      );
+    } finally {
+      setCloseItemLoading(false);
+    }
+  }, [
+    id,
+    selectedCloseItem,
+    closeItemModal,
+    closeItemMode,
+    closeItemReturnDate,
+    closeItemReturnTime,
+    closeItemBillingRentalType,
+    closeItemReturnedQuantity,
+    closeItemAdditionalAmount,
+  ]);
+
+  useEffect(() => {
+    if (!closeItemModal || closeItemMode !== "close" || !selectedCloseItem) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void loadCloseItemPreview();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [
+    closeItemModal,
+    closeItemMode,
+    selectedCloseItem,
+    loadCloseItemPreview,
+  ]);
+
+  const handleAbrirFinalizacaoItem = (item: any) => {
     if (!id) return;
     setCloseItemMode("close");
     setSelectedCloseItem({
@@ -664,35 +827,22 @@ const RentalDetailPage: React.FC = () => {
       rentalType:
         (item.rentalType as "daily" | "weekly" | "biweekly" | "monthly") ||
         "daily",
+      pickupScheduled: item.pickupScheduled || undefined,
     });
     setCloseItemReturnDate(todayDateInputValue());
     const nowClk = new Date();
     const nowTimeStr = `${String(nowClk.getHours()).padStart(2, "0")}:${String(nowClk.getMinutes()).padStart(2, "0")}`;
     setCloseItemReturnTime(toTimeInput(item.pickupScheduled) || nowTimeStr);
-    setCloseItemInformativeDate("");
+    setCloseItemInformativeDate(todayDateInputValue());
     setCloseItemReturnedQuantity(Number(item.quantity || 1));
     setCloseItemNewRentalType("");
     setCloseItemBillingRentalType("");
+    setCloseItemAdditionalAmount("");
+    setCloseItemAdditionalReason("");
+    setCloseItemPreview(null);
+    setCloseItemPreviewError(null);
     setCloseItemLoading(true);
-    try {
-      const preview = await rentalService.getClosePreviewItem(
-        id,
-        typeof item.itemId === "string" ? item.itemId : item.itemId._id,
-        {
-          unitId: item.unitId,
-          lineId:
-            typeof item.lineId === "string" && item.lineId.trim()
-              ? item.lineId.trim()
-              : undefined,
-        },
-      );
-      setCloseItemPreview(preview);
-    } catch {
-      setCloseItemPreview(null);
-    } finally {
-      setCloseItemLoading(false);
-      setCloseItemModal(true);
-    }
+    setCloseItemModal(true);
   };
 
   const confirmFinalClosure = async () => {
@@ -987,7 +1137,7 @@ const RentalDetailPage: React.FC = () => {
                             <div className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
                               {itemName}
                               {item.isLoan && (
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
+                                <span className="text-3xs font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
                                   Empréstimo
                                 </span>
                               )}
@@ -1037,7 +1187,7 @@ const RentalDetailPage: React.FC = () => {
                                   >
                                     {item.unitId?.trim() || "Por unidade"}
                                   </div>
-                                  <p className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                                  <p className="mt-0.5 text-3xs text-gray-500 dark:text-gray-400">
                                     Controle por unidade (não usa quantidade)
                                   </p>
                                 </>
@@ -2955,7 +3105,7 @@ const RentalDetailPage: React.FC = () => {
                             <div className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
                               {itemName} • Qtd: {item.quantity}
                               {item.isLoan && (
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
+                                <span className="text-3xs font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
                                   Empréstimo
                                 </span>
                               )}
@@ -3851,7 +4001,21 @@ const RentalDetailPage: React.FC = () => {
                 </div>
 
                 <div className="text-sm text-gray-700 dark:text-gray-300">
-                  {selectedCloseItem.name}
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    {selectedCloseItem.pickupScheduled ? (
+                      <>
+                        Retirada:{" "}
+                        {formatPickupDateForDisplay(selectedCloseItem.pickupScheduled)}
+                        {formatTimeForDisplay(selectedCloseItem.pickupScheduled)
+                          ? ` às ${formatTimeForDisplay(selectedCloseItem.pickupScheduled)}`
+                          : ""}
+                        {" · "}
+                      </>
+                    ) : null}
+                    {formatRentalTypeLabel(selectedCloseItem.rentalType || "daily")}
+                    {" · "}
+                    {selectedCloseItem.name}
+                  </p>
                   {closeItemMode === "correct" ? (
                     <span className="block mt-1 text-xs text-gray-500 dark:text-gray-400">
                       Ajuste a data de cobrança, a quantidade devolvida ou o tipo de
@@ -3869,56 +4033,6 @@ const RentalDetailPage: React.FC = () => {
               </div>
 
               <div className="px-6 overflow-y-auto flex-1 min-h-0 space-y-4">
-                {closeItemMode === "close" && closeItemLoading ? (
-                  <div className="text-sm text-gray-500 dark:text-gray-400">
-                    Calculando fechamento...
-                  </div>
-                ) : closeItemMode === "close" && closeItemPreview ? (
-                  <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-600">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-600">
-                          <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                            Dias utilizados
-                          </th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                            Valor original
-                          </th>
-                          <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                            Valor recalculado
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="px-3 py-2 font-medium text-gray-900 dark:text-white tabular-nums">
-                            {closeItemPreview.usedDays}
-                          </td>
-                          <td className="px-3 py-2 text-right font-medium text-gray-900 dark:text-white tabular-nums whitespace-nowrap">
-                            {formatCurrencyBr(closeItemPreview.originalTotal)}
-                          </td>
-                          <td className="px-3 py-2 text-right font-medium text-gray-900 dark:text-white tabular-nums whitespace-nowrap">
-                            {formatCurrencyBr(closeItemPreview.recalculatedTotal)}
-                          </td>
-                        </tr>
-                      </tbody>
-                      <tfoot>
-                        <tr className="border-t border-gray-200 dark:border-gray-600 bg-gray-50/80 dark:bg-gray-900/30">
-                          <td
-                            colSpan={2}
-                            className="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200"
-                          >
-                            Total do aluguel
-                          </td>
-                          <td className="px-3 py-2 text-right font-bold text-gray-900 dark:text-white tabular-nums whitespace-nowrap">
-                            {formatCurrencyBr(closeItemPreview.rentalTotalAfterClose)}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                ) : null}
-
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -4057,6 +4171,155 @@ const RentalDetailPage: React.FC = () => {
                     </select>
                   </div>
                 )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Valor adicional (R$)
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={closeItemAdditionalAmount}
+                      onFocus={selectInputText}
+                      onClick={selectInputText}
+                      onChange={(e) =>
+                        setCloseItemAdditionalAmount(
+                          formatMoneyInputBrLive(e.target.value),
+                        )
+                      }
+                      onBlur={(e) =>
+                        setCloseItemAdditionalAmount(
+                          formatMoneyInputBr(e.target.value),
+                        )
+                      }
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm tabular-nums"
+                    />
+                    <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      Opcional — somado ao valor do período (ex.: danos ou defeitos).
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Motivo do adicional
+                    </label>
+                    <input
+                      type="text"
+                      value={closeItemAdditionalReason}
+                      onChange={(e) => setCloseItemAdditionalReason(e.target.value)}
+                      placeholder="Ex: equipamento danificado"
+                      className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    />
+                  </div>
+                </div>
+                {closeItemMode === "close" && (
+                  <div className="rounded-lg border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/60 dark:bg-indigo-950/25 p-4 space-y-2">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
+                        Valor previsto do fechamento
+                      </h4>
+                      {closeItemLoading ? (
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          Calculando…
+                        </span>
+                      ) : null}
+                    </div>
+                    {closeItemPreviewError ? (
+                      <p className="text-sm text-amber-700 dark:text-amber-300">
+                        {closeItemPreviewError}
+                      </p>
+                    ) : closeItemPreview ? (
+                      <>
+                        <p className="text-2xl font-bold text-indigo-700 dark:text-indigo-300 tabular-nums">
+                          {closeItemPreview.isLoan
+                            ? formatCurrencyBr(0)
+                            : formatCurrencyBr(
+                                closeItemPreview.expectedBillingAmount ??
+                                  closeItemPreview.recalculatedTotal,
+                              )}
+                        </p>
+                        {closeItemPreview.isLoan ? (
+                          <p className="text-sm text-gray-600 dark:text-gray-300">
+                            Empréstimo de material — sem cobrança nesta devolução.
+                          </p>
+                        ) : (
+                          <div className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
+                            <p>
+                              Tipo de cobrança:{" "}
+                              <span className="font-medium text-gray-900 dark:text-white">
+                                {formatRentalTypeLabel(
+                                  closeItemPreview.billingRentalTypeUsed ||
+                                    closeItemPreview.rentalType,
+                                )}
+                              </span>
+                              {closeItemPreview.billingRentalTypeUsed &&
+                              closeItemPreview.billingRentalTypeUsed !==
+                                closeItemPreview.rentalType ? (
+                                <span className="text-gray-500 dark:text-gray-400">
+                                  {" "}
+                                  (contrato:{" "}
+                                  {formatRentalTypeLabel(closeItemPreview.rentalType)})
+                                </span>
+                              ) : null}
+                            </p>
+                            <p>
+                              Dias cobrados:{" "}
+                              <span className="font-medium tabular-nums">
+                                {closeItemPreview.usedDays}
+                              </span>
+                              {closeItemPreview.periodsCharged != null ? (
+                                <>
+                                  {" · "}
+                                  Períodos:{" "}
+                                  <span className="font-medium tabular-nums">
+                                    {closeItemPreview.periodsCharged}
+                                  </span>
+                                </>
+                              ) : null}
+                            </p>
+                            {Number(closeItemPreview.additionalAmount || 0) > 0.01 ? (
+                              <p>
+                                Valor do período:{" "}
+                                <span className="font-medium tabular-nums">
+                                  {formatCurrencyBr(
+                                    closeItemPreview.baseBillingAmount ??
+                                      closeItemPreview.recalculatedTotal -
+                                        Number(closeItemPreview.additionalAmount || 0),
+                                  )}
+                                </span>
+                                {" · "}
+                                Adicional:{" "}
+                                <span className="font-medium tabular-nums">
+                                  {formatCurrencyBr(closeItemPreview.additionalAmount || 0)}
+                                </span>
+                              </p>
+                            ) : null}
+                            {closeItemPreview.periodStart &&
+                            closeItemPreview.periodEnd ? (
+                              <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Período:{" "}
+                                {formatDateTimeForDisplay(closeItemPreview.periodStart)}{" "}
+                                →{" "}
+                                {formatDateTimeForDisplay(closeItemPreview.periodEnd)}
+                              </p>
+                            ) : null}
+                            <p className="text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-indigo-100 dark:border-indigo-900/40">
+                              Valor original do item no contrato:{" "}
+                              {formatCurrencyBr(closeItemPreview.originalTotal)}
+                              {" · "}
+                              Total do aluguel após devolução:{" "}
+                              {formatCurrencyBr(closeItemPreview.rentalTotalAfterClose)}
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    ) : !closeItemLoading ? (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        Informe a data e hora de cálculo para ver o valor previsto.
+                      </p>
+                    ) : null}
+                  </div>
+                )}
               </div>
 
               <div className="px-6 py-4 shrink-0 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2 bg-white dark:bg-gray-800 rounded-b-lg">
@@ -4084,6 +4347,22 @@ const RentalDetailPage: React.FC = () => {
                         closeItemInformativeDate.trim() !== ""
                           ? closeItemInformativeDate.trim()
                           : undefined;
+                      const additionalAmount = parseMoneyBr(closeItemAdditionalAmount);
+                      const additionalPayload: {
+                        additionalAmount?: number;
+                        additionalAmountReason?: string;
+                      } =
+                        Number.isFinite(additionalAmount) && additionalAmount > 0
+                          ? {
+                              additionalAmount,
+                              ...(closeItemAdditionalReason.trim()
+                                ? {
+                                    additionalAmountReason:
+                                      closeItemAdditionalReason.trim(),
+                                  }
+                                : {}),
+                            }
+                          : {};
 
                       if (closeItemMode === "correct") {
                         await rentalService.correctRentalItemReturn(id, {
@@ -4109,6 +4388,7 @@ const RentalDetailPage: React.FC = () => {
                                 billingRentalType: closeItemBillingRentalType,
                               }
                             : {}),
+                          ...additionalPayload,
                         });
                         setCloseItemModal(false);
                         setCloseItemMode("close");
@@ -4130,7 +4410,8 @@ const RentalDetailPage: React.FC = () => {
                       const useReturnsEndpoint =
                         isUnitLine ||
                         selectedCloseItem.quantity > 1 ||
-                        Boolean(closeItemBillingRentalType);
+                        Boolean(closeItemBillingRentalType) ||
+                        Boolean(additionalPayload.additionalAmount);
 
                       if (useReturnsEndpoint) {
                         await rentalService.returnRentalItems(id, {
@@ -4168,6 +4449,7 @@ const RentalDetailPage: React.FC = () => {
                                     remainderRentalType: closeItemNewRentalType,
                                   }
                                 : {}),
+                              ...additionalPayload,
                             },
                           ],
                         });
@@ -4187,6 +4469,7 @@ const RentalDetailPage: React.FC = () => {
                             ...(selectedCloseItem.lineId
                               ? { lineId: selectedCloseItem.lineId }
                               : {}),
+                            ...additionalPayload,
                           },
                         );
                       }

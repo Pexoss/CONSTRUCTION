@@ -53,11 +53,28 @@ export const rentalService = {
   getClosePreviewItem: async (
     rentalId: string,
     itemId: string,
-    opts?: { unitId?: string; lineId?: string },
+    opts?: {
+      unitId?: string;
+      lineId?: string;
+      returnDate?: string;
+      billingRentalType?: string;
+      returnedQuantity?: number;
+      additionalAmount?: number;
+    },
   ) => {
     const params = new URLSearchParams();
     if (opts?.unitId) params.set("unitId", opts.unitId);
     if (opts?.lineId) params.set("lineId", opts.lineId);
+    if (opts?.returnDate) params.set("returnDate", opts.returnDate);
+    if (opts?.billingRentalType) {
+      params.set("billingRentalType", opts.billingRentalType);
+    }
+    if (opts?.returnedQuantity != null) {
+      params.set("returnedQuantity", String(opts.returnedQuantity));
+    }
+    if (opts?.additionalAmount != null && opts.additionalAmount > 0) {
+      params.set("additionalAmount", String(opts.additionalAmount));
+    }
     const qs = params.toString() ? `?${params.toString()}` : "";
 
     const response = await api.get<{
@@ -65,10 +82,18 @@ export const rentalService = {
       data: {
         originalTotal: number;
         recalculatedTotal: number;
+        expectedBillingAmount: number;
         usedDays: number;
+        periodsCharged?: number;
         contractedDays: number;
         rentalType: string;
+        billingRentalTypeUsed?: string;
         rentalTotalAfterClose: number;
+        periodStart?: string | null;
+        periodEnd?: string | null;
+        isLoan?: boolean;
+        baseBillingAmount?: number;
+        additionalAmount?: number;
       };
     }>(`/rentals/${rentalId}/items/${itemId}/close-preview${qs}`);
 
@@ -97,6 +122,8 @@ export const rentalService = {
       informativeReturnDate?: string;
       unitId?: string;
       lineId?: string;
+      additionalAmount?: number;
+      additionalAmountReason?: string;
     },
   ) => {
     const response = await api.post<{
@@ -117,6 +144,8 @@ export const rentalService = {
       informativeReturnDate?: string;
       correctedQuantity?: number;
       billingRentalType?: "daily" | "weekly" | "biweekly" | "monthly";
+      additionalAmount?: number;
+      additionalAmountReason?: string;
       notes?: string;
     },
   ) => {
@@ -141,6 +170,8 @@ export const rentalService = {
         returnedQuantity?: number;
         billingRentalType?: "daily" | "weekly" | "biweekly" | "monthly";
         remainderRentalType?: "daily" | "weekly" | "biweekly" | "monthly";
+        additionalAmount?: number;
+        additionalAmountReason?: string;
       }>;
     },
   ) => {

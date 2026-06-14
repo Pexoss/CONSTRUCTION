@@ -39,7 +39,7 @@ export default function SortableTh<K extends string>({
       >
         <span>{label}</span>
         <span
-          className="text-[10px] text-gray-500 dark:text-gray-400 shrink-0"
+          className="text-3xs text-gray-500 dark:text-gray-400 shrink-0"
           aria-hidden
         >
           {dir === "asc" ? "▲" : dir === "desc" ? "▼" : "⇅"}

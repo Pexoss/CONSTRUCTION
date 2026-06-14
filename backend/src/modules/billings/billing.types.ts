@@ -38,6 +38,9 @@ export interface IBillingCalculation {
   subtotal: number;
   discount: number;
   discountReason?: string;
+  /** Acréscimo manual (ex.: danos na devolução) — somado ao total após desconto. */
+  additionalAmount?: number;
+  additionalAmountReason?: string;
   total: number;
 }
 

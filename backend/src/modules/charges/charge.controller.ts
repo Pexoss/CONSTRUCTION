@@ -10,13 +10,21 @@ const createChargeSchema = z.object({
   totalOverride: z.number().nonnegative().optional(),
 });
 
-const paymentSchema = z.object({
-  amount: z.number().positive(),
-  discount: z.number().nonnegative().optional(),
-  paymentMethod: z.string().optional(),
-  notes: z.string().optional(),
-  paidAt: z.coerce.date().optional(),
-});
+const paymentSchema = z
+  .object({
+    amount: z.number().nonnegative(),
+    discount: z.number().nonnegative().optional(),
+    paymentMethod: z.string().optional(),
+    notes: z.string().optional(),
+    paidAt: z.coerce.date().optional(),
+    additionalAmount: z.number().nonnegative().optional(),
+    additionalAmountReason: z.string().optional(),
+  })
+  .refine(
+    (data) =>
+      (data.amount || 0) + (data.discount || 0) > 0 || (data.additionalAmount || 0) > 0,
+    { message: "Informe um valor de baixa, desconto ou adicional maior que zero" },
+  );
 
 const updateChargeSchema = z.object({
   dueDate: z.coerce.date().optional(),

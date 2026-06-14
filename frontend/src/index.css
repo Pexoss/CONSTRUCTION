@@ -8,13 +8,57 @@
   }
 }
 
-/* Acessibilidade: 3 níveis de fonte (Tailwind usa rem) */
+/*
+ * Acessibilidade: 3 níveis de fonte.
+ * Tailwind usa rem; textos menores sobem de patamar em A+ / A++ para não ficarem ilegíveis.
+ */
 html.font-large {
   font-size: 112.5%; /* ~18px */
 }
 
 html.font-xlarge {
   font-size: 125%; /* ~20px */
+}
+
+html.font-large :where(.text-3xs) {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+html.font-large :where(.text-2xs),
+html.font-large :where(.text-xs) {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+html.font-large :where(.text-sm) {
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+html.font-xlarge :where(.text-3xs) {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+html.font-xlarge :where(.text-2xs),
+html.font-xlarge :where(.text-xs) {
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+html.font-xlarge :where(.text-sm) {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+/* Toasts e outros widgets com fonte fixa da biblioteca */
+html.font-large .Toastify__toast-body {
+  font-size: 0.9375rem;
+}
+
+html.font-xlarge .Toastify__toast-body {
+  font-size: 1.0625rem;
 }
 
 body {

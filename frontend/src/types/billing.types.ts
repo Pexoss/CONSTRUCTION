@@ -13,6 +13,8 @@ export interface BillingCalculation {
   discount: number;
   total: number;
   discountReason?: string;
+  additionalAmount?: number;
+  additionalAmountReason?: string;
 }
 
 export interface BillingItem {
