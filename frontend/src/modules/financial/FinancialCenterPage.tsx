@@ -706,10 +706,30 @@ const FinancialCenterPage: React.FC = () => {
     });
   }, [invoices, customerFilter, itemFilter, obraFilter, periodStartFilter, periodEndFilter, billingMatchesGlobalFilter]);
 
+  const refreshChargeModalFromBoard = useCallback(
+    async (chargeId: string) => {
+      await queryClient.invalidateQueries({ queryKey: ["financial-board"] });
+      const boardResult = await queryClient.fetchQuery({
+        queryKey: financialBoardQueryKey,
+        queryFn: fetchFinancialBoard,
+      });
+      const updatedCharge = (boardResult?.data?.charges || []).find(
+        (c: any) => String(c._id) === String(chargeId),
+      );
+      if (updatedCharge) {
+        applyChargeModalState(updatedCharge);
+      }
+    },
+    [queryClient, financialBoardQueryKey, fetchFinancialBoard, applyChargeModalState],
+  );
+
   const availableBillingsForChargeModal = useMemo(() => {
     if (!chargeModal) return [];
     const customerId = String(chargeModal.customerId?._id || chargeModal.customerId || "");
-    const currentIds = new Set((chargeModal.billingIds || []).map((b: any) => String(b?._id || b)));
+    const currentIds = new Set([
+      ...(chargeModal.billingIds || []).map((b: any) => String(b?._id || b)),
+      ...chargeModalBillingIds,
+    ]);
     return billings.filter((bill: any) => {
       const billCustomerId = String(bill.customerId?._id || bill.customerId || "");
       if (billCustomerId !== customerId) return false;
@@ -717,7 +737,7 @@ const FinancialCenterPage: React.FC = () => {
       if (currentIds.has(billId)) return true;
       return isBillingEligibleForCharge(bill);
     });
-  }, [chargeModal, billings]);
+  }, [chargeModal, chargeModalBillingIds, billings]);
 
   const handleCreateCharge = () => {
     if (selectedBillingIds.length < 1) {
@@ -935,7 +955,41 @@ const FinancialCenterPage: React.FC = () => {
   };
 
   const finishChargeModalBillingsEdit = () => {
-    setChargeModalBillingsEditMode(false);
+    if (!chargeModal) {
+      setChargeModalBillingsEditMode(false);
+      return;
+    }
+    const snapshotSet = new Set(chargeModalBillingIdsSnapshot.map(String));
+    const billingsChanged =
+      chargeModalBillingIds.length !== chargeModalBillingIdsSnapshot.length ||
+      chargeModalBillingIds.some((id) => !snapshotSet.has(String(id)));
+
+    if (!billingsChanged) {
+      setChargeModalBillingsEditMode(false);
+      return;
+    }
+    if (isChargeEditLocked(chargeModal)) {
+      toast.info("Esta cobrança não pode mais ser alterada.");
+      return;
+    }
+    if (chargeModalBillingIds.length === 0) {
+      toast.warning("Selecione ao menos um fechamento para a cobrança.");
+      return;
+    }
+
+    editChargeMutation.mutate(
+      {
+        chargeId: chargeModal._id,
+        billingIds: chargeModalBillingIds,
+        total: parseMoneyBr(chargeModalTotal),
+      } as any,
+      {
+        onSuccess: async () => {
+          setChargeModalBillingsEditMode(false);
+          await refreshChargeModalFromBoard(chargeModal._id);
+        },
+      },
+    );
   };
 
   const openInvoiceModal = (invoice: any) => {
@@ -1894,8 +1948,8 @@ const FinancialCenterPage: React.FC = () => {
                     </h4>
                     {chargeModalBillingsEditMode && !chargeModalViewOnly ? (
                       <p className="text-2xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        Mesmo cliente: marque ou desmarque fechamentos e use Concluir; depois
-                        salve a cobrança.
+                        Mesmo cliente: marque ou desmarque fechamentos e clique em Concluir
+                        edição para salvar os vínculos.
                       </p>
                     ) : null}
                   </div>
@@ -1919,10 +1973,11 @@ const FinancialCenterPage: React.FC = () => {
                       </button>
                       <button
                         type="button"
-                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                         onClick={finishChargeModalBillingsEdit}
+                        disabled={editChargeMutation.isPending}
                       >
-                        Concluir edição
+                        {editChargeMutation.isPending ? "Salvando…" : "Concluir edição"}
                       </button>
                     </div>
                   ) : null}
