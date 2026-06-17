@@ -99,6 +99,17 @@ const formatInvoiceHeading = (invoice: {
 
 const getBillingOutstanding = getBillingOutstandingAmount;
 
+const billingPeriodSortMs = (billing: { periodStart?: unknown }) =>
+  billing.periodStart ? new Date(billing.periodStart as string).getTime() : 0;
+
+function sortBillingsByPeriodOldestFirst<T extends { periodStart?: unknown }>(
+  rows: readonly T[],
+): T[] {
+  return sortedTableRows([...rows], { key: "period", dir: "asc" }, {
+    period: billingPeriodSortMs,
+  });
+}
+
 /** Nomes dos equipamentos e serviços (ex.: frete) ligados ao fechamento. */
 const getBillingItemNamesLabel = (billing: any): string => {
   const compositionRows = getBillingCompositionRowsOrdered(
@@ -172,7 +183,7 @@ const FinancialCenterPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"billings" | "charges" | "invoices">("billings");
   const [finBillSort, setFinBillSort] = useState<ColumnSort<FinBillSortKey> | null>({
     key: "period",
-    dir: "desc",
+    dir: "asc",
   });
   const [boardCustomerSearch, setBoardCustomerSearch] = useState("");
   const [showBoardCustomerDropdown, setShowBoardCustomerDropdown] = useState(false);
@@ -644,27 +655,32 @@ const FinancialCenterPage: React.FC = () => {
   );
 
   const tableBillings = useMemo(() => {
-    return sortedTableRows(billingsFilteredForTable, finBillSort, {
-      customer: (b: any) => String(b.customerId?.name || "").toLowerCase(),
-      period: (b: any) => (b.periodStart ? new Date(b.periodStart).getTime() : 0),
-      type: (b: any) =>
-        String(
-          rentalTypeLabel[String(b.rentalType || "")] || b.rentalType || "",
-        ).toLowerCase(),
-      items: (b: any) =>
-        (b.items || [])
-          .map((item: any) => item?.itemId?.name || "")
-          .filter(Boolean)
-          .join(", ")
-          .toLowerCase(),
-      work: (b: any) =>
-        String(b.rentalId?.workAddress?.workName || "").toLowerCase(),
-      stage: (b: any) =>
-        String(
-          stageLabel[String(b.financialStage)] || b.financialStage || "",
-        ).toLowerCase(),
-      outstanding: (b: any) => getBillingOutstanding(b),
-    });
+    return sortedTableRows(
+      billingsFilteredForTable,
+      finBillSort,
+      {
+        customer: (b: any) => String(b.customerId?.name || "").toLowerCase(),
+        period: (b: any) => billingPeriodSortMs(b),
+        type: (b: any) =>
+          String(
+            rentalTypeLabel[String(b.rentalType || "")] || b.rentalType || "",
+          ).toLowerCase(),
+        items: (b: any) =>
+          (b.items || [])
+            .map((item: any) => item?.itemId?.name || "")
+            .filter(Boolean)
+            .join(", ")
+            .toLowerCase(),
+        work: (b: any) =>
+          String(b.rentalId?.workAddress?.workName || "").toLowerCase(),
+        stage: (b: any) =>
+          String(
+            stageLabel[String(b.financialStage)] || b.financialStage || "",
+          ).toLowerCase(),
+        outstanding: (b: any) => getBillingOutstanding(b),
+      },
+      { tieBreaker: { key: "period", dir: "asc" } },
+    );
   }, [billingsFilteredForTable, finBillSort]);
 
   const billingMatchesGlobalFilter = useCallback(
@@ -730,13 +746,15 @@ const FinancialCenterPage: React.FC = () => {
       ...(chargeModal.billingIds || []).map((b: any) => String(b?._id || b)),
       ...chargeModalBillingIds,
     ]);
-    return billings.filter((bill: any) => {
+    return sortBillingsByPeriodOldestFirst(
+      billings.filter((bill: any) => {
       const billCustomerId = String(bill.customerId?._id || bill.customerId || "");
       if (billCustomerId !== customerId) return false;
       const billId = String(bill._id);
       if (currentIds.has(billId)) return true;
       return isBillingEligibleForCharge(bill);
-    });
+    }),
+    );
   }, [chargeModal, chargeModalBillingIds, billings]);
 
   const handleCreateCharge = () => {
@@ -924,12 +942,12 @@ const FinancialCenterPage: React.FC = () => {
     if (!chargeModal) return [];
     const idSet = new Set(chargeModalBillingIds);
     const fromBoard = billings.filter((b: any) => idSet.has(String(b._id)));
-    if (fromBoard.length >= idSet.size) return fromBoard;
+    if (fromBoard.length >= idSet.size) return sortBillingsByPeriodOldestFirst(fromBoard);
     const boardIds = new Set(fromBoard.map((b: any) => String(b._id)));
     const fromCharge = (chargeModal.billingIds || []).filter(
       (b: any) => b && typeof b === "object" && idSet.has(String(b._id)) && !boardIds.has(String(b._id)),
     );
-    return [...fromBoard, ...fromCharge];
+    return sortBillingsByPeriodOldestFirst([...fromBoard, ...fromCharge]);
   }, [chargeModal, chargeModalBillingIds, billings]);
 
   const chargeModalObraLabel = useMemo(() => {

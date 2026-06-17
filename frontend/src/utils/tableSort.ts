@@ -52,11 +52,17 @@ export function compareCells(a: SortablePrimitive, b: SortablePrimitive): number
   });
 }
 
+export type SortedTableRowsOptions<K extends string> = {
+  /** Desempate quando o valor da coluna principal é igual (ex.: período mais antigo primeiro). */
+  tieBreaker?: { key: K; dir: SortDirection };
+};
+
 /** Ordena uma cópia de `rows` conforme `sort`; se `sort` for null mantém ordem atual. */
 export function sortedTableRows<T, K extends string>(
   rows: T[],
   sort: ColumnSort<K> | null,
   accessors: Record<K, (row: T) => SortablePrimitive>,
+  options?: SortedTableRowsOptions<K>,
 ): T[] {
   if (!sort || rows.length === 0) {
     return rows;
@@ -65,6 +71,15 @@ export function sortedTableRows<T, K extends string>(
   if (!pick) {
     return rows;
   }
+  const tie = options?.tieBreaker;
+  const tiePick = tie && tie.key !== sort.key ? accessors[tie.key] : undefined;
   const mul = sort.dir === "asc" ? 1 : -1;
-  return [...rows].sort((a, b) => mul * compareCells(pick(a), pick(b)));
+  const tieMul = tie?.dir === "desc" ? -1 : 1;
+  return [...rows].sort((a, b) => {
+    const primary = mul * compareCells(pick(a), pick(b));
+    if (primary !== 0 || !tiePick) {
+      return primary;
+    }
+    return tieMul * compareCells(tiePick(a), tiePick(b));
+  });
 }

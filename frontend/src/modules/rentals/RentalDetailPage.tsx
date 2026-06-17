@@ -389,7 +389,7 @@ const RentalDetailPage: React.FC = () => {
   const [addItemSearch, setAddItemSearch] = useState("");
   const [rentalBillingSort, setRentalBillingSort] = useState<
     ColumnSort<RentalDetailBillingSortKey> | null
-  >({ key: "period", dir: "desc" });
+  >({ key: "period", dir: "asc" });
   const [saveWorkAddress, setSaveWorkAddress] = useState(false);
   const [selectedWorkAddressId, setSelectedWorkAddressId] =
     useState<string>("");
@@ -495,12 +495,17 @@ const RentalDetailPage: React.FC = () => {
 
   const sortedBillingsForTable = useMemo(
     () =>
-      sortedTableRows(billingsForClosureTable, rentalBillingSort, {
-        period: (b) =>
-          b.periodStart ? new Date(b.periodStart).getTime() : 0,
-        status: (b) => String(b.status || ""),
-        total: (b) => Number(b.calculation?.total ?? 0),
-      }),
+      sortedTableRows(
+        billingsForClosureTable,
+        rentalBillingSort,
+        {
+          period: (b) =>
+            b.periodStart ? new Date(b.periodStart).getTime() : 0,
+          status: (b) => String(b.status || ""),
+          total: (b) => Number(b.calculation?.total ?? 0),
+        },
+        { tieBreaker: { key: "period", dir: "asc" } },
+      ),
     [billingsForClosureTable, rentalBillingSort],
   );
 
