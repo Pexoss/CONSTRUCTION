@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { rentalController } from './rental.controller';
 import { authMiddleware } from '../../shared/middleware/auth.middleware';
 import { tenantMiddleware } from '../../shared/middleware/tenant.middleware';
+import { requireRoles } from '../../shared/middleware/role.middleware';
+import { UserRole } from '../../shared/constants/roles';
 
 const router = Router();
 
@@ -13,6 +15,12 @@ router.use(tenantMiddleware);
 router.get('/rentals/expiration-dashboard', rentalController.getExpirationDashboard.bind(rentalController));
 
 // Rental routes
+router.post('/rentals/cpf-bypass/request-code', rentalController.requestCpfBypassCode.bind(rentalController));
+router.get(
+  '/rentals/cpf-bypass/pending',
+  requireRoles([UserRole.ADMIN, UserRole.SUPERADMIN]),
+  rentalController.getPendingCpfBypassCodes.bind(rentalController),
+);
 router.post('/rentals', rentalController.createRental.bind(rentalController));
 router.get('/rentals', rentalController.getRentals.bind(rentalController));
 router.get('/rentals/:id', rentalController.getRentalById.bind(rentalController));

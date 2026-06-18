@@ -105,6 +105,14 @@ const Layout: React.FC<LayoutProps> = ({
                   Aprovações
                 </Link>
               )}
+              {(user?.role === "admin" || user?.role === "superadmin") && (
+                <Link
+                  to="/rentals/cpf-bypass"
+                  className="text-sm text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                >
+                  Códigos sem CPF
+                </Link>
+              )}
               
               {/* Notifications for admin */}
               {(user?.role === "admin" || user?.role === "superadmin") && (
@@ -227,6 +235,14 @@ const Layout: React.FC<LayoutProps> = ({
                   className="flex items-center w-full p-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
                 >
                   Aprovações de Aluguel
+                </Link>
+              )}
+              {(user?.role === "admin" || user?.role === "superadmin") && (
+                <Link
+                  to="/rentals/cpf-bypass"
+                  className="flex items-center w-full p-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
+                >
+                  Códigos sem CPF
                 </Link>
               )}
 

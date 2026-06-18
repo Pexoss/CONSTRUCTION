@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { rentalService } from "./rental.service";
+import { rentalCpfBypassService } from "./rental-cpf-bypass.service";
 import {
   createRentalSchema,
   updateRentalSchema,
@@ -12,6 +13,7 @@ import {
   returnRentalItemsSchema,
   correctRentalItemReturnSchema,
   changeRentalTypeEventSchema,
+  requestCpfBypassCodeSchema,
 } from "./rental.validator";
 import { Rental } from "./rental.model";
 import { Customer } from "../customers/customer.model";
@@ -57,6 +59,63 @@ export class RentalController {
         success: true,
         message: "Rental created successfully",
         data: rental,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Solicitar código de autorização para alugar sem CPF/CNPJ (funcionários).
+   * POST /api/rentals/cpf-bypass/request-code
+   */
+  async requestCpfBypassCode(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const { customerId } = requestCpfBypassCodeSchema.parse(req.body);
+
+      const result = await rentalCpfBypassService.requestBypassCode(
+        companyId,
+        customerId,
+        userId,
+      );
+
+      res.json({
+        success: true,
+        message: "Código enviado por e-mail aos administradores.",
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Listar códigos pendentes para aluguel sem CPF/CNPJ (somente admin).
+   * GET /api/rentals/cpf-bypass/pending
+   */
+  async getPendingCpfBypassCodes(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+
+      const codes = await rentalCpfBypassService.listPendingBypassCodes(
+        companyId,
+        userId,
+      );
+
+      res.json({
+        success: true,
+        data: codes,
       });
     } catch (error) {
       next(error);

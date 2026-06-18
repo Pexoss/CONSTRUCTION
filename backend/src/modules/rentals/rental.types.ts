@@ -161,6 +161,7 @@ export interface IRental extends Document {
   checklistPickup?: IRentalChecklist;
   checklistReturn?: IRentalChecklist;
   createdBy: mongoose.Types.ObjectId;
+  createdWithoutCustomerCpf?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }

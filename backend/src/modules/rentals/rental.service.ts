@@ -27,8 +27,10 @@ import {
 } from "../../shared/utils/http-error.util";
 import {
   canApplyDiscount,
+  canBypassCustomerCpfAsAdmin,
   canUpdateRentalStatus,
 } from "../../helpers/UserPermission";
+import { rentalCpfBypassService } from "./rental-cpf-bypass.service";
 import { notificationService } from "../notification/notification.service";
 import { User } from "../users/user.model";
 import billingService, {
@@ -1044,26 +1046,50 @@ class RentalService {
     if (!customer) throw notFound("Cliente não encontrado");
 
     const customerCpf = this.normalizeCpf(data.customerCpf || customer.cpfCnpj);
-    if (!this.isValidCpf(customerCpf)) {
-      throw badRequest("Informe um CPF/CNPJ válido para o cliente");
-    }
+    const hasValidCustomerCpf = this.isValidCpf(customerCpf);
+    let createdWithoutCustomerCpf = false;
 
-    const duplicateCpfCustomer = await Customer.findOne({
-      _id: { $ne: customer._id },
-      companyId,
-      cpfCnpj: customerCpf,
-    });
-    if (duplicateCpfCustomer) {
-      throw conflict("CPF/CNPJ já cadastrado para outro cliente");
-    }
+    if (hasValidCustomerCpf) {
+      const duplicateCpfCustomer = await Customer.findOne({
+        _id: { $ne: customer._id },
+        companyId,
+        cpfCnpj: customerCpf,
+      });
+      if (duplicateCpfCustomer) {
+        throw conflict("CPF/CNPJ já cadastrado para outro cliente");
+      }
 
-    if (this.normalizeCpf(customer.cpfCnpj) !== customerCpf) {
-      customer.cpfCnpj = customerCpf;
-      customer.validated = {
-        ...(customer.validated || {}),
-        isValidated: false,
-      };
-      await customer.save();
+      if (this.normalizeCpf(customer.cpfCnpj) !== customerCpf) {
+        customer.cpfCnpj = customerCpf;
+        customer.validated = {
+          ...(customer.validated || {}),
+          isValidated: false,
+        };
+        await customer.save();
+      }
+    } else {
+      const isAdmin = canBypassCustomerCpfAsAdmin(user.role as RoleType);
+      if (isAdmin) {
+        if (data.confirmNoCpf !== true) {
+          throw badRequest(
+            "Confirme que deseja criar o aluguel sem CPF/CNPJ do cliente.",
+          );
+        }
+      } else {
+        if (!data.cpfBypassTokenId || !data.cpfBypassCode) {
+          throw badRequest(
+            "Solicite o código de autorização do administrador para alugar sem CPF/CNPJ.",
+          );
+        }
+        await rentalCpfBypassService.consumeBypassToken(
+          companyId,
+          data.customerId,
+          userId,
+          data.cpfBypassTokenId,
+          data.cpfBypassCode,
+        );
+      }
+      createdWithoutCustomerCpf = true;
     }
 
     //Função para pegar tipo pelo item
@@ -1267,6 +1293,7 @@ class RentalService {
       status: "active",
       notes: data.notes,
       createdBy: userId,
+      createdWithoutCustomerCpf,
     });
 
     // Estoque: reserva e em seguida ativa (aluguel já ativo na criação)

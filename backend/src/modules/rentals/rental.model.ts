@@ -397,6 +397,10 @@ const RentalSchema = new Schema<IRental>(
       ref: 'User',
       required: true,
     },
+    createdWithoutCustomerCpf: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

@@ -24,6 +24,12 @@ const envSchema = z.object({
   CPFCNPJ_TIMEOUT_MS: z.string().default('60000'),
   FINANCIAL_UNIFIED_MODULE: z.string().default('false'),
   FINANCIAL_LIFECYCLE_V2: z.string().default('false'),
+  SMTP_HOST: z.string().optional().default(''),
+  SMTP_PORT: z.string().optional().default('587'),
+  SMTP_SECURE: z.string().optional().default('false'),
+  SMTP_USER: z.string().optional().default(''),
+  SMTP_PASS: z.string().optional().default(''),
+  SMTP_FROM: z.string().optional().default(''),
 });
 
 const parseEnv = () => {

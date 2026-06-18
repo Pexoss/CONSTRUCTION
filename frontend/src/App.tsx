@@ -32,6 +32,7 @@ import RentalDetailPage from "./modules/rentals/RentalDetailPage";
 import ExpirationDashboardPage from "./modules/rentals/ExpirationDashboardPage";
 import BillingsPage from "./modules/billings/BillingsPage";
 import RentalApprovalsPage from "./modules/rentals/RentalApprovalsPage";
+import RentalCpfBypassPage from "./modules/rentals/RentalCpfBypassPage";
 import MaintenancesPage from "./modules/maintenance/MaintenancesPage";
 import CreateMaintenancePage from "./modules/maintenance/CreateMaintenancePage";
 import EditMaintenancePage from "./modules/maintenance/EditMaintenancePage";
@@ -203,6 +204,14 @@ function App() {
                 element={
                   <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
                     <RentalApprovalsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/rentals/cpf-bypass"
+                element={
+                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
+                    <RentalCpfBypassPage />
                   </ProtectedRoute>
                 }
               />

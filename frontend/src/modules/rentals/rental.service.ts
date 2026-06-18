@@ -192,6 +192,34 @@ export const rentalService = {
     return response.data;
   },
 
+  requestCpfBypassCode: async (customerId: string) => {
+    const response = await api.post<{
+      success: boolean;
+      message: string;
+      data: {
+        tokenId: string;
+        expiresAt: string;
+        adminEmailsNotified: number;
+      };
+    }>("/rentals/cpf-bypass/request-code", { customerId });
+    return response.data;
+  },
+
+  getPendingCpfBypassCodes: async () => {
+    const response = await api.get<{
+      success: boolean;
+      data: Array<{
+        _id: string;
+        code: string;
+        customer: { _id: string; name?: string; cpfCnpj?: string } | string;
+        requestedBy: { _id: string; name?: string; email?: string; role?: string } | string;
+        expiresAt: string;
+        createdAt?: string;
+      }>;
+    }>("/rentals/cpf-bypass/pending");
+    return response.data;
+  },
+
   updateRental: async (
     id: string,
     data: {

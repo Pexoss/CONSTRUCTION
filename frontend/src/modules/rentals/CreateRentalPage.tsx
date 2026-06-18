@@ -38,6 +38,7 @@ import {
   normalizeBrazilZipDigits,
 } from "../../utils/viacep";
 import { toast } from "react-toastify";
+import { useAuth } from "../../hooks/useAuth";
 
 type CustomersListResult = Awaited<
   ReturnType<typeof customerService.getCustomers>
@@ -151,9 +152,21 @@ const getRateForRentalType = (item: Item, rentalType: RentalTypeUI): number => {
   return Number(rates[apiType] || 0);
 };
 
+const showMissingFieldsToast = (fields: string[]) => {
+  if (!fields.length) return;
+  toast.warning(
+    fields.length === 1
+      ? `Preencha o campo obrigatório: ${fields[0]}.`
+      : `Preencha os campos obrigatórios: ${fields.join(", ")}.`,
+  );
+};
+
 const CreateRentalPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isAdminUser =
+    user?.role === "admin" || user?.role === "superadmin";
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
@@ -192,6 +205,12 @@ const CreateRentalPage: React.FC = () => {
     "name" | "name_desc" | "price" | "price_desc" | "available"
   >("name");
   const [showItemsModal, setShowItemsModal] = useState(false);
+  const [cpfBypassTokenId, setCpfBypassTokenId] = useState<string | null>(null);
+  const [cpfBypassCode, setCpfBypassCode] = useState("");
+  const [cpfBypassExpiresAt, setCpfBypassExpiresAt] = useState<string | null>(
+    null,
+  );
+  const [cpfBypassRequestLoading, setCpfBypassRequestLoading] = useState(false);
 
   const { data: customersData } = useQuery<CustomersListResult>({
     queryKey: ["customers"],
@@ -202,6 +221,30 @@ const CreateRentalPage: React.FC = () => {
     isActive: true,
     limit: 100,
   });
+
+  useEffect(() => {
+    const freshItems: Item[] = itemsData?.data ?? EMPTY_ITEMS;
+    if (!freshItems.length) return;
+    setSelectedItems((prev) => {
+      if (!prev.length) return prev;
+      let changed = false;
+      const next = prev.map((si) => {
+        const freshItem = freshItems.find((item: Item) => item._id === si.itemId);
+        if (!freshItem || freshItem === si.item) return si;
+        changed = true;
+        return { ...si, item: freshItem };
+      });
+      return changed ? next : prev;
+    });
+  }, [itemsData?.data]);
+
+  useEffect(() => {
+    const refreshInventoryOnFocus = () => {
+      void refetchItems();
+    };
+    window.addEventListener("focus", refreshInventoryOnFocus);
+    return () => window.removeEventListener("focus", refreshInventoryOnFocus);
+  }, [refetchItems]);
 
   const allCustomers: Customer[] = useMemo(() => {
     const list = customersData?.data ?? EMPTY_CUSTOMERS;
@@ -263,6 +306,16 @@ const CreateRentalPage: React.FC = () => {
   );
   const rentalDocumentDigits = normalizeDocument(customerCpf);
   const customerHasValidDocument = isValidCpfCnpj(selectedCustomerDocumentDigits);
+  const rentalHasValidDocument = isValidCpfCnpj(rentalDocumentDigits);
+  const effectiveDocumentDigits =
+    rentalDocumentDigits || selectedCustomerDocumentDigits;
+  const hasValidDocumentForRental = isValidCpfCnpj(effectiveDocumentDigits);
+
+  const resetCpfBypassState = () => {
+    setCpfBypassTokenId(null);
+    setCpfBypassCode("");
+    setCpfBypassExpiresAt(null);
+  };
 
   const mergeWorkAddress = (partial: Partial<RentalWorkAddress>) => {
     setSelectedWorkAddressIndex("");
@@ -614,8 +667,32 @@ const CreateRentalPage: React.FC = () => {
     setCustomerSearch("");
     setSelectedWorkAddressIndex("");
     setWorkAddress(null);
+    resetCpfBypassState();
     const customer = allCustomers.find((c) => c._id === newCustomerId);
     setCustomerCpf(formatDocumentInput(customer?.cpfCnpj || ""));
+  };
+
+  const handleRequestCpfBypassCode = async () => {
+    if (!selectedCustomer) {
+      toast.warning("Selecione um cliente antes de solicitar o código.");
+      return;
+    }
+    setCpfBypassRequestLoading(true);
+    try {
+      const result = await rentalService.requestCpfBypassCode(selectedCustomer);
+      setCpfBypassTokenId(result.data.tokenId);
+      setCpfBypassExpiresAt(result.data.expiresAt);
+      toast.success(
+        `Código enviado para ${result.data.adminEmailsNotified} administrador(es) por e-mail.`,
+      );
+    } catch (error: unknown) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message ?? "Não foi possível solicitar o código.";
+      toast.error(message);
+    } finally {
+      setCpfBypassRequestLoading(false);
+    }
   };
 
   const openNewCustomerModal = () => {
@@ -651,19 +728,26 @@ const CreateRentalPage: React.FC = () => {
       return;
     }
     if (!cpfDigits) {
-      toast.warning("Informe o CPF/CNPJ do cliente.");
-      return;
-    }
-    if (!isValidCpfCnpj(cpfDigits)) {
+      if (!isAdminUser) {
+        toast.warning("Informe o CPF/CNPJ do cliente.");
+        return;
+      }
+      const shouldContinue = window.confirm(
+        `Cadastrar o cliente "${name}" sem CPF/CNPJ? Você poderá concluir o aluguel mediante confirmação.`,
+      );
+      if (!shouldContinue) return;
+    } else if (!isValidCpfCnpj(cpfDigits)) {
       toast.warning("CPF/CNPJ inválido.");
       return;
     }
     const payload: CreateCustomerData = {
       name,
-      cpfCnpj: cpfDigits,
       validateDocument: false,
       isBlocked: false,
     };
+    if (cpfDigits) {
+      payload.cpfCnpj = cpfDigits;
+    }
     if (newCustomerForm.email.trim()) {
       payload.email = newCustomerForm.email.trim();
     }
@@ -677,45 +761,81 @@ const CreateRentalPage: React.FC = () => {
     e.preventDefault();
 
     const missingFields: string[] = [];
-    if (!selectedCustomer) missingFields.push("cliente");
     const documentToSubmit = rentalDocumentDigits || selectedCustomerDocumentDigits;
-    if (!documentToSubmit) missingFields.push("CPF/CNPJ do cliente");
+
+    if (!selectedCustomer) missingFields.push("cliente");
+
+    if (hasValidDocumentForRental) {
+      if (!documentToSubmit) missingFields.push("CPF/CNPJ do cliente");
+      else if (!isValidCpfCnpj(documentToSubmit)) {
+        missingFields.push("CPF/CNPJ do cliente (inválido)");
+      }
+    } else if (documentToSubmit) {
+      missingFields.push("CPF/CNPJ do cliente (inválido)");
+    } else if (!isAdminUser) {
+      if (!cpfBypassTokenId) {
+        missingFields.push("solicitação do código de autorização");
+      }
+      if (!cpfBypassCode.trim()) {
+        missingFields.push("código de autorização do administrador");
+      }
+    }
+
     if (!fulfillmentMethod) missingFields.push("entrega ou retirada");
     if (!pickedUpBy.trim()) missingFields.push("quem retirou/entregou");
+
     if (selectedItems.length === 0) {
       if ((itemsData?.data ?? EMPTY_ITEMS).length === 0) {
         toast.warning("Nenhum item disponível no inventário para alugar.");
         return;
       }
       missingFields.push("itens do aluguel");
-    }
+    } else {
+      for (const si of selectedItems) {
+        const itemLabel = si.item.name;
 
-    if (missingFields.length > 0) {
-      toast.warning(`Preencha os campos obrigatórios: ${missingFields.join(", ")}.`);
-      return;
-    }
-
-    if (workAddress) {
-      const addrMissing: string[] = [];
-      if (!workAddress.workName?.trim()) addrMissing.push("nome da obra");
-      if (!workAddress.street?.trim()) addrMissing.push("rua");
-      if (!workAddress.city?.trim()) addrMissing.push("cidade");
-      if (!workAddress.state?.trim()) addrMissing.push("estado");
-      if (!workAddress.zipCode?.trim()) addrMissing.push("CEP");
-      if (addrMissing.length > 0) {
-        toast.warning(`Preencha o endereço da obra: ${addrMissing.join(", ")}.`);
-        return;
+        if (si.item.trackingType === "unit" && !si.unitId) {
+          missingFields.push(`unidade do item "${itemLabel}"`);
+        }
+        if (!si.pickupDate) {
+          missingFields.push(`data de retirada do item "${itemLabel}"`);
+        }
+        if (!si.pickupTime) {
+          missingFields.push(`horário de retirada do item "${itemLabel}"`);
+        }
+        if (si.returnDate && si.pickupDate && si.returnDate < si.pickupDate) {
+          missingFields.push(
+            `devolução posterior à retirada do item "${itemLabel}"`,
+          );
+        }
       }
     }
 
-    if (!isValidCpfCnpj(documentToSubmit)) {
-      toast.warning("Informe um CPF/CNPJ válido para o cliente.");
+    if (workAddress) {
+      if (!workAddress.workName?.trim()) missingFields.push("nome da obra");
+      if (!workAddress.street?.trim()) missingFields.push("rua da obra");
+      if (!workAddress.city?.trim()) missingFields.push("cidade da obra");
+      if (!workAddress.state?.trim()) missingFields.push("estado da obra");
+      if (!workAddress.zipCode?.trim()) missingFields.push("CEP da obra");
+    }
+
+    services.forEach((service, index) => {
+      if (!service.description?.trim()) {
+        missingFields.push(`descrição do serviço ${index + 1}`);
+      }
+    });
+
+    if (missingFields.length > 0) {
+      showMissingFieldsToast(missingFields);
       return;
     }
 
-    if (selectedItems.length === 0) {
-      toast.warning("Adicione pelo menos um item.");
-      return;
+    if (!hasValidDocumentForRental && isAdminUser) {
+      const customerName = selectedCustomerData?.name || "este cliente";
+      const shouldContinue = window.confirm(
+        `O cliente "${customerName}" não possui CPF/CNPJ cadastrado. Tem certeza de que deseja criar o aluguel mesmo assim?`,
+      );
+      if (!shouldContinue) return;
     }
 
     const today = todayDateInputValue();
@@ -750,21 +870,26 @@ const CreateRentalPage: React.FC = () => {
     });
     setSelectedItems(refreshedSelectedItems);
 
+    const pricingIssues: string[] = [];
     for (const si of refreshedSelectedItems) {
       const selectedRentalType = si.rentalType ?? rentalType;
       if (
         !si.isLoan &&
         getRateForRentalType(si.item, selectedRentalType) <= 0
       ) {
-        toast.warning(
-          `Cadastre o valor ${rentalTypeLabels[selectedRentalType]} do item "${si.item.name}" antes de concluir o aluguel.`,
+        pricingIssues.push(
+          `valor ${rentalTypeLabels[selectedRentalType]} do item "${si.item.name}"`,
         );
-        return;
       }
-      if (si.item.trackingType === "unit" && !si.unitId) {
-        toast.warning(`Selecione uma unidade disponível para o item "${si.item.name}".`);
-        return;
-      }
+    }
+
+    if (pricingIssues.length > 0) {
+      showMissingFieldsToast(pricingIssues);
+      return;
+    }
+
+    const availabilityIssues: string[] = [];
+    for (const si of refreshedSelectedItems) {
       if (si.item.trackingType === "unit" && si.unitId) {
         const unit = si.item.units?.find(
           (u: ItemUnit) => u.unitId === si.unitId,
@@ -775,35 +900,27 @@ const CreateRentalPage: React.FC = () => {
               ?.filter((u: ItemUnit) => u.status === "available")
               .map((u: ItemUnit) => u.unitId)
               .join(", ") || "nenhuma";
-          toast.warning(
-            `A unidade ${si.unitId} do item "${si.item.name}" não está mais disponível. Unidades disponíveis: ${availableUnits}.`,
+          availabilityIssues.push(
+            `unidade do item "${si.item.name}" (disponíveis: ${availableUnits})`,
           );
-          return;
         }
-      }
-      if (
+      } else if (
         si.item.trackingType !== "unit" &&
         si.quantity > (si.item.quantity.available || 0)
       ) {
-        toast.warning(
-          `Estoque insuficiente para "${si.item.name}". Disponível: ${si.item.quantity.available || 0}. Solicitado: ${si.quantity}.`,
+        availabilityIssues.push(
+          `estoque do item "${si.item.name}" (disponível: ${si.item.quantity.available || 0}, solicitado: ${si.quantity})`,
         );
-        return;
       }
-      if (!si.pickupDate) {
-        toast.warning(`Informe a retirada do item "${si.item.name}".`);
-        return;
-      }
-      if (!si.pickupTime) {
-        toast.warning(`Informe o horário de entrega/retirada do item "${si.item.name}".`);
-        return;
-      }
-      if (si.returnDate && si.pickupDate && si.returnDate < si.pickupDate) {
-        toast.warning(
-          `A devolução do item "${si.item.name}" deve ser posterior à retirada.`,
-        );
-        return;
-      }
+    }
+
+    if (availabilityIssues.length > 0) {
+      toast.warning(
+        availabilityIssues.length === 1
+          ? `Não foi possível concluir: ${availabilityIssues[0]}.`
+          : `Não foi possível concluir: ${availabilityIssues.join(", ")}.`,
+      );
+      return;
     }
 
     const servicesToSend = services.map((s) => ({
@@ -816,7 +933,14 @@ const CreateRentalPage: React.FC = () => {
 
     const data: CreateRentalData = {
       customerId: selectedCustomer,
-      customerCpf: documentToSubmit,
+      ...(hasValidDocumentForRental
+        ? { customerCpf: documentToSubmit }
+        : isAdminUser
+          ? { confirmNoCpf: true }
+          : {
+              cpfBypassTokenId: cpfBypassTokenId || undefined,
+              cpfBypassCode: cpfBypassCode.trim(),
+            }),
       fulfillmentMethod: fulfillmentMethod as RentalFulfillmentMethod,
       pickedUpBy: pickedUpBy.trim() || undefined,
       items: refreshedSelectedItems.map((si) => {
@@ -1239,22 +1363,72 @@ const CreateRentalPage: React.FC = () => {
                 {selectedCustomer && selectedCustomerData && (
                   <div className="mt-4">
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      CPF/CNPJ do cliente *
+                      CPF/CNPJ do cliente{hasValidDocumentForRental ? " *" : ""}
                     </label>
                     <input
                       type="text"
                       inputMode="numeric"
                       value={customerCpf}
-                      onChange={(e) => setCustomerCpf(formatDocumentInput(e.target.value))}
+                      onChange={(e) => {
+                        setCustomerCpf(formatDocumentInput(e.target.value));
+                        resetCpfBypassState();
+                      }}
                       placeholder="000.000.000-00 ou 00.000.000/0000-00"
                       maxLength={18}
-                      required
+                      required={hasValidDocumentForRental}
                       className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     />
-                    {!customerHasValidDocument && (
+                    {!customerHasValidDocument && !rentalHasValidDocument && (
+                      <div className="mt-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-3 space-y-3">
+                        <p className="text-xs text-amber-800 dark:text-amber-300">
+                          Este cliente não possui CPF/CNPJ válido cadastrado.
+                          {isAdminUser
+                            ? " Como administrador, você pode concluir o aluguel mediante confirmação."
+                            : " Solicite um código de autorização do administrador para continuar. O código também ficará visível na tela \"Códigos sem CPF\" para o admin."}
+                        </p>
+                        {!isAdminUser ? (
+                          <div className="space-y-2">
+                            <button
+                              type="button"
+                              onClick={handleRequestCpfBypassCode}
+                              disabled={cpfBypassRequestLoading}
+                              className="inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-md bg-amber-700 hover:bg-amber-800 text-white disabled:opacity-60"
+                            >
+                              {cpfBypassRequestLoading
+                                ? "Enviando código..."
+                                : "Enviar código por e-mail ao admin"}
+                            </button>
+                            <div>
+                              <label className="block text-xs font-medium text-amber-900 dark:text-amber-200 mb-1">
+                                Código de autorização
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={cpfBypassCode}
+                                onChange={(e) =>
+                                  setCpfBypassCode(
+                                    e.target.value.replace(/\D/g, "").slice(0, 6),
+                                  )
+                                }
+                                placeholder="6 dígitos"
+                                maxLength={6}
+                                className="w-full max-w-[12rem] px-3 py-2 border border-amber-300 dark:border-amber-700 rounded-md bg-white dark:bg-gray-800 text-sm"
+                              />
+                            </div>
+                            {cpfBypassTokenId && cpfBypassExpiresAt ? (
+                              <p className="text-2xs text-amber-700 dark:text-amber-400">
+                                Código solicitado. Válido até{" "}
+                                {new Date(cpfBypassExpiresAt).toLocaleString("pt-BR")}.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                    {!customerHasValidDocument && rentalHasValidDocument && (
                       <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
-                        Este cliente não possui CPF/CNPJ válido cadastrado. O documento
-                        informado aqui será salvo no cadastro do cliente.
+                        O documento informado aqui será salvo no cadastro do cliente.
                       </p>
                     )}
                   </div>
@@ -2280,7 +2454,7 @@ const CreateRentalPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  CPF/CNPJ *
+                  CPF/CNPJ{isAdminUser ? "" : " *"}
                 </label>
                 <input
                   type="text"
@@ -2294,6 +2468,12 @@ const CreateRentalPage: React.FC = () => {
                   placeholder="000.000.000-00"
                   className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 />
+                {isAdminUser ? (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                    Como administrador, você pode cadastrar sem CPF/CNPJ e concluir
+                    o aluguel mediante confirmação.
+                  </p>
+                ) : null}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>

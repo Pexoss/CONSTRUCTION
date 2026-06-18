@@ -160,7 +160,10 @@ export interface Rental {
 
 export interface CreateRentalData {
   customerId: string;
-  customerCpf: string;
+  customerCpf?: string;
+  confirmNoCpf?: boolean;
+  cpfBypassTokenId?: string;
+  cpfBypassCode?: string;
   fulfillmentMethod: RentalFulfillmentMethod;
   pickedUpBy?: string;
   items: {

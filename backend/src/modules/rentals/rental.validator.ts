@@ -12,7 +12,10 @@ const dateOnlyOrDateTime = z.string().datetime().or(z.string().regex(/^\d{4}-\d{
 
 export const createRentalSchema = z.object({
   customerId: z.string().min(1, 'Customer ID is required'),
-  customerCpf: z.string().min(1, 'Customer CPF/CNPJ is required'),
+  customerCpf: z.string().optional(),
+  confirmNoCpf: z.boolean().optional(),
+  cpfBypassTokenId: z.string().optional(),
+  cpfBypassCode: z.string().optional(),
   fulfillmentMethod: z.enum(['delivery_service', 'store_pickup'], {
     required_error: 'Fulfillment method is required',
   }),
@@ -74,6 +77,10 @@ export const createRentalSchema = z.object({
     })
     .optional(),
   notes: z.string().optional(),
+});
+
+export const requestCpfBypassCodeSchema = z.object({
+  customerId: z.string().min(1, 'Customer ID is required'),
 });
 
 export const updateRentalSchema = z.object({

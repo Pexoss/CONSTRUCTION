@@ -153,6 +153,45 @@ const getChargeWorkNamesLabel = (charge: any): string => {
   return names.join(", ");
 };
 
+const billingPeriodRangeKey = (billing: {
+  periodStart?: unknown;
+  periodEnd?: unknown;
+}): string => {
+  const start = billing.periodStart
+    ? formatDateNoTimezoneShift(billing.periodStart as string)
+    : "";
+  const end = billing.periodEnd
+    ? formatDateNoTimezoneShift(billing.periodEnd as string)
+    : "";
+  return `${start}|${end}`;
+};
+
+/** Vencimento da cobrança ou, se ausente, período único dos fechamentos vinculados. */
+const getChargeDueOrPeriodLabel = (charge: any): string | null => {
+  if (charge?.dueDate) {
+    const due = formatDateNoTimezoneShift(charge.dueDate);
+    if (due) return `Vencimento: ${due}`;
+  }
+
+  const billings = (charge?.billingIds || []).filter(
+    (bill: any) =>
+      bill &&
+      typeof bill === "object" &&
+      (bill.periodStart != null || bill.periodEnd != null),
+  );
+  if (!billings.length) return null;
+
+  const periodKeys = new Set(billings.map((bill: any) => billingPeriodRangeKey(bill)));
+  if (periodKeys.size !== 1) return null;
+
+  const first = billings[0];
+  const start = first.periodStart
+    ? formatDateNoTimezoneShift(first.periodStart)
+    : "—";
+  const end = first.periodEnd ? formatDateNoTimezoneShift(first.periodEnd) : "—";
+  return `Período: ${start} até ${end}`;
+};
+
 const isBillingEligibleForCharge = (billing: any): boolean =>
   billing?.financialStage === "pending" &&
   billing?.status !== "paid" &&
@@ -1629,6 +1668,7 @@ const FinancialCenterPage: React.FC = () => {
                 <div className="space-y-2">
                   {filteredCharges.map((charge: any) => {
                     const chargeObraLabel = getChargeWorkNamesLabel(charge);
+                    const chargeDueOrPeriodLabel = getChargeDueOrPeriodLabel(charge);
                     return (
                     <div
                       key={charge._id}
@@ -1650,6 +1690,11 @@ const FinancialCenterPage: React.FC = () => {
                             title={chargeObraLabel}
                           >
                             Obra{chargeObraLabel.includes(",") ? "s" : ""}: {chargeObraLabel}
+                          </p>
+                        ) : null}
+                        {chargeDueOrPeriodLabel ? (
+                          <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 tabular-nums">
+                            {chargeDueOrPeriodLabel}
                           </p>
                         ) : null}
                         <p className="text-2xs text-gray-500 dark:text-gray-400 mt-0.5">

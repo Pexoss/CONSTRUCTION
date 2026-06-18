@@ -13,3 +13,6 @@ export const canDeleteCompany = (role: RoleType) =>
 
 export const canUpdateRentalStatus = (role: RoleType) =>
   hasPermission(role, ROLES.ADMIN) || hasPermission(role, ROLES.SUPERADMIN);
+
+export const canBypassCustomerCpfAsAdmin = (role: RoleType) =>
+  hasPermission(role, ROLES.ADMIN);
