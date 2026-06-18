@@ -4489,7 +4489,13 @@ const RentalDetailPage: React.FC = () => {
                       queryClient.invalidateQueries({
                         queryKey: ["rental-billings", id],
                       });
-                      toast.success("Devolução processada com sucesso.");
+                      queryClient.invalidateQueries({ queryKey: ["billings"] });
+                      queryClient.invalidateQueries({
+                        queryKey: ["financial-board"],
+                      });
+                      toast.success(
+                        "Devolução processada. O fechamento foi gerado e já pode ser vinculado a uma cobrança no Financeiro.",
+                      );
                     } catch (err: unknown) {
                       const message =
                         (err as { response?: { data?: { message?: string } } })

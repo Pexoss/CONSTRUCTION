@@ -613,10 +613,55 @@ class RentalService {
       }
     }
 
+    const isReturnClosureBilling = (billing: (typeof billings)[0]): boolean => {
+      const periodEndNorm = this.normalizeDate(billing.periodEnd);
+      const rows = billing.items || [];
+      if (!rows.length) return false;
+
+      return rows.some((billingItem: any) => {
+        const lineKey = billingItem.rentalLineKey
+          ? String(billingItem.rentalLineKey)
+          : "";
+        if (lineKey) {
+          const cutoff = returnedLineCutoffs.get(lineKey);
+          if (cutoff && periodEndNorm.getTime() === cutoff.getTime()) {
+            return true;
+          }
+        }
+
+        const itemIdBid =
+          billingItem.itemId?.toString?.() || String(billingItem.itemId);
+        const uidBid =
+          billingItem.unitId != null && String(billingItem.unitId).trim() !== ""
+            ? String(billingItem.unitId).trim()
+            : undefined;
+
+        for (const ri of rental.items || []) {
+          if (!ri.returnActual) continue;
+          const iid =
+            typeof ri.itemId === "object" && (ri.itemId as any)?._id
+              ? String((ri.itemId as any)._id)
+              : String(ri.itemId);
+          if (iid !== itemIdBid) continue;
+          if (uidBid !== undefined) {
+            if (String(ri.unitId || "").trim() !== uidBid) continue;
+          } else if (ri.unitId) {
+            continue;
+          }
+          const cutoff = this.normalizeDate(ri.returnActual);
+          if (periodEndNorm.getTime() === cutoff.getTime()) {
+            return true;
+          }
+        }
+        return false;
+      });
+    };
+
     const obsoleteCombined = billings.filter(
       (billing) =>
-        obsolete.some((b) => String(b._id) === String(billing._id)) ||
-        obsoleteDraftIds.has(String(billing._id)),
+        !isReturnClosureBilling(billing) &&
+        (obsolete.some((b) => String(b._id) === String(billing._id)) ||
+          obsoleteDraftIds.has(String(billing._id))),
     );
 
     await this.deleteUnpaidBillingDocuments(companyId, obsoleteCombined);
@@ -773,6 +818,70 @@ class RentalService {
 
   private getPeriodEnd(startDate: Date, rentalType: RentalType): Date {
     return getPeriodEndInclusive(startDate, rentalType);
+  }
+
+  /**
+   * Janela de cobrança na devolução: do dia após o último fechamento (ou retirada) até a data de cálculo.
+   * Quando o próximo início técnico ficaria após a devolução, reancora na retirada.
+   */
+  private resolveReturnChargePeriod(
+    targetItem: IRentalItem,
+    rental: { dates?: { pickupScheduled?: Date } },
+    returnAt: Date,
+    billingRt: RentalType,
+  ): { periodStartRaw: Date; periodEndCharge: Date } {
+    const pickupSource =
+      targetItem.pickupScheduled ?? rental.dates?.pickupScheduled;
+    if (!pickupSource) {
+      throw badRequest("Data de retirada não encontrada para calcular o período.");
+    }
+    const pickupPure = new Date(pickupSource);
+    const pickupNorm = this.normalizeDate(pickupPure);
+    const periodEndCharge =
+      billingRt === "daily" ? new Date(returnAt) : this.normalizeDate(returnAt);
+
+    let periodStartRaw = targetItem.lastBillingDate
+      ? this.addDays(this.normalizeDate(new Date(targetItem.lastBillingDate)), 1)
+      : billingRt === "daily"
+        ? pickupPure
+        : pickupNorm;
+
+    if (periodStartRaw.getTime() > periodEndCharge.getTime()) {
+      periodStartRaw = billingRt === "daily" ? pickupPure : pickupNorm;
+    }
+    if (periodStartRaw.getTime() < pickupNorm.getTime()) {
+      periodStartRaw = billingRt === "daily" ? pickupPure : pickupNorm;
+    }
+
+    return { periodStartRaw, periodEndCharge };
+  }
+
+  /** Permite fechar no mesmo dia civil (ex.: último dia após fechamento até 15/06). */
+  private assertReturnChargePeriodValid(
+    periodStartRaw: Date,
+    periodEndCharge: Date,
+    billingRt: RentalType,
+  ): void {
+    const usesClockDaily =
+      billingRt === "daily" &&
+      (!isLocalMidnight(periodStartRaw) || !isLocalMidnight(periodEndCharge));
+
+    if (usesClockDaily) {
+      if (periodEndCharge.getTime() < periodStartRaw.getTime()) {
+        throw badRequest(
+          "Data de devolução deve ser posterior ao início do período de cobrança",
+        );
+      }
+      return;
+    }
+
+    const startDay = this.normalizeDate(periodStartRaw);
+    const endDay = this.normalizeDate(periodEndCharge);
+    if (endDay.getTime() < startDay.getTime()) {
+      throw badRequest(
+        "Data de devolução deve ser posterior ao início do período de cobrança",
+      );
+    }
   }
 
   private addPeriod(date: Date, rentalType: RentalType): Date {
@@ -1465,27 +1574,15 @@ class RentalService {
     let effectiveRt: RentalType;
 
     if (useReturnsFlow) {
-      const finalReturnDateNorm = this.normalizeDate(returnAt);
-      periodEndCharge = billingRt === "daily" ? returnAt : finalReturnDateNorm;
       effectiveRt = billingRt;
-
-      const pickupPure = new Date(
-        targetItem.pickupScheduled || rental.dates.pickupScheduled,
+      const resolved = this.resolveReturnChargePeriod(
+        targetItem,
+        rental,
+        returnAt,
+        billingRt,
       );
-      const pickupNormFlow = this.normalizeDate(pickupPure);
-
-      periodStartRaw = targetItem.lastBillingDate
-        ? this.addDays(this.normalizeDate(new Date(targetItem.lastBillingDate)), 1)
-        : billingRt === "daily"
-          ? pickupPure
-          : pickupNormFlow;
-
-      if (periodStartRaw.getTime() > periodEndCharge.getTime()) {
-        periodStartRaw = billingRt === "daily" ? pickupPure : pickupNormFlow;
-      }
-      if (periodStartRaw.getTime() < pickupNormFlow.getTime()) {
-        periodStartRaw = pickupNormFlow;
-      }
+      periodStartRaw = resolved.periodStartRaw;
+      periodEndCharge = resolved.periodEndCharge;
     } else {
       effectiveRt = (targetItem.rentalType || "daily") as RentalType;
       const pickupRaw = new Date(
@@ -1498,11 +1595,11 @@ class RentalService {
         effectiveRt === "daily" ? returnAt : this.normalizeDate(returnAt);
     }
 
-    if (periodEndCharge.getTime() <= periodStartRaw.getTime()) {
-      throw badRequest(
-        "Data de devolução deve ser posterior ao início do período de cobrança",
-      );
-    }
+    this.assertReturnChargePeriodValid(
+      periodStartRaw,
+      periodEndCharge,
+      effectiveRt,
+    );
 
     const pc = calculateBillingPeriod(
       periodStartRaw,
@@ -1629,45 +1726,17 @@ class RentalService {
     targetItem.nextBillingDate = undefined;
     await this.removeObsoleteUnpaidBillingsForCurrentRental(companyId, rental);
 
-    // Validar antes de fazer a devolução
+    // Validar estoque antes de qualquer efeito colateral (fechamento / inventário)
+    let inventoryReturnQty = 0;
     if (inventoryItem.trackingType !== "unit") {
-      // Para itens quantitativos, validar a quantidade
-      if (inventoryItem.quantity.rented < targetItem.quantity) {
-        console.error("[ERRO] Inconsistência de quantidade detectada:", {
-          itemName: inventoryItem.name,
-          itemId: targetItem.itemId,
-          esperadoDevolucao: targetItem.quantity,
-          alugadaAtualmente: inventoryItem.quantity.rented,
-          disponivel: inventoryItem.quantity.available,
-          reservada: inventoryItem.quantity.reserved,
-          rentalId,
-          customerId: rental.customerId,
-          rentalStatus: rental.status,
-        });
-
-        // Verificar se está em "reserved" ao invés de "rented"
-        if (inventoryItem.quantity.reserved >= targetItem.quantity) {
-          throw badRequest(
-            `Item "${inventoryItem.name}" não foi ativado: O item ainda está reservado e não foi confirmado como retirado. Por favor, cancele a reserva ou ative o aluguel antes de fechar o item. Contate o administrador se este erro persistir.`,
-          );
-        }
-
-        throw badRequest(
-          `Quantidade inconsistente para "${inventoryItem.name}": O sistema registra apenas ${inventoryItem.quantity.rented} unidades alugadas, mas o contrato indica ${targetItem.quantity}. Isto pode indicar uma inconsistência nos dados ou que o item já foi devolvido anteriormente. Por favor, contate o administrador.`,
-        );
-      }
+      const resolved = await this.resolveInventoryReturnForRentalLine(
+        companyId,
+        inventoryItem,
+        targetItem.quantity,
+        rental._id,
+      );
+      inventoryReturnQty = resolved.applyQuantity;
     }
-
-    await this.updateItemQuantityForRental(
-      companyId,
-      targetItem.itemId as any,
-      targetItem.quantity,
-      "return",
-      userId,
-      rental._id,
-      targetItem.unitId,
-      rental.customerId.toString(),
-    );
 
     // =========================
     // 2. BILLING FINAL DO ITEM
@@ -1767,6 +1836,19 @@ class RentalService {
       targetItem.unitPrice = 0;
     }
 
+    if (inventoryReturnQty > 0) {
+      await this.updateItemQuantityForRental(
+        companyId,
+        targetItem.itemId as any,
+        inventoryReturnQty,
+        "return",
+        userId,
+        rental._id,
+        targetItem.unitId,
+        rental.customerId.toString(),
+      );
+    }
+
     // =========================
     // 3. RECALCULAR ITEM (período retirada → devolução, dias inclusivos)
     // =========================
@@ -1834,11 +1916,13 @@ class RentalService {
     }
 
     // =========================
-    // 6. SALVA
+    // 6. SALVA E SINCRONIZA FECHAMENTOS
     // =========================
     await rental.save();
+    await this.syncBillingsAfterRentalChange(companyId, rentalId, userId);
 
-    return rental;
+    const updated = await Rental.findOne({ _id: rentalId, companyId });
+    return updated || rental;
   }
 
   private computeItemPartialSubtotal(
@@ -1928,34 +2012,18 @@ class RentalService {
       );
       const pickupNorm = this.normalizeDate(pickupPure);
 
-      const periodEndCharge =
-        billingRt === "daily" ? returnAt : finalReturnDateNorm;
+      const { periodStartRaw, periodEndCharge } = this.resolveReturnChargePeriod(
+        targetItem,
+        rental,
+        returnAt,
+        billingRt,
+      );
 
-      /** Início típico: dia seguinte ao fim cobrado; às vezes lastBilling marca fim do 1º ciclo “previsto”, ainda não decorrido. */
-      let periodStartRaw = targetItem.lastBillingDate
-        ? this.addDays(this.normalizeDate(new Date(targetItem.lastBillingDate)), 1)
-        : billingRt === "daily"
-          ? pickupPure
-          : pickupNorm;
-
-      /*
-       * Ex.: locação desde 01/04, primeira cobrança mensal prevista até 29/04 (lastBilling já no item),
-       * devolução 15/04: o próximo período técnico seria após essa mensal, ficando APÓS 15/04,
-       * erroneamente bloqueando. Se o próximo período ficou depois da devolução, cobra desde retirada.
-       */
-      if (periodStartRaw.getTime() > periodEndCharge.getTime()) {
-        periodStartRaw = billingRt === "daily" ? pickupPure : pickupNorm;
-      }
-
-      if (periodStartRaw.getTime() < pickupNorm.getTime()) {
-        periodStartRaw = pickupNorm;
-      }
-
-      if (periodEndCharge.getTime() <= periodStartRaw.getTime()) {
-        throw badRequest(
-          "Data de devolução deve ser posterior ao início do período de cobrança",
-        );
-      }
+      this.assertReturnChargePeriodValid(
+        periodStartRaw,
+        periodEndCharge,
+        billingRt,
+      );
 
       const isLoan = this.isLoanLine(targetItem);
 
@@ -1985,16 +2053,16 @@ class RentalService {
         );
       }
 
-      await this.updateItemQuantityForRental(
-        companyId,
-        targetItem.itemId as any,
-        returnedQuantity,
-        "return",
-        userId,
-        rental._id,
-        targetItem.unitId,
-        rental.customerId.toString(),
-      );
+      let inventoryReturnQty = 0;
+      if (invForLine.trackingType !== "unit") {
+        const resolved = await this.resolveInventoryReturnForRentalLine(
+          companyId,
+          invForLine,
+          returnedQuantity,
+          rental._id,
+        );
+        inventoryReturnQty = resolved.applyQuantity;
+      }
 
       const storeReturnActual =
         billingRt === "daily" ? returnAt : finalReturnDateNorm;
@@ -2064,10 +2132,11 @@ class RentalService {
         const lineForBilling: any = {
           ...plainItem,
           quantity: qtyToBill,
+          /** Alinha rentalLineKey do fechamento com a linha após devolução (data/tipo). */
+          returnScheduled: periodEndCharge,
         };
         if (partialSplit) {
           lineForBilling.lineId = splitReturnedLineId;
-          lineForBilling.returnScheduled = periodEndCharge;
         }
         if (reqItem.billingRentalType) {
           lineForBilling.rentalType = reqItem.billingRentalType;
@@ -2114,6 +2183,7 @@ class RentalService {
 
         if (returnedQuantity >= targetItem.quantity) {
           targetItem.returnActual = storeReturnActual;
+          targetItem.returnScheduled = storeReturnActual;
           targetItem.retroactiveOpenBilling = false;
           targetItem.lastBillingDate = storeReturnActual;
           targetItem.nextBillingDate = undefined;
@@ -2207,6 +2277,19 @@ class RentalService {
           );
         }
       }
+
+      if (inventoryReturnQty > 0) {
+        await this.updateItemQuantityForRental(
+          companyId,
+          targetItem.itemId as any,
+          inventoryReturnQty,
+          "return",
+          userId,
+          rental._id,
+          targetItem.unitId,
+          rental.customerId.toString(),
+        );
+      }
     }
 
     if (payload.notes) {
@@ -2227,6 +2310,7 @@ class RentalService {
       rental.dates.returnActual = latestReturn ?? returnAt;
     }
 
+    await this.recalcPricingForRental(rental, companyId);
     await rental.save();
     await this.syncBillingsAfterRentalChange(companyId, rentalId, userId);
 
@@ -2891,6 +2975,8 @@ class RentalService {
       const r = await this.processDueBillings(companyId, rentalId, userId);
       created += r.created;
       draftsCreated += r.draftsCreated;
+      await this.createFinalBillingIfNeeded(rental, userId);
+      await rental.save();
     } else if (rental.status === "ready_to_close") {
       await this.createFinalBillingIfNeeded(rental, userId);
       await rental.save();
@@ -4562,7 +4648,10 @@ class RentalService {
       })) === 0;
 
     for (const item of rental.items) {
-      const itemReturn = item.returnActual || item.returnScheduled;
+      if (this.isLoanLine(item)) {
+        continue;
+      }
+      const itemReturn = item.returnActual;
       if (!itemReturn) {
         continue;
       }
@@ -4573,24 +4662,43 @@ class RentalService {
         continue;
       }
 
-      const lastBilling = item.lastBillingDate;
-      const periodStart = lastBilling
-        ? this.addDays(lastBilling, 1)
-        : item.pickupScheduled;
-      const periodEnd = itemReturn;
+      const rentalLineKey = buildRentalLineKey(item as any);
+      const returnAt = new Date(itemReturn);
+      const rt = (item.rentalType || "daily") as RentalType;
+      const { periodStartRaw, periodEndCharge } = this.resolveReturnChargePeriod(
+        item,
+        rental,
+        returnAt,
+        rt,
+      );
 
-      if (!periodStart || periodEnd <= periodStart) {
+      try {
+        this.assertReturnChargePeriodValid(
+          periodStartRaw,
+          periodEndCharge,
+          rt,
+        );
+      } catch {
         continue;
       }
+
+      const periodEndNorm =
+        rt === "daily" ? periodEndCharge : this.normalizeDate(periodEndCharge);
+      const periodEndQuery =
+        rt === "daily"
+          ? this.billingInstantOrDayMatch(periodEndNorm)
+          : periodEndNorm;
 
       const existing = await Billing.findOne({
         companyId: rental.companyId,
         rentalId: rental._id,
+        status: { $nin: ["paid", "cancelled"] },
         "items.itemId": item.itemId,
         ...(item.unitId ? { "items.unitId": item.unitId } : {}),
-        "items.rentalLineKey": buildRentalLineKey(item as any),
-        periodStart,
-        periodEnd,
+        $or: [
+          { "items.rentalLineKey": rentalLineKey },
+          { periodEnd: periodEndQuery },
+        ],
       }).lean();
 
       if (existing) {
@@ -4601,17 +4709,18 @@ class RentalService {
         rental.companyId.toString(),
         rental,
         item,
-        periodStart,
-        periodEnd,
+        periodStartRaw,
+        periodEndNorm,
         userId,
         {
           includeServices: includeServicesAvailable,
-          notes: "Fechamento final do aluguel",
+          notes: "Fechamento por devolução",
+          status: "approved",
         },
       );
       includeServicesAvailable = false;
 
-      item.lastBillingDate = periodEnd;
+      item.lastBillingDate = periodEndNorm;
       item.nextBillingDate = undefined;
     }
   }
@@ -5434,6 +5543,26 @@ class RentalService {
           Math.max(...returns.map((d) => d.getTime())),
         );
       }
+
+      const allReturnedAfterEdit =
+        (rental.items?.length ?? 0) > 0 &&
+        rental.items.every((item) => item.returnActual);
+      if (
+        allReturnedAfterEdit &&
+        rental.status !== "completed" &&
+        rental.status !== "cancelled"
+      ) {
+        rental.status = "ready_to_close";
+        const latestReturn = rental.items.reduce<Date | null>((acc, item) => {
+          if (!item.returnActual) return acc;
+          const t = new Date(item.returnActual);
+          if (!acc || t.getTime() > acc.getTime()) return t;
+          return acc;
+        }, null);
+        if (latestReturn) {
+          rental.dates.returnActual = latestReturn;
+        }
+      }
     }
 
     const shouldSyncBillings =
@@ -5711,6 +5840,76 @@ class RentalService {
     }
   }
 
+  private async sumReturnMovementsForRental(
+    companyId: string,
+    itemId: mongoose.Types.ObjectId | string,
+    rentalId: mongoose.Types.ObjectId,
+  ): Promise<number> {
+    const movements = await ItemMovement.find({
+      companyId,
+      itemId,
+      referenceId: rentalId,
+      type: "return",
+    })
+      .select("quantity")
+      .lean();
+
+    return movements.reduce(
+      (sum, row) => sum + Number(row.quantity ?? 0),
+      0,
+    );
+  }
+
+  /**
+   * Quantas unidades ainda precisam sair de "alugadas" no estoque para esta devolução.
+   * Considera devoluções anteriores (ex.: tentativa que atualizou estoque e falhou no fechamento).
+   */
+  private async resolveInventoryReturnForRentalLine(
+    companyId: string,
+    inventoryItem: {
+      _id: mongoose.Types.ObjectId | string;
+      name?: string;
+      quantity?: { rented?: number; reserved?: number; available?: number };
+    },
+    quantity: number,
+    rentalId: mongoose.Types.ObjectId,
+  ): Promise<{ applyQuantity: number }> {
+    const rented = Number(inventoryItem.quantity?.rented ?? 0);
+    const reserved = Number(inventoryItem.quantity?.reserved ?? 0);
+
+    if (reserved >= quantity) {
+      throw badRequest(
+        `Item "${inventoryItem.name}" não foi ativado: ainda consta como reservado no estoque. Ative o aluguel antes de registrar a devolução.`,
+      );
+    }
+
+    if (rented >= quantity) {
+      return { applyQuantity: quantity };
+    }
+
+    const priorReturned = await this.sumReturnMovementsForRental(
+      companyId,
+      inventoryItem._id,
+      rentalId,
+    );
+    const remainingForRental = Math.max(0, quantity - priorReturned);
+
+    if (remainingForRental === 0) {
+      return { applyQuantity: 0 };
+    }
+
+    if (rented <= 0) {
+      if (priorReturned > 0) {
+        return { applyQuantity: 0 };
+      }
+      throw badRequest(
+        `O estoque não registra unidades alugadas para "${inventoryItem.name}" (devolução de ${quantity}). Ative o aluguel antes de registrar a devolução.`,
+      );
+    }
+
+    return { applyQuantity: Math.min(rented, remainingForRental) };
+  }
+
   private async updateItemQuantityForRental(
     companyId: string,
     itemId: mongoose.Types.ObjectId,
@@ -5870,6 +6069,12 @@ class RentalService {
       item.quantity.rented < 0 ||
       item.quantity.reserved < 0
     ) {
+      const negativeField =
+        item.quantity.rented < 0
+          ? "alugada"
+          : item.quantity.reserved < 0
+            ? "reservada"
+            : "disponível";
       console.error("[ERRO] Quantidade negativa após operação:", {
         itemName: item.name,
         itemId: item._id,
@@ -5881,7 +6086,7 @@ class RentalService {
       });
 
       throw badRequest(
-        `Operação inválida de quantidade para "${item.name}": Após ${action} de ${quantity} unidades, a quantidade dis${action === "return" ? "ponível" : "reservada"} ficaria negativa. ${action === "return" ? "Isto pode indicar que o item já foi devolvido ou há inconsistência nos dados." : "Verifique a disponibilidade do item."}. Por favor, contate o administrador.`,
+        `Operação inválida de quantidade para "${item.name}": Após ${action} de ${quantity} unidades, a quantidade ${negativeField} ficaria negativa. ${action === "return" ? "Isto pode indicar que o item já foi devolvido ou há inconsistência nos dados." : "Verifique a disponibilidade do item."} Por favor, contate o administrador.`,
       );
     }
 

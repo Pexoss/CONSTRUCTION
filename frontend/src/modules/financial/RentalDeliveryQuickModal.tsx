@@ -65,9 +65,13 @@ export const RentalDeliveryQuickModal: React.FC<Props> = ({ rentalId, onClose })
       });
     },
     onSuccess: () => {
-      toast.success("Devolução do item registrada.");
+      toast.success(
+        "Devolução registrada. O fechamento foi gerado e já pode ser usado em uma cobrança no Financeiro.",
+      );
       queryClient.invalidateQueries({ queryKey: ["rental", rentalId] });
       queryClient.invalidateQueries({ queryKey: ["financial-board"] });
+      queryClient.invalidateQueries({ queryKey: ["billings"] });
+      queryClient.invalidateQueries({ queryKey: ["rental-billings", rentalId] });
       queryClient.invalidateQueries({ queryKey: ["rentals"] });
     },
     onError: (error: any) => {
