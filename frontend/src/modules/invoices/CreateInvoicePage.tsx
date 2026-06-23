@@ -33,7 +33,7 @@ import {
   sortedTableRows,
   toggleColumnSort,
 } from "../../utils/tableSort";
-import { getBillingCompositionRowsOrdered, sortBillingDocumentsFreteClosureGroupLastStable } from "../../utils/billingDisplayOrder";
+import { getBillingCompositionRowsOrdered, formatBillingCompositionRowLabel, sortBillingDocumentsFreteClosureGroupLastStable } from "../../utils/billingDisplayOrder";
 
 type CreateInvoiceBillingSortKey =
   | "closure"
@@ -701,24 +701,17 @@ const CreateInvoicePage: React.FC = () => {
                                       : typeof item.itemId === "string"
                                         ? `Item ${item.itemId}`
                                         : "Item desconhecido",
-                                ).map((row, idx) =>
-                                  row.kind === "item" ? (
-                                    <div key={`it-${idx}`} className="text-xs">
-                                      {typeof row.item.itemId === "object" &&
-                                      row.item.itemId?.name
-                                        ? row.item.itemId.name
-                                        : typeof row.item.itemId === "string"
-                                          ? `Item ${row.item.itemId}`
-                                          : "Item desconhecido"}{" "}
-                                      (qty: {row.item.quantity})
+                                ).map((row, idx) => (
+                                    <div key={`line-${idx}`} className="text-xs">
+                                      {formatBillingCompositionRowLabel(row, (item) =>
+                                        typeof item.itemId === "object" && item.itemId?.name
+                                          ? item.itemId.name
+                                          : typeof item.itemId === "string"
+                                            ? `Item ${item.itemId}`
+                                            : "Item desconhecido",
+                                      )}
                                     </div>
-                                  ) : (
-                                    <div key={`sv-${idx}`} className="text-xs">
-                                      {row.service.description || "Serviço"} (serviço, qty:{" "}
-                                      {row.service.quantity || 1})
-                                    </div>
-                                  ),
-                                )}
+                                  ))}
                               </div>
                             ) : (
                               <span className="text-xs text-gray-400">Sem itens</span>

@@ -64,11 +64,11 @@ export function formatBillingCompositionRowLabel(
 ): string {
   if (row.kind === "item") {
     const qty = Number(row.item.quantity) || 1;
-    return `${getItemDisplayName(row.item)} (Qtd: ${qty})`;
+    return `${qty} ${getItemDisplayName(row.item)}`;
   }
   const desc = String(row.service.description || "Serviço").trim();
   const qty = Number(row.service.quantity) || 1;
-  return `${desc} (Qtd: ${qty})`;
+  return `${qty} ${desc}`;
 }
 
 /** Linhas do fechamento com nome e quantidade (equipamentos e serviços). */
