@@ -372,63 +372,68 @@ class ChargeService {
     }
 
     if (data.billingIds) {
-      if (charge.paidAmount > 0) {
-        throw new Error("Não é possível alterar fechamentos de cobrança com baixa já registrada");
-      }
-
-      const nextBillingIds = [...new Set(data.billingIds)].map((id) => new mongoose.Types.ObjectId(id));
-      const billings = await Billing.find({ _id: { $in: nextBillingIds }, companyId });
-      if (billings.length !== nextBillingIds.length) {
-        throw new Error("Um ou mais fechamentos não foram encontrados");
-      }
-
-      const customerId = String(charge.customerId);
-      for (const bill of billings) {
-        if (String(bill.customerId) !== customerId) {
-          throw new Error("Todos os fechamentos devem ser do mesmo cliente da cobrança");
-        }
-        const billChargeId = bill.chargeId ? String(bill.chargeId) : "";
-        const outstanding = Number(bill.outstandingAmount ?? bill.calculation?.total ?? 0);
-        if (bill.status === "paid" || bill.status === "cancelled" || outstanding <= 0.01) {
-          throw new Error("Fechamento não está elegível para cobrança");
-        }
-        if ((billChargeId && billChargeId !== String(charge._id)) || bill.invoiceId) {
-          throw new Error("Fechamento já pertence a outra cobrança/fatura e não pode ser reutilizado");
-        }
-      }
-
+      const nextBillingIds = [...new Set(data.billingIds)].map(
+        (id) => new mongoose.Types.ObjectId(id),
+      );
       const currentIds = new Set((charge.billingIds || []).map((id) => String(id)));
       const nextIds = new Set(nextBillingIds.map((id) => String(id)));
       const removedIds = [...currentIds].filter((id) => !nextIds.has(id));
       const addedIds = [...nextIds].filter((id) => !currentIds.has(id));
       const billingSetChanged = removedIds.length > 0 || addedIds.length > 0;
 
-      if (removedIds.length > 0) {
-        await Billing.updateMany(
-          { _id: { $in: removedIds }, companyId, status: { $ne: "paid" } },
-          { $set: { chargeId: null, financialStage: "pending", governance: "charge" } },
-        );
-      }
-
-      for (const addedId of addedIds) {
-        await financialService.attachBillingToCharge(addedId, charge._id);
-      }
-
-      charge.billingIds = nextBillingIds as any;
-
-      const recalculatedTotal = Number(
-        billings
-          .reduce((acc, b) => acc + Number(b.outstandingAmount ?? b.calculation?.total ?? 0), 0)
-          .toFixed(2),
-      );
-
-      /** Inclusão/remoção de fechamentos: sempre somar abertos dos fechamentos (ignora total stale do cliente). */
       if (billingSetChanged) {
+        if (charge.paidAmount > 0) {
+          throw new Error(
+            "Não é possível alterar fechamentos de cobrança com baixa já registrada",
+          );
+        }
+
+        const billings = await Billing.find({ _id: { $in: nextBillingIds }, companyId });
+        if (billings.length !== nextBillingIds.length) {
+          throw new Error("Um ou mais fechamentos não foram encontrados");
+        }
+
+        const customerId = String(charge.customerId);
+        for (const bill of billings) {
+          if (String(bill.customerId) !== customerId) {
+            throw new Error("Todos os fechamentos devem ser do mesmo cliente da cobrança");
+          }
+          const billChargeId = bill.chargeId ? String(bill.chargeId) : "";
+          const outstanding = Number(bill.outstandingAmount ?? bill.calculation?.total ?? 0);
+          if (bill.status === "paid" || bill.status === "cancelled" || outstanding <= 0.01) {
+            throw new Error("Fechamento não está elegível para cobrança");
+          }
+          if ((billChargeId && billChargeId !== String(charge._id)) || bill.invoiceId) {
+            throw new Error(
+              "Fechamento já pertence a outra cobrança/fatura e não pode ser reutilizado",
+            );
+          }
+        }
+
+        if (removedIds.length > 0) {
+          await Billing.updateMany(
+            { _id: { $in: removedIds }, companyId, status: { $ne: "paid" } },
+            { $set: { chargeId: null, financialStage: "pending", governance: "charge" } },
+          );
+        }
+
+        for (const addedId of addedIds) {
+          await financialService.attachBillingToCharge(addedId, charge._id);
+        }
+
+        charge.billingIds = nextBillingIds as any;
+
+        const recalculatedTotal = Number(
+          billings
+            .reduce(
+              (acc, b) => acc + Number(b.outstandingAmount ?? b.calculation?.total ?? 0),
+              0,
+            )
+            .toFixed(2),
+        );
         charge.total = recalculatedTotal;
       } else if (typeof data.total === "number" && data.total >= charge.paidAmount) {
         charge.total = data.total;
-      } else {
-        charge.total = recalculatedTotal;
       }
     }
 
