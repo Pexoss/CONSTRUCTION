@@ -47,6 +47,48 @@ export function getBillingCompositionRowsOrdered(
   );
 }
 
+export function getBillingItemDisplayName(item: BillingItem): string {
+  const ref = item.itemId;
+  if (ref && typeof ref === "object" && ref.name) {
+    return String(ref.name).trim();
+  }
+  if (typeof ref === "string" && ref.trim()) {
+    return `Item ${ref.trim()}`;
+  }
+  return "Item";
+}
+
+export function formatBillingCompositionRowLabel(
+  row: BillingCompositionRowUi,
+  getItemDisplayName: (item: BillingItem) => string = getBillingItemDisplayName,
+): string {
+  if (row.kind === "item") {
+    const qty = Number(row.item.quantity) || 1;
+    return `${getItemDisplayName(row.item)} (Qtd: ${qty})`;
+  }
+  const desc = String(row.service.description || "Serviço").trim();
+  const qty = Number(row.service.quantity) || 1;
+  return `${desc} (Qtd: ${qty})`;
+}
+
+/** Linhas do fechamento com nome e quantidade (equipamentos e serviços). */
+export function getBillingCompositionLabels(
+  billing: { items?: BillingItem[] | null; services?: BillingService[] | null },
+  getItemDisplayName: (item: BillingItem) => string = getBillingItemDisplayName,
+): string[] {
+  return getBillingCompositionRowsOrdered(billing, getItemDisplayName).map((row) =>
+    formatBillingCompositionRowLabel(row, getItemDisplayName),
+  );
+}
+
+export function getBillingCompositionLabelsText(
+  billing: { items?: BillingItem[] | null; services?: BillingService[] | null },
+  getItemDisplayName: (item: BillingItem) => string = getBillingItemDisplayName,
+  separator = ", ",
+): string {
+  return getBillingCompositionLabels(billing, getItemDisplayName).join(separator);
+}
+
 export function billingDocumentTimelineMs(billing: {
   billingDate?: string | null;
   periodStart?: string | null;

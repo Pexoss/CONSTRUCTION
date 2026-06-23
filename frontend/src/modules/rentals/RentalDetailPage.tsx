@@ -47,6 +47,7 @@ import {
 } from "../../utils/tableSort";
 import {
   getBillingCompositionRowsOrdered,
+  formatBillingCompositionRowLabel,
   sortBillingDocumentsFreteClosureGroupLastStable,
 } from "../../utils/billingDisplayOrder";
 
@@ -2918,21 +2919,24 @@ const RentalDetailPage: React.FC = () => {
                             {(billing.items && billing.items.length > 0) ||
                             (billing.services && billing.services.length > 0) ? (
                               <div className="space-y-0.5 max-h-24 overflow-y-auto pr-1">
-                                {getBillingCompositionRowsOrdered(billing, getBillingItemName).map((row, idx) =>
-                                  row.kind === "item" ? (
-                                    <div key={`${billing._id}-row-${idx}`}>
-                                      • {getBillingItemName(row.item)} — Qtd: {row.item.quantity} —
-                                      Períodos: {row.item.periodsCharged} — Subtotal:{" "}
-                                      {formatCurrencyBr(row.item.subtotal)}
-                                    </div>
-                                  ) : (
-                                    <div key={`${billing._id}-row-${idx}`}>
-                                      • {row.service.description || "Serviço"} — Serviço — Qtd:{" "}
-                                      {row.service.quantity || 1} — Subtotal:{" "}
-                                      {formatCurrencyBr(row.service.subtotal)}
-                                    </div>
-                                  ),
-                                )}
+                                {getBillingCompositionRowsOrdered(billing, getBillingItemName).map((row, idx) => (
+                                  <div key={`${billing._id}-row-${idx}`}>
+                                    • {formatBillingCompositionRowLabel(row, getBillingItemName)}
+                                    {row.kind === "item" ? (
+                                      <>
+                                        {" "}
+                                        — Períodos: {row.item.periodsCharged} — Subtotal:{" "}
+                                        {formatCurrencyBr(row.item.subtotal)}
+                                      </>
+                                    ) : (
+                                      <>
+                                        {" "}
+                                        — Serviço — Subtotal:{" "}
+                                        {formatCurrencyBr(row.service.subtotal)}
+                                      </>
+                                    )}
+                                  </div>
+                                ))}
                               </div>
                             ) : (
                               <span className="text-gray-400">Sem itens</span>

@@ -41,7 +41,7 @@ import {
   sortedTableRows,
   toggleColumnSort,
 } from "../../utils/tableSort";
-import { getBillingCompositionRowsOrdered } from "../../utils/billingDisplayOrder";
+import { getBillingCompositionLabels, getBillingCompositionLabelsText } from "../../utils/billingDisplayOrder";
 
 const stageLabel: Record<string, string> = {
   pending: "Pendentes",
@@ -110,9 +110,9 @@ function sortBillingsByPeriodOldestFirst<T extends { periodStart?: unknown }>(
   });
 }
 
-/** Nomes dos equipamentos e serviços (ex.: frete) ligados ao fechamento. */
-const getBillingItemNamesLabel = (billing: any): string => {
-  const compositionRows = getBillingCompositionRowsOrdered(
+/** Nomes dos equipamentos e serviços (ex.: frete) ligados ao fechamento, com quantidade. */
+const getBillingItemNamesLabel = (billing: any): string =>
+  getBillingCompositionLabelsText(
     { items: billing?.items ?? [], services: billing?.services ?? [] },
     (it: any) => {
       const ref = it?.itemId;
@@ -120,21 +120,6 @@ const getBillingItemNamesLabel = (billing: any): string => {
       return "Item";
     },
   );
-  const names: string[] = [];
-  const seen = new Set<string>();
-  for (const row of compositionRows) {
-    const label =
-      row.kind === "item"
-        ? typeof row.item.itemId === "object" && row.item.itemId?.name
-          ? String(row.item.itemId.name).trim()
-          : "Item"
-        : String(row.service.description || "Serviço").trim();
-    if (!label || seen.has(label)) continue;
-    seen.add(label);
-    names.push(label);
-  }
-  return names.join(", ");
-};
 
 const getBillingWorkNameLabel = (billing: any): string =>
   String(billing?.rentalId?.workAddress?.workName || "").trim();
@@ -192,17 +177,40 @@ const getChargeDueOrPeriodLabel = (charge: any): string | null => {
   return `Período: ${start} até ${end}`;
 };
 
+const resolveLinkedDocumentId = (value: unknown): string | null => {
+  if (value == null || value === "") return null;
+  if (typeof value === "object") {
+    const id =
+      (value as { _id?: unknown; id?: unknown })._id ??
+      (value as { id?: unknown }).id;
+    if (id == null || id === "") return null;
+    return String(id);
+  }
+  const normalized = String(value).trim();
+  if (!normalized || normalized === "null" || normalized === "undefined") {
+    return null;
+  }
+  return normalized;
+};
+
+const billingHasInvoiceLink = (billing: any): boolean =>
+  resolveLinkedDocumentId(billing?.invoiceId) != null ||
+  billing?.financialStage === "invoiced";
+
 const isBillingEligibleForCharge = (billing: any): boolean =>
   billing?.financialStage === "pending" &&
   billing?.status !== "paid" &&
   billing?.status !== "cancelled" &&
-  !billing?.chargeId &&
-  !billing?.invoiceId &&
+  !resolveLinkedDocumentId(billing?.chargeId) &&
+  !billingHasInvoiceLink(billing) &&
   getBillingOutstanding(billing) > 0.01;
 
 /** Nova fatura (documento fiscal): permite fechamento já quitado, desde que não cancelado nem já vinculado a NF. */
-const isBillingEligibleForInvoiceDocument = (billing: any): boolean =>
-  billing?.status !== "cancelled" && !billing?.invoiceId;
+const isBillingEligibleForInvoiceDocument = (billing: any): boolean => {
+  if (!billing || typeof billing !== "object") return false;
+  if (billing.status === "cancelled") return false;
+  return !billingHasInvoiceLink(billing);
+};
 
 type FinBillSortKey =
   | "customer"
@@ -522,9 +530,12 @@ const FinancialCenterPage: React.FC = () => {
             : undefined,
       });
     },
-    onSuccess: (response) => {
+    onSuccess: async (response) => {
       toast.success(`Fatura ${response.data.invoiceNumber} gerada com sucesso.`);
-      queryClient.invalidateQueries({ queryKey: ["financial-board"] });
+      await queryClient.invalidateQueries({ queryKey: ["financial-board"] });
+      if (chargeModal?._id) {
+        await refreshChargeModalFromBoard(chargeModal._id);
+      }
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message || "Não foi possível gerar a fatura.";
@@ -851,28 +862,6 @@ const FinancialCenterPage: React.FC = () => {
     });
   };
 
-  const handleGenerateInvoiceFromCharge = (charge: any) => {
-    if (invoiceIssuerBoardOptions.length > 0 && !invoiceBillingIssuerForCreate.trim()) {
-      toast.warning("Selecione o CNPJ emissor da fatura.");
-      return;
-    }
-    const relatedBillings = (charge.billingIds || []).filter((billing: any) => !!billing);
-    const eligibleBillings = relatedBillings.filter((billing: any) =>
-      typeof billing === "string" ? true : isBillingEligibleForInvoiceDocument(billing),
-    );
-    const billingIds = eligibleBillings.map((billing: any) => String(billing?._id || billing));
-    if (!billingIds.length) {
-      toast.warning(
-        "Nenhum fechamento disponível para fatura (cancelados ou já vinculados a uma fatura).",
-      );
-      return;
-    }
-    if (eligibleBillings.length < relatedBillings.length) {
-      toast.info("A fatura incluirá apenas fechamentos ainda sem nota fiscal vinculada.");
-    }
-    generateInvoiceMutation.mutate({ chargeId: charge._id, billingIds });
-  };
-
   const openChargeModal = (charge: any) => {
     applyChargeModalState(charge);
   };
@@ -1000,6 +989,62 @@ const FinancialCenterPage: React.FC = () => {
     }
     return names.join(", ");
   }, [chargeModalLinkedBillings]);
+
+  const handleGenerateInvoiceFromCharge = () => {
+    if (!chargeModal) return;
+    if (invoiceIssuerBoardOptions.length > 0 && !invoiceBillingIssuerForCreate.trim()) {
+      toast.warning("Selecione o CNPJ emissor da fatura.");
+      return;
+    }
+
+    const resolveBillingRecord = (billingId: string) =>
+      chargeModalLinkedBillings.find((b: any) => String(b._id) === billingId) ||
+      billings.find((b: any) => String(b._id) === billingId) ||
+      (chargeModal.billingIds || []).find(
+        (b: any) => b && typeof b === "object" && String(b._id) === billingId,
+      );
+
+    const billingIdCandidates = Array.from(
+      new Set(
+        chargeModalBillingIds
+          .map((id) => String(id).trim())
+          .filter((id) => id && id !== "null" && id !== "undefined"),
+      ),
+    );
+
+    if (!billingIdCandidates.length) {
+      toast.warning("Esta cobrança não possui fechamentos vinculados.");
+      return;
+    }
+
+    const eligibleBillingIds: string[] = [];
+    for (const billingId of billingIdCandidates) {
+      const billing = resolveBillingRecord(billingId);
+      if (!billing) {
+        eligibleBillingIds.push(billingId);
+        continue;
+      }
+      if (isBillingEligibleForInvoiceDocument(billing)) {
+        eligibleBillingIds.push(billingId);
+      }
+    }
+
+    if (!eligibleBillingIds.length) {
+      toast.warning(
+        "Nenhum fechamento disponível para fatura (cancelados ou já vinculados a uma fatura).",
+      );
+      return;
+    }
+
+    if (eligibleBillingIds.length < billingIdCandidates.length) {
+      toast.info("A fatura incluirá apenas fechamentos ainda sem nota fiscal vinculada.");
+    }
+
+    generateInvoiceMutation.mutate({
+      chargeId: chargeModal._id,
+      billingIds: eligibleBillingIds,
+    });
+  };
 
   const startChargeModalBillingsEdit = () => {
     setChargeModalBillingIdsSnapshot([...chargeModalBillingIds]);
@@ -1437,30 +1482,13 @@ const FinancialCenterPage: React.FC = () => {
                       ) : (
                         tableBillings.map((bill: any) => {
                           const rentalIdStr = String(bill.rentalId?._id || bill.rentalId || "");
-                          const compositionRows = getBillingCompositionRowsOrdered(
+                          const itemLabels = getBillingCompositionLabels(
                             { items: bill.items ?? [], services: bill.services ?? [] },
                             (it: any) =>
-                              typeof it.itemId === "object" && it.itemId?.name ? it.itemId.name : "Item",
+                              typeof it.itemId === "object" && it.itemId?.name
+                                ? it.itemId.name
+                                : "Item",
                           );
-                          const itemNames: string[] =
-                            compositionRows.length > 0
-                              ? (() => {
-                                  const seen = new Set<string>();
-                                  const out: string[] = [];
-                                  for (const row of compositionRows) {
-                                    const label =
-                                      row.kind === "item"
-                                        ? typeof row.item.itemId === "object" && row.item.itemId?.name
-                                          ? row.item.itemId.name
-                                          : "Item"
-                                        : row.service.description || "Serviço";
-                                    if (seen.has(label)) continue;
-                                    seen.add(label);
-                                    out.push(label);
-                                  }
-                                  return out;
-                                })()
-                              : [];
                           const tipo =
                             rentalTypeLabel[String(bill.rentalType || "")] || bill.rentalType || "—";
                           const canSelectForCharge = isBillingEligibleForCharge(bill);
@@ -1498,11 +1526,11 @@ const FinancialCenterPage: React.FC = () => {
                               </td>
                               <td className="px-2 py-2 whitespace-nowrap">{tipo}</td>
                               <td className="px-2 py-2 text-gray-700 dark:text-gray-300 max-w-[220px]">
-                                {itemNames.length > 0 ? (
+                                {itemLabels.length > 0 ? (
                                   <div className="max-h-16 overflow-y-auto pr-1 space-y-0.5 text-2xs leading-tight">
-                                    {itemNames.map((name: string) => (
-                                      <div key={name} className="truncate" title={name}>
-                                        {name}
+                                    {itemLabels.map((label: string, index: number) => (
+                                      <div key={`${bill._id}-item-${index}`} className="truncate" title={label}>
+                                        {label}
                                       </div>
                                     ))}
                                   </div>
@@ -2404,7 +2432,7 @@ const FinancialCenterPage: React.FC = () => {
                       <button
                         type="button"
                         className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
-                        onClick={() => handleGenerateInvoiceFromCharge(chargeModal)}
+                        onClick={() => handleGenerateInvoiceFromCharge()}
                       >
                         Gerar fatura
                       </button>
