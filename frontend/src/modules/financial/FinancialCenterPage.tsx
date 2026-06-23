@@ -212,6 +212,53 @@ const isBillingEligibleForInvoiceDocument = (billing: any): boolean => {
   return !billingHasInvoiceLink(billing);
 };
 
+const resolveInvoiceForCharge = (
+  chargeBillingIds: string[],
+  linkedBillings: any[],
+  allInvoices: any[],
+): any | null => {
+  const billingIdSet = new Set(chargeBillingIds.map(String).filter(Boolean));
+  if (!billingIdSet.size) return null;
+
+  const activeInvoices = allInvoices.filter((inv) => inv?.status !== "cancelled");
+
+  const invoiceIdsFromBillings = new Set<string>();
+  for (const bill of linkedBillings) {
+    const invId = resolveLinkedDocumentId(bill?.invoiceId);
+    if (invId) invoiceIdsFromBillings.add(invId);
+  }
+  if (invoiceIdsFromBillings.size === 1) {
+    const invId = Array.from(invoiceIdsFromBillings)[0];
+    const fromBoard = activeInvoices.find((inv) => String(inv._id) === invId);
+    if (fromBoard) return fromBoard;
+  }
+
+  const overlapping = activeInvoices.filter((inv) => {
+    const ids = (inv.billingIds || []).map((b: any) => String(b?._id || b));
+    return ids.some((id: string) => billingIdSet.has(id));
+  });
+
+  const fullCoverage = overlapping.find((inv) => {
+    const ids = new Set((inv.billingIds || []).map((b: any) => String(b?._id || b)));
+    return Array.from(billingIdSet).every((id) => ids.has(id));
+  });
+  if (fullCoverage) return fullCoverage;
+
+  if (overlapping.length === 1) return overlapping[0];
+
+  if (overlapping.length > 1) {
+    return overlapping.sort((a, b) => {
+      const countOverlap = (inv: any) =>
+        (inv.billingIds || []).filter((bid: any) =>
+          billingIdSet.has(String(bid?._id || bid)),
+        ).length;
+      return countOverlap(b) - countOverlap(a);
+    })[0];
+  }
+
+  return null;
+};
+
 type FinBillSortKey =
   | "customer"
   | "period"
@@ -989,6 +1036,42 @@ const FinancialCenterPage: React.FC = () => {
     }
     return names.join(", ");
   }, [chargeModalLinkedBillings]);
+
+  const chargeModalExistingInvoice = useMemo(
+    () =>
+      chargeModal
+        ? resolveInvoiceForCharge(
+            chargeModalBillingIds,
+            chargeModalLinkedBillings,
+            invoices,
+          )
+        : null,
+    [chargeModal, chargeModalBillingIds, chargeModalLinkedBillings, invoices],
+  );
+
+  const chargeModalCanGenerateInvoice = useMemo(() => {
+    if (
+      !canManageFinancialUser ||
+      !chargeModal ||
+      chargeModal.status === "cancelled" ||
+      chargeModalExistingInvoice
+    ) {
+      return false;
+    }
+    return chargeModalBillingIds.some((billingId) => {
+      const billing =
+        chargeModalLinkedBillings.find((b: any) => String(b._id) === String(billingId)) ||
+        billings.find((b: any) => String(b._id) === String(billingId));
+      return !billing || isBillingEligibleForInvoiceDocument(billing);
+    });
+  }, [
+    canManageFinancialUser,
+    chargeModal,
+    chargeModalExistingInvoice,
+    chargeModalBillingIds,
+    chargeModalLinkedBillings,
+    billings,
+  ]);
 
   const handleGenerateInvoiceFromCharge = () => {
     if (!chargeModal) return;
@@ -2342,7 +2425,34 @@ const FinancialCenterPage: React.FC = () => {
                 </section>
               ) : null}
 
-              {chargeModalShowInvoiceSection ? (
+              {chargeModalShowInvoiceSection && chargeModalExistingInvoice ? (
+                <section className="rounded-lg border border-indigo-200 dark:border-indigo-800 overflow-hidden">
+                  <div className="bg-indigo-50/90 dark:bg-indigo-950/40 px-4 py-2.5 border-b border-indigo-200 dark:border-indigo-800">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-indigo-800 dark:text-indigo-200">
+                      Fatura vinculada a esta cobrança
+                    </h4>
+                  </div>
+                  <div className="p-4 space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                    <p>
+                      <span className="font-medium text-gray-900 dark:text-white">
+                        {formatInvoiceHeading(chargeModalExistingInvoice)}
+                      </span>
+                      {" · "}
+                      Total: {formatCurrencyBr(chargeModalExistingInvoice.total || 0)}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Status:{" "}
+                      {invoiceStatusLabel[String(chargeModalExistingInvoice.status)] ||
+                        chargeModalExistingInvoice.status}
+                      {chargeModalExistingInvoice.dueDate
+                        ? ` · Vencimento: ${formatDateNoTimezoneShift(chargeModalExistingInvoice.dueDate)}`
+                        : ""}
+                    </p>
+                  </div>
+                </section>
+              ) : null}
+
+              {chargeModalShowInvoiceSection && chargeModalCanGenerateInvoice ? (
                 <section className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                   <div className="bg-gray-50/90 dark:bg-gray-800/60 px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
@@ -2428,7 +2538,27 @@ const FinancialCenterPage: React.FC = () => {
                     >
                       Imprimir PDF
                     </button>
-                    {chargeModalShowInvoiceSection ? (
+                    {chargeModalShowInvoiceSection && chargeModalExistingInvoice ? (
+                      <>
+                        <button
+                          type="button"
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+                          onClick={() => openInvoiceModal(chargeModalExistingInvoice)}
+                        >
+                          Visualizar fatura
+                        </button>
+                        <button
+                          type="button"
+                          className="px-4 py-2 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded-lg text-sm font-medium hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                          onClick={() =>
+                            printInvoiceMutation.mutate(chargeModalExistingInvoice._id)
+                          }
+                        >
+                          PDF da fatura
+                        </button>
+                      </>
+                    ) : null}
+                    {chargeModalShowInvoiceSection && chargeModalCanGenerateInvoice ? (
                       <button
                         type="button"
                         className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
