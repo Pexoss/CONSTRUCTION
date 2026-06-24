@@ -248,6 +248,13 @@ export const rentalService = {
         workName: string;
         workId?: string;
       };
+      services?: Array<{
+        description: string;
+        price: number;
+        quantity?: number;
+        category?: string;
+        notes?: string;
+      }>;
     },
   ) => {
     const response = await api.put<{

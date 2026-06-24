@@ -144,7 +144,27 @@ function findClosureBillingForReturnedItem(
   )[0];
 }
 
-type RentalDetailBillingSortKey = "period" | "status" | "total";
+type RentalDetailBillingSortKey = "period" | "rentalType" | "status" | "total";
+
+type EditServiceFormRow = {
+  description: string;
+  price: number;
+  priceInput: string;
+  quantity: number;
+  subtotal: number;
+  category: string;
+  notes: string;
+};
+
+const emptyEditServiceRow = (): EditServiceFormRow => ({
+  description: "",
+  price: 0,
+  priceInput: "",
+  quantity: 1,
+  subtotal: 0,
+  category: "",
+  notes: "",
+});
 const RentalDetailPage: React.FC = () => {
   const rentalTypeApiToUi: Record<string, RentalTypeUI> = {
     daily: "diario",
@@ -366,6 +386,7 @@ const RentalDetailPage: React.FC = () => {
       workName: "",
       workId: "",
     } as RentalWorkAddress,
+    services: [] as EditServiceFormRow[],
   });
   const [newItemForm, setNewItemForm] = useState<{
     itemId: string;
@@ -502,6 +523,7 @@ const RentalDetailPage: React.FC = () => {
         {
           period: (b) =>
             b.periodStart ? new Date(b.periodStart).getTime() : 0,
+          rentalType: (b) => formatRentalTypeLabel(b.rentalType).toLowerCase(),
           status: (b) => String(b.status || ""),
           total: (b) => Number(b.calculation?.total ?? 0),
         },
@@ -532,6 +554,69 @@ const RentalDetailPage: React.FC = () => {
       setServerError(message);
     },
   });
+
+  const addEditService = () => {
+    setEditForm((prev) => ({
+      ...prev,
+      services: [...prev.services, emptyEditServiceRow()],
+    }));
+  };
+
+  const updateEditService = (
+    index: number,
+    field: keyof EditServiceFormRow,
+    value: string | number,
+  ) => {
+    setEditForm((prev) => {
+      const services = [...prev.services];
+      const row = { ...services[index], [field]: value };
+      if (field === "price" || field === "quantity") {
+        row.subtotal = Number((row.price * row.quantity).toFixed(2));
+      }
+      services[index] = row;
+      return { ...prev, services };
+    });
+  };
+
+  const handleEditServicePriceBlur = (index: number, rawValue: string) => {
+    const parsed = parseMoneyBr(rawValue);
+    const price = Number.isFinite(parsed) ? parsed : 0;
+    setEditForm((prev) => {
+      const services = [...prev.services];
+      const row = services[index];
+      services[index] = {
+        ...row,
+        price,
+        priceInput: formatMoneyInputBr(price),
+        subtotal: Number((price * row.quantity).toFixed(2)),
+      };
+      return { ...prev, services };
+    });
+  };
+
+  const removeEditService = (index: number) => {
+    setEditForm((prev) => ({
+      ...prev,
+      services: prev.services.filter((_, i) => i !== index),
+    }));
+  };
+
+  const mapRentalServicesToEditForm = (
+    services: Rental["services"],
+  ): EditServiceFormRow[] =>
+    (services || []).map((service) => {
+      const price = Number(service.price || 0);
+      const quantity = Math.max(1, Number(service.quantity) || 1);
+      return {
+        description: service.description || "",
+        price,
+        priceInput: formatMoneyInputBr(price),
+        quantity,
+        subtotal: Number(service.subtotal ?? price * quantity),
+        category: service.category || "",
+        notes: service.notes || "",
+      };
+    });
 
   const updateRentalMutation = useMutation({
     mutationFn: (payload: {
@@ -1379,6 +1464,136 @@ const RentalDetailPage: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Serviços adicionais
+                  </h3>
+                  {editForm.services.length > 0 ? (
+                    <div className="space-y-3">
+                      {editForm.services.map((service, index) => (
+                        <div
+                          key={`edit-service-${index}`}
+                          className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-3"
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                            <div className="md:col-span-5">
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                                Descrição *
+                              </label>
+                              <input
+                                type="text"
+                                value={service.description}
+                                onChange={(e) =>
+                                  updateEditService(index, "description", e.target.value)
+                                }
+                                placeholder="Ex: Frete"
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              />
+                            </div>
+                            <div className="md:col-span-3">
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                                Categoria
+                              </label>
+                              <input
+                                type="text"
+                                value={service.category}
+                                onChange={(e) =>
+                                  updateEditService(index, "category", e.target.value)
+                                }
+                                placeholder="frete, limpeza..."
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                                Qtd
+                              </label>
+                              <input
+                                type="number"
+                                min={1}
+                                value={service.quantity}
+                                onChange={(e) =>
+                                  updateEditService(
+                                    index,
+                                    "quantity",
+                                    Math.max(1, Number(e.target.value) || 1),
+                                  )
+                                }
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                                Subtotal
+                              </label>
+                              <div className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-md text-sm font-medium bg-gray-50 dark:bg-gray-900/40 text-gray-900 dark:text-white">
+                                {formatCurrencyBr(service.subtotal)}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                            <div className="md:col-span-4">
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                                Preço unitário (R$) *
+                              </label>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0,00"
+                                value={service.priceInput}
+                                onFocus={selectInputText}
+                                onClick={selectInputText}
+                                onChange={(e) =>
+                                  updateEditService(
+                                    index,
+                                    "priceInput",
+                                    formatMoneyInputBrLive(e.target.value),
+                                  )
+                                }
+                                onBlur={(e) =>
+                                  handleEditServicePriceBlur(index, e.target.value)
+                                }
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white tabular-nums"
+                              />
+                            </div>
+                            <div className="md:col-span-6">
+                              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                                Observações
+                              </label>
+                              <input
+                                type="text"
+                                value={service.notes}
+                                onChange={(e) =>
+                                  updateEditService(index, "notes", e.target.value)
+                                }
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              />
+                            </div>
+                            <div className="md:col-span-2 flex md:justify-end">
+                              <button
+                                type="button"
+                                onClick={() => removeEditService(index)}
+                                className="w-full md:w-auto px-3 py-2 text-sm text-red-600 hover:text-red-700 border border-red-200 dark:border-red-900/50 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30"
+                              >
+                                Remover
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-3">
+                    <button
+                      type="button"
+                      onClick={addEditService}
+                      className="px-3 py-2 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-md text-sm font-medium"
+                    >
+                      + Adicionar serviço
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Endereço da obra
                   </h3>
                   {customerAddresses.length > 0 && (
@@ -1661,6 +1876,13 @@ const RentalDetailPage: React.FC = () => {
                         historicalDelivery?: boolean;
                         recalculateScheduledReturn?: boolean;
                       }>;
+                      services?: Array<{
+                        description: string;
+                        price: number;
+                        quantity?: number;
+                        category?: string;
+                        notes?: string;
+                      }>;
                     } = {
                       notes: editForm.notes,
                       pickedUpBy: editForm.pickedUpBy.trim() || undefined,
@@ -1765,6 +1987,26 @@ const RentalDetailPage: React.FC = () => {
                         return row;
                       });
                     }
+
+                    for (let i = 0; i < editForm.services.length; i += 1) {
+                      const service = editForm.services[i];
+                      if (!service.description.trim()) {
+                        toast.error(`Informe a descrição do serviço ${i + 1}.`);
+                        return;
+                      }
+                      if (!Number.isFinite(service.price) || service.price < 0) {
+                        toast.error(`Informe o preço do serviço ${i + 1}.`);
+                        return;
+                      }
+                    }
+
+                    payload.services = editForm.services.map((service) => ({
+                      description: service.description.trim(),
+                      price: service.price,
+                      quantity: service.quantity,
+                      category: service.category.trim() || undefined,
+                      notes: service.notes.trim() || undefined,
+                    }));
 
                     updateRentalMutation.mutate(payload);
                   }}
@@ -2153,6 +2395,7 @@ const RentalDetailPage: React.FC = () => {
                         workName: workAddress.workName || "",
                         workId: workAddress.workId || "",
                       },
+                      services: mapRentalServicesToEditForm(rental.services),
                     });
                     setSelectedWorkAddressId(workAddress.workId || "");
                     setSaveWorkAddress(false);
@@ -2867,6 +3110,13 @@ const RentalDetailPage: React.FC = () => {
                           thClassName="px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap"
                         />
                         <SortableTh<RentalDetailBillingSortKey>
+                          columnKey="rentalType"
+                          label="Tipo"
+                          sort={rentalBillingSort}
+                          onSort={handleRentalBillingSort}
+                          thClassName="px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-300 whitespace-nowrap"
+                        />
+                        <SortableTh<RentalDetailBillingSortKey>
                           columnKey="status"
                           label="Situação"
                           sort={rentalBillingSort}
@@ -2900,6 +3150,9 @@ const RentalDetailPage: React.FC = () => {
                             )}{" "}
                             →{" "}
                             {formatBillingPeriodDate(billing.periodEnd)}
+                          </td>
+                          <td className="px-3 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                            {formatRentalTypeLabel(billing.rentalType)}
                           </td>
                           <td className="px-3 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">
                             {billing.status === "paid"

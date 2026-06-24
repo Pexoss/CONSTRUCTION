@@ -121,6 +121,17 @@ export const updateRentalSchema = z.object({
       workId: z.string().optional(),
     })
     .optional(),
+  services: z
+    .array(
+      z.object({
+        description: z.string().min(1, "Descrição do serviço é obrigatória"),
+        price: z.number().min(0),
+        quantity: z.number().int().min(1).optional(),
+        category: z.string().optional(),
+        notes: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export const updateRentalStatusSchema = z.object({
