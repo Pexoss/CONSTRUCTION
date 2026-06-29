@@ -13,6 +13,7 @@ import { transactionService } from "../transactions/transaction.service";
 import { normalizeDocument, isValidCnpj, formatCnpjForDisplay } from "../../shared/utils/document.utils";
 import { allocateNextInvoiceSequenceNumber } from "./invoice.sequence.util";
 import { mergeInvoiceIssuerFilter } from "./invoiceIssuerQuery.util";
+import { formatPaymentMethodLabel } from "../../shared/utils/payment-method.util";
 import {
   getBillingCompositionRowsOrdered,
   isBillingFreteLine,
@@ -478,7 +479,7 @@ class InvoiceService {
         dueDate,
         terms: data.terms,
         notes: notesCombined,
-        paymentMethod: data.paymentMethod || "boleto/PIX",
+        paymentMethod: data.paymentMethod || "pix",
         obraDescription: data.obraDescription,
         createdBy: userId,
       },
@@ -840,7 +841,7 @@ class InvoiceService {
       return rental.rentalNumber || String(rental._id).slice(-8);
     };
 
-    const paymentMethod = invoice.paymentMethod || "boleto/PIX";
+    const paymentMethod = formatPaymentMethodLabel(invoice.paymentMethod);
     const custAddr = customerAddress();
     const customerCode =
       customer?._id != null ? String(customer._id).slice(-6).toUpperCase() : "—";

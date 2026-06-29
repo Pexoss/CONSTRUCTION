@@ -24,6 +24,11 @@ import {
 } from "../company/company.service";
 import { rentalTypeLabel } from "../../utils/statusLabels";
 import {
+  DEFAULT_INVOICE_PAYMENT_METHOD,
+  DEFAULT_PAYMENT_METHOD,
+} from "../../constants/paymentMethods";
+import PaymentMethodSelect from "../../components/PaymentMethodSelect";
+import {
   formatDateNoTimezoneShift,
   formatDateTimeForDisplay,
   formatDocumentForDisplay,
@@ -289,9 +294,11 @@ const FinancialCenterPage: React.FC = () => {
   /** Desconto reduz valor a partir do saldo total (não do valor já reduzido). */
   const chargePartialDiscountLinksAmountRef = useRef(false);
   const chargePartialPrevAdditionalRef = useRef(0);
-  const [chargePartialMethod, setChargePartialMethod] = useState<string>("manual");
+  const [chargePartialMethod, setChargePartialMethod] = useState<string>(DEFAULT_PAYMENT_METHOD);
   const [invoiceDueDate, setInvoiceDueDate] = useState<string>("");
-  const [invoicePaymentMethod, setInvoicePaymentMethod] = useState<string>("boleto/PIX");
+  const [invoicePaymentMethod, setInvoicePaymentMethod] = useState<string>(
+    DEFAULT_INVOICE_PAYMENT_METHOD,
+  );
   /** Filtro exclusivo da lista na aba Cobranças */
   const [chargeStatusFilter, setChargeStatusFilter] = useState<string>("");
   const [chargeModal, setChargeModal] = useState<any | null>(null);
@@ -419,7 +426,7 @@ const FinancialCenterPage: React.FC = () => {
     setChargePayAdditionalReason("");
     chargePartialPrevAdditionalRef.current = 0;
     chargePartialDiscountLinksAmountRef.current = false;
-    setChargePartialMethod("manual");
+    setChargePartialMethod(DEFAULT_PAYMENT_METHOD);
   }, []);
 
   const chargePartialEffectiveSettleBase = useMemo(() => {
@@ -533,7 +540,7 @@ const FinancialCenterPage: React.FC = () => {
       return chargeService.pay(chargeId, {
         amount,
         discount,
-        paymentMethod: method || "manual",
+        paymentMethod: method || DEFAULT_PAYMENT_METHOD,
         additionalAmount,
         additionalAmountReason,
       });
@@ -2325,17 +2332,12 @@ const FinancialCenterPage: React.FC = () => {
                           <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
                             Forma
                           </label>
-                          <select
+                          <PaymentMethodSelect
                             value={chargePartialMethod}
-                            onChange={(e) => setChargePartialMethod(e.target.value)}
+                            onChange={setChargePartialMethod}
+                            fallback={DEFAULT_PAYMENT_METHOD}
                             className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900"
-                          >
-                            <option value="manual">Manual</option>
-                            <option value="pix">PIX</option>
-                            <option value="boleto">Boleto</option>
-                            <option value="cartao">Cartão</option>
-                            <option value="transferencia">Transferência</option>
-                          </select>
+                          />
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -2501,16 +2503,12 @@ const FinancialCenterPage: React.FC = () => {
                       <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
                         Forma de pagamento na fatura
                       </label>
-                      <select
+                      <PaymentMethodSelect
                         value={invoicePaymentMethod}
-                        onChange={(e) => setInvoicePaymentMethod(e.target.value)}
+                        onChange={setInvoicePaymentMethod}
+                        fallback={DEFAULT_INVOICE_PAYMENT_METHOD}
                         className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900"
-                      >
-                        <option value="boleto/PIX">Boleto/PIX</option>
-                        <option value="PIX">PIX</option>
-                        <option value="Boleto">Boleto</option>
-                        <option value="Transferência">Transferência</option>
-                      </select>
+                      />
                     </div>
                   </div>
                 </section>

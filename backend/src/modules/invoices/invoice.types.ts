@@ -16,7 +16,7 @@ export interface IInvoice extends Document {
   chargeIds?: mongoose.Types.ObjectId[];
   rentalId?: mongoose.Types.ObjectId;
   customerId: mongoose.Types.ObjectId;
-  /** Forma de pagamento exibida na fatura (ex.: boleto/PIX) */
+  /** Forma de pagamento exibida na fatura (slug: manual, pix, boleto, cartao, transferencia, cheque) */
   paymentMethod?: string;
   /** Endereço da obra / local de uso (texto livre) */
   obraDescription?: string;

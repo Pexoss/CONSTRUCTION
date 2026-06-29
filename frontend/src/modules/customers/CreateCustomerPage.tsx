@@ -54,6 +54,11 @@ const CreateCustomerPage: React.FC = () => {
 
     const payload: CreateCustomerData = { ...formData };
     const cpfLimpo = (payload.cpfCnpj || "").replace(/\D/g, "");
+    if (cpfLimpo) {
+      payload.cpfCnpj = cpfLimpo;
+    } else {
+      delete payload.cpfCnpj;
+    }
     if (payload.validateDocument && cpfLimpo.length > 0) {
       delete payload.name;
     } else {

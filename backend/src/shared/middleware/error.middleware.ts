@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import mongoose from "mongoose";
+import { duplicateKeyErrorMessage } from "../utils/duplicate-key-message.util";
 
 /** Use `statusCode` (4xx/5xx) nos serviços via `badRequest` / `notFound` em `http-error.util.ts`. */
 export interface AppError extends Error {
@@ -61,12 +62,9 @@ export const errorMiddleware = (
 
   // Mongoose duplicate key error
   if ((err as any).code === 11000) {
-
-    const field = Object.keys((err as any).keyPattern)[0];
-
     return res.status(400).json({
       success: false,
-      message: `${field} já está em uso.`,
+      message: duplicateKeyErrorMessage(err as any),
     });
   }
 

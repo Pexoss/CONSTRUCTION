@@ -34,6 +34,8 @@ import {
   toggleColumnSort,
 } from "../../utils/tableSort";
 import { getBillingCompositionRowsOrdered, formatBillingCompositionRowLabel, sortBillingDocumentsFreteClosureGroupLastStable } from "../../utils/billingDisplayOrder";
+import { DEFAULT_INVOICE_PAYMENT_METHOD } from "../../constants/paymentMethods";
+import PaymentMethodSelect from "../../components/PaymentMethodSelect";
 
 type CreateInvoiceBillingSortKey =
   | "closure"
@@ -67,7 +69,7 @@ const CreateInvoicePage: React.FC = () => {
     d.setDate(d.getDate() + 30);
     return d.toISOString().slice(0, 10);
   });
-  const [paymentMethod, setPaymentMethod] = useState("boleto/PIX");
+  const [paymentMethod, setPaymentMethod] = useState(DEFAULT_INVOICE_PAYMENT_METHOD);
   const [obraDescription, setObraDescription] = useState("");
   const [notes, setNotes] = useState("");
   const [tax, setTax] = useState("");
@@ -459,11 +461,10 @@ const CreateInvoicePage: React.FC = () => {
                   <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
                     Forma de pagamento
                   </label>
-                  <input
-                    type="text"
+                  <PaymentMethodSelect
                     value={paymentMethod}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                    placeholder="boleto/PIX"
+                    onChange={setPaymentMethod}
+                    fallback={DEFAULT_INVOICE_PAYMENT_METHOD}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm"
                   />
                 </div>

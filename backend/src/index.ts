@@ -11,6 +11,7 @@ import {
   closeDatabase,
   isDatabaseConnected,
 } from "./config/database";
+import { ensureCustomerIndexes } from "./modules/customers/customer.index.util";
 import { errorMiddleware } from "./shared/middleware/error.middleware";
 import { databaseCheckMiddleware } from "./shared/middleware/database-check.middleware";
 import authRoutes from "./modules/auth/auth.routes";
@@ -162,6 +163,7 @@ const startServer = async () => {
   try {
     // Connect to database
     await connectDatabase();
+    await ensureCustomerIndexes();
 
     // Start listening
     const PORT = parseInt(env.PORT);

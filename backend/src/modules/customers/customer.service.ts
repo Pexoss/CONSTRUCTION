@@ -9,6 +9,7 @@ import {
   isValidCpfCnpj,
   normalizeDocument,
 } from "../../shared/utils/document.utils";
+import { ensureCustomerIndexes } from "./customer.index.util";
 
 class CustomerService {
   /**
@@ -72,20 +73,41 @@ class CustomerService {
       customerData.validated = { isValidated: false };
     }
 
-    // 4. Se o CPF veio vazio, garante que salve como undefined ou null
-    // Isso evita erros de index UNIQUE no MongoDB (string vazia conta como valor)
+    // 4. Sem documento: omitir o campo (evita colisão em índice legado com string vazia/null)
     if (!cleanCpfCnpj) {
-      delete customerData.cpfCnpj;  
+      delete customerData.cpfCnpj;
     } else {
       customerData.cpfCnpj = cleanCpfCnpj;
     }
 
-    const customer = await Customer.create({
-      ...customerData,
-      companyId,
-    });
+    delete customerData.companyId;
+    delete customerData._id;
 
-    return customer;
+    try {
+      const customer = await Customer.create({
+        ...customerData,
+        companyId,
+      });
+      return customer;
+    } catch (error: unknown) {
+      if (
+        error &&
+        typeof error === "object" &&
+        (error as { code?: number }).code === 11000
+      ) {
+        const keyPattern = (error as { keyPattern?: Record<string, unknown> })
+          .keyPattern;
+        if (keyPattern?.companyId && keyPattern?.cpfCnpj && !cleanCpfCnpj) {
+          await ensureCustomerIndexes();
+          const retry = await Customer.create({
+            ...customerData,
+            companyId,
+          });
+          return retry;
+        }
+      }
+      throw error;
+    }
   }
   /**
    * Get all customers with filters

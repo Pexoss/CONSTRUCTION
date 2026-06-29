@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import { buildPdfReport } from "./report-pdf.util";
 import { Rental } from "../rentals/rental.model";
 import { Transaction } from "../transactions/transaction.model";
+import { formatPaymentMethodLabel } from "../../shared/utils/payment-method.util";
 
 export class ReportController {
   /**
@@ -915,7 +916,7 @@ export class ReportController {
           pdate: row.paymentDate
             ? new Date(row.paymentDate).toLocaleDateString("pt-BR")
             : "—",
-          pm: row.paymentMethod ?? "—",
+          pm: formatPaymentMethodLabel(row.paymentMethod),
           due: row.dueDate
             ? new Date(row.dueDate).toLocaleDateString("pt-BR")
             : "—",
@@ -1057,7 +1058,7 @@ export class ReportController {
               row.paymentDate
                 ? new Date(row.paymentDate).toLocaleDateString("pt-BR")
                 : "—",
-              row.paymentMethod ?? "—",
+              formatPaymentMethodLabel(row.paymentMethod),
             ]),
           },
           {

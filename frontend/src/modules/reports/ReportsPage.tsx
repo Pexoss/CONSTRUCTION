@@ -25,6 +25,7 @@ import {
   todayDateInputValue,
   formatDocumentForDisplay,
 } from "../../utils/formatters";
+import { formatPaymentMethodLabel } from "../../constants/paymentMethods";
 import {
   companyService,
   EMPTY_COMPANY_INVOICE_ISSUERS,
@@ -367,7 +368,8 @@ const ReportsPage: React.FC = () => {
       amount: (r) => Number(r.amount ?? 0),
       paymentDate: (r) =>
         r.paymentDate ? new Date(r.paymentDate).getTime() : 0,
-      paymentMethod: (r) => String(r.paymentMethod || "").toLowerCase(),
+      paymentMethod: (r) =>
+        formatPaymentMethodLabel(r.paymentMethod).toLowerCase(),
     });
   }, [receivablesReport?.data?.paidInPeriod, receivablesPaidSort]);
 
@@ -1661,7 +1663,7 @@ const ReportsPage: React.FC = () => {
                                 : "—"}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
-                              {row.paymentMethod ?? "—"}
+                              {formatPaymentMethodLabel(row.paymentMethod)}
                             </td>
                           </tr>
                         ))
