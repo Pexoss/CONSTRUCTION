@@ -9,11 +9,13 @@ import {
   RentalTypeUI,
   Rental,
   RentalItem,
+  RentalResponsibleContact,
 } from "../../types/rental.types";
 import { billingService } from "../billings/billing.service";
 import { Billing, EMPTY_BILLINGS } from "../../types/billing.types";
 import { EMPTY_ITEMS, Item, ItemUnit } from "../../types/inventory.types";
 import { customerService } from "../customers/customer.service";
+import { CustomerResponsible } from "../../types/customer.types";
 import Layout from "../../components/Layout";
 import { SuccessToast } from "../../components/SuccessToast";
 import { useAuth } from "hooks/useAuth";
@@ -23,6 +25,7 @@ import { createPortal } from "react-dom";
 import {
   formatDocumentForDisplay,
   formatPhoneForDisplay,
+  formatPhoneInputBr,
   formatDateNoTimezoneShift,
   formatDateTimeForDisplay,
   formatRentalTypeLabel,
@@ -113,6 +116,31 @@ function buildRentalLineKeyFromItem(item: RentalItem): string {
     return `${base}|${item.lineId.trim()}`;
   }
   return base;
+}
+
+function getRentalLineForEditRow(
+  rentalItems: RentalItem[],
+  row: { itemId: string; unitId?: string; lineId?: string },
+): RentalItem | undefined {
+  const targetItemId = String(row.itemId);
+  const targetUnitId = row.unitId ? String(row.unitId) : "";
+  const targetLineId = row.lineId?.trim() || "";
+
+  return rentalItems.find((rentalItem) => {
+    const rentalItemId = getRentalEntityId(rentalItem.itemId);
+    if (rentalItemId !== targetItemId) return false;
+
+    const rentalUnitId = rentalItem.unitId ? String(rentalItem.unitId) : "";
+    if (rentalUnitId !== targetUnitId) return false;
+
+    const rentalLineId =
+      typeof rentalItem.lineId === "string" ? rentalItem.lineId.trim() : "";
+    if (targetLineId) {
+      return rentalLineId === targetLineId;
+    }
+
+    return true;
+  });
 }
 
 function findClosureBillingForReturnedItem(
@@ -426,6 +454,8 @@ const RentalDetailPage: React.FC = () => {
       workId: "",
     } as RentalWorkAddress,
     services: [] as EditServiceFormRow[],
+    financialResponsibleId: "",
+    workResponsibleId: "",
   });
   const [newItemForm, setNewItemForm] = useState<{
     itemId: string;
@@ -454,6 +484,18 @@ const RentalDetailPage: React.FC = () => {
   const [saveWorkAddress, setSaveWorkAddress] = useState(false);
   const [selectedWorkAddressId, setSelectedWorkAddressId] =
     useState<string>("");
+  const [showAddResponsibleModal, setShowAddResponsibleModal] = useState(false);
+  const [newResponsibleForm, setNewResponsibleForm] = useState<{
+    name: string;
+    phone: string;
+    role: CustomerResponsible["role"];
+    workName: string;
+  }>({
+    name: "",
+    phone: "",
+    role: "financial",
+    workName: "",
+  });
 
   const { data, isLoading } = useQuery<RentalByIdResult>({
     queryKey: ["rental", id],
@@ -706,6 +748,95 @@ const RentalDetailPage: React.FC = () => {
         (typeof data?.error === "string" && data.error.trim());
       const message = serverMsg || "Erro ao atualizar aluguel";
       setServerError(message);
+      toast.error(message);
+    },
+  });
+
+  const addResponsibleMutation = useMutation({
+    mutationFn: async ({
+      customerId,
+      responsible,
+      existingResponsibles,
+    }: {
+      customerId: string;
+      responsible: Omit<CustomerResponsible, "_id">;
+      existingResponsibles: CustomerResponsible[];
+    }) => {
+      const responsibles = [
+        ...existingResponsibles.map((resp) => ({
+          ...(resp._id ? { _id: resp._id } : {}),
+          name: String(resp.name || "").trim(),
+          phone: resp.phone?.trim(),
+          role: resp.role,
+          workName: resp.workName?.trim(),
+          notes: resp.notes?.trim(),
+        })),
+        {
+          name: responsible.name.trim(),
+          phone: responsible.phone?.trim(),
+          role: responsible.role,
+          workName: responsible.workName?.trim(),
+        },
+      ].filter((resp) => resp.name.length > 0);
+
+      const response = await customerService.updateCustomer(customerId, {
+        responsibles,
+      });
+      return { customer: response.data, newResponsible: responsible };
+    },
+    onSuccess: ({ customer, newResponsible }) => {
+      queryClient.setQueryData<RentalByIdResult | undefined>(
+        ["rental", id],
+        (old: RentalByIdResult | undefined) => {
+          if (!old?.data) return old;
+          return {
+            ...old,
+            data: {
+              ...old.data,
+              customerId:
+                typeof old.data.customerId === "object"
+                  ? { ...old.data.customerId, responsibles: customer.responsibles || [] }
+                  : old.data.customerId,
+            },
+          };
+        },
+      );
+
+      const added =
+        (customer.responsibles || []).find(
+          (resp) =>
+            resp.name === newResponsible.name.trim() &&
+            resp.role === newResponsible.role &&
+            (resp.phone || "") === (newResponsible.phone?.trim() || ""),
+        ) ?? customer.responsibles?.[customer.responsibles.length - 1];
+
+      if (added?._id) {
+        if (newResponsible.role === "financial") {
+          setEditForm((prev) => ({
+            ...prev,
+            financialResponsibleId: String(added._id),
+          }));
+        } else if (newResponsible.role === "work") {
+          setEditForm((prev) => ({
+            ...prev,
+            workResponsibleId: String(added._id),
+          }));
+        }
+      }
+
+      setShowAddResponsibleModal(false);
+      setNewResponsibleForm({
+        name: "",
+        phone: "",
+        role: "financial",
+        workName: "",
+      });
+      toast.success("Responsável cadastrado no cliente.");
+    },
+    onError: (error: unknown) => {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message ?? "Não foi possível cadastrar o responsável.";
       toast.error(message);
     },
   });
@@ -1043,7 +1174,72 @@ const RentalDetailPage: React.FC = () => {
   const rental: Rental = data.data;
   const customer =
     typeof rental.customerId === "object" ? rental.customerId : null;
+  const customerResponsibles = customer?.responsibles ?? [];
+  const financialResponsibles = customerResponsibles.filter(
+    (resp) => resp.role === "financial" || resp.role === "other",
+  );
+  const workResponsibles = customerResponsibles.filter(
+    (resp) => resp.role === "work" || resp.role === "other",
+  );
   const customerAddresses = customer?.addresses ?? [];
+
+  const resolveRentalResponsiblePayload = (
+    responsibleId: string,
+  ): RentalResponsibleContact | undefined => {
+    if (!responsibleId) return undefined;
+    const responsible = customerResponsibles.find(
+      (resp) => String(resp._id || "") === responsibleId,
+    );
+    if (!responsible || !String(responsible.name || "").trim()) {
+      return undefined;
+    }
+    return {
+      customerResponsibleId: responsible._id,
+      name: responsible.name.trim(),
+      phone: responsible.phone?.trim() || undefined,
+      role: responsible.role,
+      workName: responsible.workName?.trim() || undefined,
+    };
+  };
+
+  const openAddResponsibleModal = (
+    defaultRole: CustomerResponsible["role"] = "financial",
+  ) => {
+    if (!customer?._id) {
+      toast.warning("Cliente não encontrado para cadastrar responsável.");
+      return;
+    }
+    setNewResponsibleForm({
+      name: "",
+      phone: "",
+      role: defaultRole,
+      workName: "",
+    });
+    setShowAddResponsibleModal(true);
+  };
+
+  const handleAddResponsible = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customer?._id) {
+      toast.warning("Cliente não encontrado para cadastrar responsável.");
+      return;
+    }
+    const name = newResponsibleForm.name.trim();
+    if (!name) {
+      toast.warning("Informe o nome do responsável.");
+      return;
+    }
+    addResponsibleMutation.mutate({
+      customerId: customer._id,
+      existingResponsibles: customer.responsibles || [],
+      responsible: {
+        name,
+        phone: newResponsibleForm.phone.trim() || undefined,
+        role: newResponsibleForm.role,
+        workName: newResponsibleForm.workName.trim() || undefined,
+      },
+    });
+  };
   const fulfillmentMethodLabel =
     rental.fulfillmentMethod === "delivery_service"
       ? "Serviço de entrega"
@@ -1250,7 +1446,9 @@ const RentalDetailPage: React.FC = () => {
                   </h3>
                   <div className="space-y-3">
                     {editForm.items.map((item, index) => {
-                      const itemInfo = rental.items[index];
+                      const itemInfo =
+                        getRentalLineForEditRow(rental.items, item) ??
+                        rental.items[index];
                       const itemData =
                         itemInfo && typeof itemInfo.itemId === "object"
                           ? (itemInfo.itemId as Item)
@@ -1703,6 +1901,97 @@ const RentalDetailPage: React.FC = () => {
                   </div>
                 </div>
                 <div>
+                  {customer && (
+                    <div className="mb-4">
+                      <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Responsáveis no aluguel (opcional)
+                      </h3>
+                      <div className="flex items-center justify-end mb-2">
+                        <button
+                          type="button"
+                          onClick={() => openAddResponsibleModal()}
+                          className="text-xs px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          + Cadastrar responsável
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                            Responsável financeiro
+                          </label>
+                          <select
+                            value={editForm.financialResponsibleId}
+                            onChange={(e) =>
+                              setEditForm({
+                                ...editForm,
+                                financialResponsibleId: e.target.value,
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm"
+                          >
+                            <option value="">Não vincular</option>
+                            {financialResponsibles.map((resp: CustomerResponsible) => (
+                              <option
+                                key={String(resp._id || resp.name)}
+                                value={String(resp._id || "")}
+                              >
+                                {resp.name}
+                                {resp.phone ? ` - ${resp.phone}` : ""}
+                              </option>
+                            ))}
+                          </select>
+                          {financialResponsibles.length === 0 && (
+                            <button
+                              type="button"
+                              onClick={() => openAddResponsibleModal("financial")}
+                              className="mt-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline"
+                            >
+                              Nenhum cadastrado — adicionar responsável financeiro
+                            </button>
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                            Responsável da obra
+                          </label>
+                          <select
+                            value={editForm.workResponsibleId}
+                            onChange={(e) =>
+                              setEditForm({
+                                ...editForm,
+                                workResponsibleId: e.target.value,
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-sm"
+                          >
+                            <option value="">Não vincular</option>
+                            {workResponsibles.map((resp: CustomerResponsible) => (
+                              <option
+                                key={String(resp._id || resp.name)}
+                                value={String(resp._id || "")}
+                              >
+                                {resp.name}
+                                {resp.workName ? ` - ${resp.workName}` : ""}
+                                {resp.phone ? ` (${resp.phone})` : ""}
+                              </option>
+                            ))}
+                          </select>
+                          {workResponsibles.length === 0 && (
+                            <button
+                              type="button"
+                              onClick={() => openAddResponsibleModal("work")}
+                              className="mt-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline"
+                            >
+                              Nenhum cadastrado — adicionar responsável da obra
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                <div>
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Endereço da obra
                   </h3>
@@ -1905,6 +2194,7 @@ const RentalDetailPage: React.FC = () => {
                     Salvar este endereço para próximos aluguéis
                   </label>
                 </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Observações
@@ -1972,6 +2262,8 @@ const RentalDetailPage: React.FC = () => {
                         returnScheduled?: string;
                       };
                       workAddress?: RentalWorkAddress;
+                      financialResponsibleContact?: RentalResponsibleContact;
+                      workResponsibleContact?: RentalResponsibleContact;
                       items?: Array<{
                         itemId: string;
                         unitId?: string;
@@ -2023,6 +2315,14 @@ const RentalDetailPage: React.FC = () => {
                       };
                     }
 
+                    payload.financialResponsibleContact =
+                      resolveRentalResponsiblePayload(
+                        editForm.financialResponsibleId,
+                      );
+                    payload.workResponsibleContact = resolveRentalResponsiblePayload(
+                      editForm.workResponsibleId,
+                    );
+
                     if (editForm.items.length > 0) {
                       const invalidQty = editForm.items.find(
                         (item) => !Number.isFinite(item.quantity) || item.quantity < 1,
@@ -2048,7 +2348,9 @@ const RentalDetailPage: React.FC = () => {
 
                       for (let index = 0; index < editForm.items.length; index++) {
                         const item = editForm.items[index];
-                        const rentalLine = rental.items[index];
+                        const rentalLine =
+                          getRentalLineForEditRow(rental.items, item) ??
+                          rental.items[index];
                         const itemData =
                           rentalLine && typeof rentalLine.itemId === "object"
                             ? (rentalLine.itemId as Item)
@@ -2077,10 +2379,7 @@ const RentalDetailPage: React.FC = () => {
                           ...(item.lineId?.trim()
                             ? { lineId: item.lineId.trim() }
                             : {}),
-                          quantity: rentalLineIsUnitTracked(
-                            rental.items[index],
-                            item.unitId,
-                          )
+                          quantity: rentalLineIsUnitTracked(rentalLine, item.unitId)
                             ? 1
                             : item.quantity,
                           rentalType: rentalTypeUiToApi[item.rentalType] as
@@ -2191,6 +2490,120 @@ const RentalDetailPage: React.FC = () => {
             </div>
           </div>
         </div>
+        {showAddResponsibleModal && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-md">
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Novo responsável
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowAddResponsibleModal(false)}
+                  className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                >
+                  ✕
+                </button>
+              </div>
+              <form onSubmit={handleAddResponsible} className="p-6 space-y-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Cadastre o responsável no cliente{" "}
+                  <span className="font-medium text-gray-900 dark:text-white">
+                    {customer?.name}
+                  </span>{" "}
+                  sem sair da edição do aluguel.
+                </p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Nome *
+                  </label>
+                  <input
+                    type="text"
+                    value={newResponsibleForm.name}
+                    onChange={(e) =>
+                      setNewResponsibleForm({
+                        ...newResponsibleForm,
+                        name: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Telefone
+                  </label>
+                  <input
+                    type="text"
+                    value={newResponsibleForm.phone}
+                    onChange={(e) =>
+                      setNewResponsibleForm({
+                        ...newResponsibleForm,
+                        phone: formatPhoneInputBr(e.target.value),
+                      })
+                    }
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Tipo
+                  </label>
+                  <select
+                    value={newResponsibleForm.role}
+                    onChange={(e) =>
+                      setNewResponsibleForm({
+                        ...newResponsibleForm,
+                        role: e.target.value as CustomerResponsible["role"],
+                      })
+                    }
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  >
+                    <option value="financial">Financeiro</option>
+                    <option value="work">Obra</option>
+                    <option value="other">Outro</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Obra vinculada
+                  </label>
+                  <input
+                    type="text"
+                    value={newResponsibleForm.workName}
+                    onChange={(e) =>
+                      setNewResponsibleForm({
+                        ...newResponsibleForm,
+                        workName: e.target.value,
+                      })
+                    }
+                    placeholder="Opcional"
+                    className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddResponsibleModal(false)}
+                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={addResponsibleMutation.isPending}
+                    className="px-4 py-2 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium disabled:opacity-60"
+                  >
+                    {addResponsibleMutation.isPending
+                      ? "Salvando..."
+                      : "Cadastrar e usar"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
         {showAddItemModal &&
           createPortal(
             <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
@@ -2581,6 +2994,12 @@ const RentalDetailPage: React.FC = () => {
                         workId: workAddress.workId || "",
                       },
                       services: mapRentalServicesToEditForm(rental.services),
+                      financialResponsibleId: String(
+                        rental.financialResponsibleContact?.customerResponsibleId || "",
+                      ),
+                      workResponsibleId: String(
+                        rental.workResponsibleContact?.customerResponsibleId || "",
+                      ),
                     });
                     setSelectedWorkAddressId(workAddress.workId || "");
                     setSaveWorkAddress(false);
@@ -2682,6 +3101,37 @@ const RentalDetailPage: React.FC = () => {
                         {formatDocumentForDisplay(customer.cpfCnpj)}
                       </div>
                     </div>
+                    {(rental.financialResponsibleContact ||
+                      rental.workResponsibleContact) && (
+                      <div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          Responsáveis
+                        </div>
+                        <div className="space-y-1 text-sm text-gray-900 dark:text-white">
+                          {rental.financialResponsibleContact && (
+                            <div>
+                              <span className="font-medium">Financeiro:</span>{" "}
+                              {rental.financialResponsibleContact.name}
+                              {rental.financialResponsibleContact.phone
+                                ? ` (${formatPhoneForDisplay(rental.financialResponsibleContact.phone)})`
+                                : ""}
+                            </div>
+                          )}
+                          {rental.workResponsibleContact && (
+                            <div>
+                              <span className="font-medium">Obra:</span>{" "}
+                              {rental.workResponsibleContact.name}
+                              {rental.workResponsibleContact.workName
+                                ? ` - ${rental.workResponsibleContact.workName}`
+                                : ""}
+                              {rental.workResponsibleContact.phone
+                                ? ` (${formatPhoneForDisplay(rental.workResponsibleContact.phone)})`
+                                : ""}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     {customer.email && (
                       <div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">

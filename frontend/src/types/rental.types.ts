@@ -90,6 +90,14 @@ export interface RentalWorkAddress {
   workId?: string;
 }
 
+export interface RentalResponsibleContact {
+  customerResponsibleId?: string;
+  name: string;
+  phone?: string;
+  role?: "financial" | "work" | "other";
+  workName?: string;
+}
+
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 
 export interface RentalPendingApproval {
@@ -145,6 +153,8 @@ export interface Rental {
   items: RentalItem[];
   services?: RentalService[];
   workAddress?: RentalWorkAddress;
+  financialResponsibleContact?: RentalResponsibleContact;
+  workResponsibleContact?: RentalResponsibleContact;
   fulfillmentMethod: RentalFulfillmentMethod;
   pickedUpBy?: string;
   dates: RentalDates;
@@ -186,6 +196,8 @@ export interface CreateRentalData {
   }[];
   services?: RentalService[];
   workAddress?: RentalWorkAddress;
+  financialResponsibleContact?: RentalResponsibleContact;
+  workResponsibleContact?: RentalResponsibleContact;
   dates?: {
     pickupScheduled?: string;
     returnScheduled?: string;

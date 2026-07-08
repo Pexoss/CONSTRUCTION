@@ -9,6 +9,13 @@ const rentalStatusSchema = z.enum([
   'cancelled',
 ]);
 const dateOnlyOrDateTime = z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).or(z.date());
+const responsibleContactSchema = z.object({
+  customerResponsibleId: z.string().optional(),
+  name: z.string().min(1),
+  phone: z.string().optional(),
+  role: z.enum(["financial", "work", "other"]).optional(),
+  workName: z.string().optional(),
+});
 
 export const createRentalSchema = z.object({
   customerId: z.string().min(1, 'Customer ID is required'),
@@ -34,7 +41,7 @@ export const createRentalSchema = z.object({
         /** Empréstimo de material — sem cobrança, com devolução */
         isLoan: z.boolean().optional(),
         /** Valor por período personalizado (só neste aluguel ou salvo no item). */
-        periodRateOverride: z.number().positive().optional(),
+        periodRateOverride: z.number().min(0).optional(),
         /** Atualizar cadastro do equipamento com periodRateOverride. */
         saveRateToItem: z.boolean().optional(),
       })
@@ -73,6 +80,8 @@ export const createRentalSchema = z.object({
       workId: z.string().optional(),
     })
     .optional(),
+  financialResponsibleContact: responsibleContactSchema.optional(),
+  workResponsibleContact: responsibleContactSchema.optional(),
   pricing: z
     .object({
       discount: z.number().min(0).optional(),
@@ -127,6 +136,8 @@ export const updateRentalSchema = z.object({
       workId: z.string().optional(),
     })
     .optional(),
+  financialResponsibleContact: responsibleContactSchema.optional().nullable(),
+  workResponsibleContact: responsibleContactSchema.optional().nullable(),
   services: z
     .array(
       z.object({

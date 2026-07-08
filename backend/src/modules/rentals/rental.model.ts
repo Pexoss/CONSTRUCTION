@@ -1,5 +1,5 @@
 import mongoose, { Schema, Model } from 'mongoose';
-import { IRental, IRentalItem, IRentalDates, IRentalPricing, IRentalChecklist, IRentalService, IRentalWorkAddress, IRentalChangeHistory, IRentalPendingApproval } from './rental.types';
+import { IRental, IRentalItem, IRentalDates, IRentalPricing, IRentalChecklist, IRentalService, IRentalWorkAddress, IRentalChangeHistory, IRentalPendingApproval, IRentalResponsibleContact } from './rental.types';
 
 const RentalItemSchema = new Schema<IRentalItem>(
   {
@@ -138,6 +138,32 @@ const RentalWorkAddressSchema = new Schema<IRentalWorkAddress>(
     },
     workId: {
       type: Schema.Types.ObjectId,
+    },
+  },
+  { _id: false }
+);
+
+const RentalResponsibleContactSchema = new Schema<IRentalResponsibleContact>(
+  {
+    customerResponsibleId: {
+      type: Schema.Types.ObjectId,
+    },
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    phone: {
+      type: String,
+      trim: true,
+    },
+    role: {
+      type: String,
+      enum: ["financial", "work", "other"],
+    },
+    workName: {
+      type: String,
+      trim: true,
     },
   },
   { _id: false }
@@ -348,6 +374,12 @@ const RentalSchema = new Schema<IRental>(
     // NOVO: Endereço da obra
     workAddress: {
       type: RentalWorkAddressSchema,
+    },
+    financialResponsibleContact: {
+      type: RentalResponsibleContactSchema,
+    },
+    workResponsibleContact: {
+      type: RentalResponsibleContactSchema,
     },
     fulfillmentMethod: {
       type: String,

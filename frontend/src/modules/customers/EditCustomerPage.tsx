@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { customerService } from "./customer.service";
-import { CreateCustomerData } from "../../types/customer.types";
+import { CreateCustomerData, CustomerResponsible } from "../../types/customer.types";
 import Layout from "../../components/Layout";
 import {
   formatDocumentInputBr,
@@ -25,6 +25,7 @@ const EditCustomerPage: React.FC = () => {
     cpfCnpj: "",
     email: "",
     phone: "",
+    responsibles: [],
     notes: "",
     isBlocked: false,
   });
@@ -36,6 +37,7 @@ const EditCustomerPage: React.FC = () => {
         cpfCnpj: formatDocumentInputBr(data.data.cpfCnpj || ""),
         email: data.data.email || "",
         phone: formatPhoneInputBr(data.data.phone || ""),
+        responsibles: data.data.responsibles || [],
         notes: data.data.notes || "",
         isBlocked: data.data.isBlocked,
       });
@@ -54,7 +56,19 @@ const EditCustomerPage: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    updateMutation.mutate(formData);
+    const payload: Partial<CreateCustomerData> = {
+      ...formData,
+      responsibles: (formData.responsibles || [])
+        .map((resp) => ({
+          ...resp,
+          name: String(resp.name || "").trim(),
+          phone: resp.phone?.trim(),
+          workName: resp.workName?.trim(),
+          notes: resp.notes?.trim(),
+        }))
+        .filter((resp) => resp.name.length > 0),
+    };
+    updateMutation.mutate(payload);
   };
 
   const handleChange = (
@@ -76,6 +90,34 @@ const EditCustomerPage: React.FC = () => {
       return;
     }
     setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const addResponsible = () => {
+    setFormData((prev) => ({
+      ...prev,
+      responsibles: [
+        ...(prev.responsibles || []),
+        { name: "", phone: "", role: "other", workName: "", notes: "" },
+      ],
+    }));
+  };
+
+  const updateResponsible = (
+    index: number,
+    patch: Partial<CustomerResponsible>,
+  ) => {
+    setFormData((prev) => {
+      const list = [...(prev.responsibles || [])];
+      list[index] = { ...list[index], ...patch } as CustomerResponsible;
+      return { ...prev, responsibles: list };
+    });
+  };
+
+  const removeResponsible = (index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      responsibles: (prev.responsibles || []).filter((_, i) => i !== index),
+    }));
   };
 
   if (isLoading) {
@@ -302,6 +344,89 @@ const EditCustomerPage: React.FC = () => {
                   </svg>
                   Gerenciar Endereços
                 </Link>
+              </div>
+
+              <div className="pt-5 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Responsáveis (opcional)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addResponsible}
+                    className="text-xs px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    + Adicionar responsável
+                  </button>
+                </div>
+                {(formData.responsibles || []).length === 0 ? (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Sem responsáveis cadastrados.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {(formData.responsibles || []).map((resp, index) => (
+                      <div
+                        key={resp._id || `resp-${index}`}
+                        className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+                      >
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <input
+                            type="text"
+                            placeholder="Nome do responsável"
+                            value={resp.name || ""}
+                            onChange={(e) =>
+                              updateResponsible(index, { name: e.target.value })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Telefone"
+                            value={resp.phone || ""}
+                            onChange={(e) =>
+                              updateResponsible(index, {
+                                phone: formatPhoneInputBr(e.target.value),
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                          />
+                          <select
+                            value={resp.role || "other"}
+                            onChange={(e) =>
+                              updateResponsible(index, {
+                                role: e.target.value as CustomerResponsible["role"],
+                              })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                          >
+                            <option value="other">Outro</option>
+                            <option value="financial">Financeiro</option>
+                            <option value="work">Obra</option>
+                          </select>
+                          <input
+                            type="text"
+                            placeholder="Obra vinculada (opcional)"
+                            value={resp.workName || ""}
+                            onChange={(e) =>
+                              updateResponsible(index, { workName: e.target.value })
+                            }
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                          />
+                        </div>
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => removeResponsible(index)}
+                            className="text-xs text-red-600 hover:text-red-700"
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Observações */}

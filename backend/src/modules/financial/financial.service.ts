@@ -106,27 +106,35 @@ class FinancialService {
 
     const [billings, charges, invoices] = await Promise.all([
       Billing.find(billingQuery)
-        .populate("customerId", "name")
+        .populate("customerId", "name responsibles")
         .populate("items.itemId", "name")
         .populate("rentalId", "workAddress rentalNumber")
         .sort({ billingDate: -1 }),
       Charge.find({ companyId })
-        .populate("customerId", "name")
+        .populate("customerId", "name responsibles")
         .populate({
           path: "billingIds",
           populate: [
             { path: "items.itemId", select: "name" },
-            { path: "rentalId", select: "workAddress rentalNumber" },
+            {
+              path: "rentalId",
+              select:
+                "workAddress rentalNumber financialResponsibleContact workResponsibleContact",
+            },
           ],
         })
         .sort({ createdAt: -1 }),
       Invoice.find(invoiceQuery)
-        .populate("customerId", "name")
+        .populate("customerId", "name responsibles")
         .populate({
           path: "billingIds",
           populate: [
             { path: "items.itemId", select: "name" },
-            { path: "rentalId", select: "workAddress rentalNumber" },
+            {
+              path: "rentalId",
+              select:
+                "workAddress rentalNumber financialResponsibleContact workResponsibleContact",
+            },
           ],
         })
         .sort({ issueDate: -1 }),

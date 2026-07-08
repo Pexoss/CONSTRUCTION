@@ -43,6 +43,14 @@ export interface IRentalWorkAddress {
   workId?: mongoose.Types.ObjectId; // Referência à obra cadastrada
 }
 
+export interface IRentalResponsibleContact {
+  customerResponsibleId?: mongoose.Types.ObjectId;
+  name: string;
+  phone?: string;
+  role?: "financial" | "work" | "other";
+  workName?: string;
+}
+
 // NOVO: Interface para histórico de alterações
 export interface IRentalChangeHistory {
   date: Date;
@@ -146,6 +154,10 @@ export interface IRental extends Document {
 
   // NOVO: Endereço da obra
   workAddress?: IRentalWorkAddress;
+  /** Contato financeiro vinculado ao aluguel (opcional). */
+  financialResponsibleContact?: IRentalResponsibleContact;
+  /** Contato da obra vinculado ao aluguel (opcional). */
+  workResponsibleContact?: IRentalResponsibleContact;
   fulfillmentMethod: RentalFulfillmentMethod;
   /** Nome de quem retirou/recebeu os equipamentos (informativo). */
   pickedUpBy?: string;

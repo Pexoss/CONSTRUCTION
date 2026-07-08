@@ -10,6 +10,7 @@ import {
   IRentalWorkAddress,
   IRentalChangeHistory,
   IRentalPendingApproval,
+  IRentalResponsibleContact,
   RentalType,
   RentalDetails,
   UpdateRentalStatusResponse,
@@ -1902,6 +1903,12 @@ class RentalService {
                 : undefined,
           }
         : undefined,
+      financialResponsibleContact: this.mapResponsibleContact(
+        data.financialResponsibleContact,
+      ),
+      workResponsibleContact: this.mapResponsibleContact(
+        data.workResponsibleContact,
+      ),
       fulfillmentMethod: data.fulfillmentMethod,
       pickedUpBy: data.pickedUpBy?.trim() || undefined,
       dates: {
@@ -4934,6 +4941,29 @@ class RentalService {
     };
   }
 
+  private mapResponsibleContact(
+    contact: any,
+  ): IRentalResponsibleContact | undefined {
+    if (!contact) {
+      return undefined;
+    }
+    const name = String(contact.name || "").trim();
+    if (!name) {
+      return undefined;
+    }
+    return {
+      customerResponsibleId:
+        contact.customerResponsibleId &&
+        mongoose.Types.ObjectId.isValid(contact.customerResponsibleId)
+          ? new mongoose.Types.ObjectId(contact.customerResponsibleId)
+          : undefined,
+      name,
+      phone: contact.phone ? String(contact.phone).trim() : undefined,
+      role: contact.role || undefined,
+      workName: contact.workName ? String(contact.workName).trim() : undefined,
+    };
+  }
+
   private async recalcPricingForRental(
     rental: IRental,
     companyId: string,
@@ -5725,6 +5755,9 @@ class RentalService {
     const dateChanges: Record<string, any> = {};
     const itemChanges: Record<string, any>[] = [];
     const workAddressChanged = data.workAddress !== undefined;
+    const financialResponsibleChanged =
+      data.financialResponsibleContact !== undefined;
+    const workResponsibleChanged = data.workResponsibleContact !== undefined;
     const itemUpdates = Array.isArray(data.items) ? data.items : [];
     const hasServiceUpdates = data.services !== undefined;
     const keptFromPayload = new Set<IRentalItem>();
@@ -5822,6 +5855,16 @@ class RentalService {
           }
         : undefined;
     }
+    if (financialResponsibleChanged) {
+      rental.financialResponsibleContact = this.mapResponsibleContact(
+        data.financialResponsibleContact,
+      );
+    }
+    if (workResponsibleChanged) {
+      rental.workResponsibleContact = this.mapResponsibleContact(
+        data.workResponsibleContact,
+      );
+    }
 
     const hasChanges = Object.keys(changes).length > 0;
     const hasDateChanges = Object.keys(dateChanges).length > 0;
@@ -5832,6 +5875,8 @@ class RentalService {
       !hasChanges &&
       !hasDateChanges &&
       !workAddressChanged &&
+      !financialResponsibleChanged &&
+      !workResponsibleChanged &&
       !hasItemChanges &&
       !hasServiceChanges
     ) {
@@ -5840,7 +5885,15 @@ class RentalService {
 
     if (
       !canUpdateRentalStatus(user.role as RoleType) &&
-      (hasChanges || hasDateChanges || hasItemChanges || hasServiceChanges)
+      (
+        hasChanges ||
+        hasDateChanges ||
+        hasItemChanges ||
+        hasServiceChanges ||
+        workAddressChanged ||
+        financialResponsibleChanged ||
+        workResponsibleChanged
+      )
     ) {
       await this.requestApproval(
         companyId,

@@ -28,6 +28,17 @@ export interface CustomerWork {
   notes?: string;
 }
 
+export type CustomerResponsibleRole = "financial" | "work" | "other";
+
+export interface CustomerResponsible {
+  _id?: string;
+  name: string;
+  phone?: string;
+  role: CustomerResponsibleRole;
+  workName?: string;
+  notes?: string;
+}
+
 export interface Customer {
   _id: string;
   companyId: string;
@@ -44,6 +55,7 @@ export interface Customer {
   phone?: string;
   addresses?: CustomerAddress[];
   works?: CustomerWork[];
+  responsibles?: CustomerResponsible[];
   notes?: string;
   isBlocked: boolean;
   blockReason?: string;
@@ -57,6 +69,7 @@ export interface CreateCustomerData {
   validateDocument?: boolean;
   email?: string;
   phone?: string;
+  responsibles?: CustomerResponsible[];
   notes?: string;
   isBlocked?: boolean;
 }

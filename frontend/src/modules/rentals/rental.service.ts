@@ -250,6 +250,20 @@ export const rentalService = {
         workName: string;
         workId?: string;
       };
+      financialResponsibleContact?: {
+        customerResponsibleId?: string;
+        name: string;
+        phone?: string;
+        role?: "financial" | "work" | "other";
+        workName?: string;
+      };
+      workResponsibleContact?: {
+        customerResponsibleId?: string;
+        name: string;
+        phone?: string;
+        role?: "financial" | "work" | "other";
+        workName?: string;
+      };
       services?: Array<{
         description: string;
         price: number;

@@ -143,6 +143,31 @@ const getChargeWorkNamesLabel = (charge: any): string => {
   return names.join(", ");
 };
 
+const getChargeFinancialResponsibleLabel = (charge: any): string => {
+  for (const bill of charge?.billingIds || []) {
+    const fromRental = bill?.rentalId?.financialResponsibleContact;
+    if (fromRental?.name) {
+      return fromRental.phone
+        ? `${fromRental.name} (${fromRental.phone})`
+        : String(fromRental.name);
+    }
+  }
+
+  const customerResponsibles = charge?.customerId?.responsibles;
+  if (Array.isArray(customerResponsibles)) {
+    const financial = customerResponsibles.find(
+      (resp: any) => resp?.role === "financial",
+    );
+    if (financial?.name) {
+      return financial.phone
+        ? `${financial.name} (${financial.phone})`
+        : String(financial.name);
+    }
+  }
+
+  return "";
+};
+
 const billingPeriodRangeKey = (billing: {
   periodStart?: unknown;
   periodEnd?: unknown;
@@ -1787,6 +1812,8 @@ const FinancialCenterPage: React.FC = () => {
                   {filteredCharges.map((charge: any) => {
                     const chargeObraLabel = getChargeWorkNamesLabel(charge);
                     const chargeDueOrPeriodLabel = getChargeDueOrPeriodLabel(charge);
+                    const chargeFinancialResponsibleLabel =
+                      getChargeFinancialResponsibleLabel(charge);
                     return (
                     <div
                       key={charge._id}
@@ -1808,6 +1835,11 @@ const FinancialCenterPage: React.FC = () => {
                             title={chargeObraLabel}
                           >
                             Obra{chargeObraLabel.includes(",") ? "s" : ""}: {chargeObraLabel}
+                          </p>
+                        ) : null}
+                        {chargeFinancialResponsibleLabel ? (
+                          <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 truncate">
+                            Responsável financeiro: {chargeFinancialResponsibleLabel}
                           </p>
                         ) : null}
                         {chargeDueOrPeriodLabel ? (

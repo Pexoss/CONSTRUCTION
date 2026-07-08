@@ -96,6 +96,32 @@ const CustomerSchema = new Schema<ICustomer>(
       notes: String,
     }],
 
+    responsibles: [{
+      name: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      phone: {
+        type: String,
+        trim: true,
+      },
+      role: {
+        type: String,
+        enum: ["financial", "work", "other"],
+        required: true,
+        default: "other",
+      },
+      workName: {
+        type: String,
+        trim: true,
+      },
+      notes: {
+        type: String,
+        trim: true,
+      },
+    }],
+
     notes: {
       type: String,
       trim: true,

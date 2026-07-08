@@ -6,6 +6,18 @@ const customerBaseSchema = z.object({
   validateDocument: z.boolean().optional().default(false),
   email: z.string().email("Invalid email").optional().or(z.literal("")),
   phone: z.string().optional(),
+  responsibles: z
+    .array(
+      z.object({
+        _id: z.string().optional(),
+        name: z.string().min(1, "Nome do responsável é obrigatório"),
+        phone: z.string().optional(),
+        role: z.enum(["financial", "work", "other"]).default("other"),
+        workName: z.string().optional(),
+        notes: z.string().optional(),
+      }),
+    )
+    .optional(),
   addresses: z
     .array(
       z.object({

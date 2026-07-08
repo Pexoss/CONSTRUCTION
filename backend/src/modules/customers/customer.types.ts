@@ -29,6 +29,18 @@ export interface ICustomerWork {
   notes?: string;
 }
 
+export type CustomerResponsibleRole = "financial" | "work" | "other";
+
+export interface ICustomerResponsible {
+  _id?: string;
+  name: string;
+  phone?: string;
+  role: CustomerResponsibleRole;
+  /** Opcional quando role = work */
+  workName?: string;
+  notes?: string;
+}
+
 export interface ICustomer extends Document {
   companyId: mongoose.Types.ObjectId;
   name: string;
@@ -51,6 +63,9 @@ export interface ICustomer extends Document {
 
   // NOVO: Obras do cliente
   works?: ICustomerWork[];
+
+  /** Contatos responsáveis (financeiro, obra, etc.). */
+  responsibles?: ICustomerResponsible[];
 
   notes?: string;
   isBlocked: boolean;
