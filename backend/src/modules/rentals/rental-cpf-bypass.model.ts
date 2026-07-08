@@ -38,7 +38,6 @@ const RentalCpfBypassTokenSchema = new Schema<IRentalCpfBypassToken>(
     expiresAt: {
       type: Date,
       required: true,
-      index: true,
     },
     usedAt: {
       type: Date,

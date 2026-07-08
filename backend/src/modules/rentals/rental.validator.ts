@@ -33,6 +33,10 @@ export const createRentalSchema = z.object({
         historicalDelivery: z.boolean().optional(),
         /** Empréstimo de material — sem cobrança, com devolução */
         isLoan: z.boolean().optional(),
+        /** Valor por período personalizado (só neste aluguel ou salvo no item). */
+        periodRateOverride: z.number().positive().optional(),
+        /** Atualizar cadastro do equipamento com periodRateOverride. */
+        saveRateToItem: z.boolean().optional(),
       })
     )
     .min(1, 'At least one item is required'),
@@ -99,6 +103,8 @@ export const updateRentalSchema = z.object({
         recalculateScheduledReturn: z.boolean().optional(),
         lineId: z.string().optional(),
         isLoan: z.boolean().optional(),
+        periodRateOverride: z.number().min(0).optional(),
+        saveRateToItem: z.boolean().optional(),
       })
     )
     .optional(),

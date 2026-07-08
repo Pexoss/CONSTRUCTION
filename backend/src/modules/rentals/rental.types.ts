@@ -87,6 +87,8 @@ export interface IRentalItem {
   lastBillingDate?: Date;
   nextBillingDate?: Date;
   subtotal: number;
+  /** Valor por período (diária/semana/quinzena/mês) negociado só neste contrato. */
+  periodRateOverride?: number;
   /** Empréstimo de material: aparece no contrato, exige devolução, sem cobrança. */
   isLoan?: boolean;
 }

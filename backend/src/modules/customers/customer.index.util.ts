@@ -15,7 +15,21 @@ function isPartialCpfCnpjIndex(
  */
 export async function ensureCustomerIndexes(): Promise<void> {
   const collection = Customer.collection;
-  const indexes = await collection.indexes();
+
+  let indexes: Awaited<ReturnType<typeof collection.indexes>>;
+  try {
+    indexes = await collection.indexes();
+  } catch (error) {
+    // Fresh database: collection does not exist yet (MongoDB code 26).
+    if (
+      !error ||
+      typeof error !== "object" ||
+      (error as { code?: number }).code !== 26
+    ) {
+      throw error;
+    }
+    indexes = [];
+  }
 
   for (const idx of indexes) {
     const key = idx.key as Record<string, number> | undefined;

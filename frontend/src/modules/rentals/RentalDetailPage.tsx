@@ -38,6 +38,7 @@ import {
   periodRateFromInventory,
   type RentalTypePricing,
 } from "../../utils/rental-pricing.util";
+import { canManageFinancial } from "../../utils/financialAccess";
 import { features } from "../../config/features";
 import SortableTh from "../../components/SortableTh";
 import {
@@ -165,6 +166,43 @@ const emptyEditServiceRow = (): EditServiceFormRow => ({
   category: "",
   notes: "",
 });
+const rentalTypeUiToApiMap: Record<RentalTypeUI, RentalTypePricing> = {
+  diario: "daily",
+  semanal: "weekly",
+  quinzenal: "biweekly",
+  mensal: "monthly",
+};
+
+const rentalTypeUiShortLabels: Record<RentalTypeUI, string> = {
+  diario: "diário",
+  semanal: "semanal",
+  quinzenal: "quinzenal",
+  mensal: "mensal",
+};
+
+const getCatalogPeriodRateForItem = (
+  itemData: Item | null | undefined,
+  rentalType: RentalTypeUI,
+): number => {
+  if (!itemData?.pricing) return 0;
+  const apiType = rentalTypeUiToApiMap[rentalType];
+  if (apiType === "biweekly") {
+    return Math.max(0, Number(itemData.pricing.biweeklyRate ?? 0));
+  }
+  return periodRateFromInventory(itemData.pricing, apiType).rate;
+};
+
+const buildPeriodRateInputForEdit = (
+  rentalItem: RentalItem,
+  itemData: Item | null | undefined,
+  rentalType: RentalTypeUI,
+): string => {
+  const override = Number(rentalItem.periodRateOverride ?? 0);
+  if (override > 0) return formatMoneyInputBr(override);
+  const catalog = getCatalogPeriodRateForItem(itemData, rentalType);
+  return catalog > 0 ? formatMoneyInputBr(catalog) : "";
+};
+
 const RentalDetailPage: React.FC = () => {
   const rentalTypeApiToUi: Record<string, RentalTypeUI> = {
     daily: "diario",
@@ -374,6 +412,7 @@ const RentalDetailPage: React.FC = () => {
       recalculateOnSave?: boolean;
       lineId?: string;
       isLoan?: boolean;
+      periodRateInput?: string;
     }>,
     workAddress: {
       street: "",
@@ -619,12 +658,8 @@ const RentalDetailPage: React.FC = () => {
     });
 
   const updateRentalMutation = useMutation({
-    mutationFn: (payload: {
-      notes?: string;
-      pricing?: { discount?: number };
-      dates?: { pickupScheduled?: string; returnScheduled?: string };
-      workAddress?: RentalWorkAddress;
-    }) => rentalService.updateRental(id!, payload),
+    mutationFn: (payload: Parameters<typeof rentalService.updateRental>[1]) =>
+      rentalService.updateRental(id!, payload),
     onSuccess: async (response) => {
       setShowEditModal(false);
       setServerError(null);
@@ -654,8 +689,11 @@ const RentalDetailPage: React.FC = () => {
         toast.success("Solicitação enviada para aprovação");
         return;
       }
+      toast.success("Aluguel atualizado com sucesso");
       queryClient.invalidateQueries({ queryKey: ["rental", id] });
       queryClient.invalidateQueries({ queryKey: ["rentals"] });
+      queryClient.invalidateQueries({ queryKey: ["rental-billings", id] });
+      queryClient.invalidateQueries({ queryKey: ["billings"] });
     },
     onError: (err: unknown) => {
       const data = (
@@ -1213,10 +1251,15 @@ const RentalDetailPage: React.FC = () => {
                   <div className="space-y-3">
                     {editForm.items.map((item, index) => {
                       const itemInfo = rental.items[index];
-                      const itemName =
+                      const itemData =
                         itemInfo && typeof itemInfo.itemId === "object"
+                          ? (itemInfo.itemId as Item)
+                          : inventoryItems.find((inv) => inv._id === item.itemId);
+                      const itemName =
+                        itemData?.name ||
+                        (itemInfo && typeof itemInfo.itemId === "object"
                           ? itemInfo.itemId.name
-                          : "Item";
+                          : "Item");
                       const isUnitLine = rentalLineIsUnitTracked(itemInfo, item.unitId);
                       const isReturned = !!itemInfo?.returnActual;
                       return (
@@ -1323,13 +1366,24 @@ const RentalDetailPage: React.FC = () => {
                               <select
                                 value={item.rentalType}
                                 onChange={(e) => {
+                                  const newType = e.target.value as RentalTypeUI;
                                   const updated = [...editForm.items];
                                   updated[index] = {
                                     ...updated[index],
-                                    rentalType: e.target.value as RentalTypeUI,
+                                    rentalType: newType,
                                     returnDate: computeReturnFromPickupAndType(
                                       updated[index].pickupDate,
-                                      e.target.value as RentalTypeUI,
+                                      newType,
+                                    ),
+                                    periodRateInput: buildPeriodRateInputForEdit(
+                                      {
+                                        ...itemInfo,
+                                        periodRateOverride: parseMoneyBr(
+                                          updated[index].periodRateInput ?? "",
+                                        ) || itemInfo?.periodRateOverride,
+                                      } as RentalItem,
+                                      itemData,
+                                      newType,
                                     ),
                                     recalculateOnSave: true,
                                   };
@@ -1346,6 +1400,62 @@ const RentalDetailPage: React.FC = () => {
                                 <option value="mensal">Mensal</option>
                               </select>
                             </div>
+                            {!item.isLoan && (
+                              <div>
+                                <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                                  Valor {rentalTypeUiShortLabels[item.rentalType]} (por período)
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={item.periodRateInput ?? ""}
+                                  disabled={isReturned}
+                                  onFocus={selectInputText}
+                                  onClick={selectInputText}
+                                  onChange={(e) => {
+                                    const updated = [...editForm.items];
+                                    updated[index] = {
+                                      ...updated[index],
+                                      periodRateInput: formatMoneyInputBrLive(
+                                        e.target.value,
+                                      ),
+                                    };
+                                    setEditForm({
+                                      ...editForm,
+                                      items: updated,
+                                    });
+                                  }}
+                                  placeholder="Informe o valor"
+                                  className="w-full px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-60"
+                                />
+                                {(() => {
+                                  const catalog = getCatalogPeriodRateForItem(
+                                    itemData,
+                                    item.rentalType,
+                                  );
+                                  const typed = parseMoneyBr(item.periodRateInput ?? "");
+                                  const differs =
+                                    typed > 0 &&
+                                    Math.abs(typed - catalog) > 0.009;
+                                  const hint = differs
+                                    ? "Valor personalizado"
+                                    : catalog <= 0
+                                      ? "Valor do item não cadastrado"
+                                      : `Cadastro: ${formatCurrencyBr(catalog)}`;
+                                  return (
+                                    <p
+                                      className={`mt-1 text-2xs ${
+                                        catalog <= 0
+                                          ? "text-amber-700 dark:text-amber-400"
+                                          : "text-gray-500 dark:text-gray-400"
+                                      }`}
+                                    >
+                                      {hint}
+                                    </p>
+                                  );
+                                })()}
+                              </div>
+                            )}
                             <div>
                               <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
                                 Retirada
@@ -1875,6 +1985,8 @@ const RentalDetailPage: React.FC = () => {
                         returnScheduled?: string;
                         historicalDelivery?: boolean;
                         recalculateScheduledReturn?: boolean;
+                        periodRateOverride?: number;
+                        saveRateToItem?: boolean;
                       }>;
                       services?: Array<{
                         description: string;
@@ -1932,7 +2044,16 @@ const RentalDetailPage: React.FC = () => {
                         return;
                       }
                       const todayStr = todayDateInputValue();
-                      payload.items = editForm.items.map((item, index) => {
+                      const itemsPayload: NonNullable<typeof payload.items> = [];
+
+                      for (let index = 0; index < editForm.items.length; index++) {
+                        const item = editForm.items[index];
+                        const rentalLine = rental.items[index];
+                        const itemData =
+                          rentalLine && typeof rentalLine.itemId === "object"
+                            ? (rentalLine.itemId as Item)
+                            : inventoryItems.find((inv) => inv._id === item.itemId);
+
                         const row: {
                           itemId: string;
                           unitId?: string;
@@ -1948,6 +2069,8 @@ const RentalDetailPage: React.FC = () => {
                           historicalDelivery?: boolean;
                           recalculateScheduledReturn?: boolean;
                           isLoan?: boolean;
+                          periodRateOverride?: number;
+                          saveRateToItem?: boolean;
                         } = {
                           itemId: item.itemId,
                           unitId: item.unitId || undefined,
@@ -1972,6 +2095,7 @@ const RentalDetailPage: React.FC = () => {
                             ? toLocalDateTimeIso(item.returnDate, item.pickupTime)
                             : undefined,
                         };
+
                         if (item.recalculateOnSave && item.pickupDate) {
                           row.recalculateScheduledReturn = true;
                         }
@@ -1984,8 +2108,57 @@ const RentalDetailPage: React.FC = () => {
                           row.historicalDelivery = true;
                         }
                         row.isLoan = item.isLoan === true;
-                        return row;
-                      });
+
+                        if (!item.isLoan) {
+                          const catalog = getCatalogPeriodRateForItem(
+                            itemData,
+                            item.rentalType,
+                          );
+                          const typed = parseMoneyBr(item.periodRateInput ?? "");
+                          const effective =
+                            Number.isFinite(typed) && typed > 0 ? typed : catalog;
+                          if (effective <= 0) {
+                            toast.error(
+                              `Informe o valor ${rentalTypeUiShortLabels[item.rentalType]} do item.`,
+                            );
+                            return;
+                          }
+
+                          const previousOverride = Number(
+                            rentalLine?.periodRateOverride ?? 0,
+                          );
+                          const previousEffective =
+                            previousOverride > 0 ? previousOverride : catalog;
+                          const needsContractOverride =
+                            Math.abs(effective - catalog) > 0.009 || catalog <= 0;
+                          const rateChanged =
+                            Math.abs(effective - previousEffective) > 0.009;
+
+                          if (needsContractOverride) {
+                            const saveGlobally = window.confirm(
+                              catalog <= 0
+                                ? `O item não tem valor ${rentalTypeUiShortLabels[item.rentalType]} cadastrado.\n\nUsar ${formatCurrencyBr(effective)} neste aluguel?\n\n• OK = salvar também no cadastro do item\n• Cancelar = usar só neste aluguel`
+                                : `Valor informado (${formatCurrencyBr(effective)}) difere do cadastro (${formatCurrencyBr(catalog)}).\n\n• OK = atualizar cadastro do item para todos\n• Cancelar = cobrar só neste aluguel`,
+                            );
+                            row.periodRateOverride = effective;
+                            if (saveGlobally) {
+                              if (!canManageFinancial(user?.role)) {
+                                toast.info(
+                                  "Somente administradores podem atualizar o cadastro do item. O valor será usado só neste aluguel.",
+                                );
+                              } else {
+                                row.saveRateToItem = true;
+                              }
+                            }
+                          } else if (previousOverride > 0 && rateChanged) {
+                            row.periodRateOverride = 0;
+                          }
+                        }
+
+                        itemsPayload.push(row);
+                      }
+
+                      payload.items = itemsPayload;
                     }
 
                     for (let i = 0; i < editForm.services.length; i += 1) {
@@ -2350,12 +2523,22 @@ const RentalDetailPage: React.FC = () => {
                         ? toDateInput(rental.dates.returnScheduled)
                         : "",
                       items: rental.items.map((item: RentalItem) => {
+                        const itemData =
+                          typeof item.itemId === "object"
+                            ? (item.itemId as Item)
+                            : inventoryItems.find(
+                                (inv) => inv._id === item.itemId,
+                              );
                         const ra = item.returnActual
                           ? toDateInput(item.returnActual)
                           : "";
                         const rs = item.returnScheduled
                           ? toDateInput(item.returnScheduled)
                           : "";
+                        const itemRentalType =
+                          (item.rentalType
+                            ? rentalTypeApiToUi[item.rentalType]
+                            : undefined) || "diario";
                         return {
                           itemId:
                             typeof item.itemId === "string"
@@ -2367,10 +2550,7 @@ const RentalDetailPage: React.FC = () => {
                               ? item.lineId.trim()
                               : undefined,
                           quantity: item.quantity,
-                          rentalType:
-                            (item.rentalType
-                              ? rentalTypeApiToUi[item.rentalType]
-                              : undefined) || "diario",
+                          rentalType: itemRentalType,
                           pickupDate: item.pickupScheduled
                             ? toDateInput(item.pickupScheduled)
                             : "",
@@ -2382,6 +2562,11 @@ const RentalDetailPage: React.FC = () => {
                           historicalDelivery: !!(ra && rs && ra === rs),
                           recalculateOnSave: false,
                           isLoan: !!item.isLoan,
+                          periodRateInput: buildPeriodRateInputForEdit(
+                            item,
+                            itemData,
+                            itemRentalType,
+                          ),
                         };
                       }),
                       workAddress: {

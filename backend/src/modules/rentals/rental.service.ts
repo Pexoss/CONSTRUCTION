@@ -34,6 +34,7 @@ import { rentalCpfBypassService } from "./rental-cpf-bypass.service";
 import { notificationService } from "../notification/notification.service";
 import { User } from "../users/user.model";
 import billingService, {
+  applyPeriodRateOverride,
   calculateBillingPeriod,
   calculateRentalLineAmount,
   effectivePricingPeriods,
@@ -191,6 +192,74 @@ class RentalService {
 
   private isLoanLine(item: { isLoan?: boolean } | null | undefined): boolean {
     return item?.isLoan === true;
+  }
+
+  private sameScheduleMoment(
+    left?: Date | string | null,
+    right?: Date | string | null,
+  ): boolean {
+    if (!left && !right) return true;
+    if (!left || !right) return false;
+    return (
+      Math.abs(new Date(left).getTime() - new Date(right).getTime()) < 60_000
+    );
+  }
+
+  private hasItemScheduleOrQtyChanges(
+    existingItem: IRentalItem,
+    itemUpdate: {
+      quantity?: number;
+      rentalType?: RentalType;
+      pickupScheduled?: string | Date;
+      returnScheduled?: string | Date;
+      recalculateScheduledReturn?: boolean;
+      historicalDelivery?: boolean;
+      isLoan?: boolean;
+    },
+  ): boolean {
+    if (itemUpdate.quantity !== undefined) {
+      const nextQty = Math.max(1, Math.floor(Number(itemUpdate.quantity)));
+      if (nextQty !== Number(existingItem.quantity || 1)) {
+        return true;
+      }
+    }
+    if (
+      itemUpdate.rentalType &&
+      itemUpdate.rentalType !== existingItem.rentalType
+    ) {
+      return true;
+    }
+    if (
+      itemUpdate.isLoan !== undefined &&
+      itemUpdate.isLoan === true !== !!existingItem.isLoan
+    ) {
+      return true;
+    }
+    if (
+      itemUpdate.pickupScheduled &&
+      !this.sameScheduleMoment(
+        itemUpdate.pickupScheduled,
+        existingItem.pickupScheduled,
+      )
+    ) {
+      return true;
+    }
+    if (
+      itemUpdate.returnScheduled !== undefined &&
+      !this.sameScheduleMoment(
+        itemUpdate.returnScheduled,
+        existingItem.returnScheduled,
+      )
+    ) {
+      return true;
+    }
+    if (itemUpdate.recalculateScheduledReturn === true) {
+      return true;
+    }
+    if (itemUpdate.historicalDelivery !== undefined) {
+      return true;
+    }
+    return false;
   }
 
   private rentalLineCountSameEquipment(
@@ -1316,12 +1385,11 @@ class RentalService {
     rentalType: RentalType,
   ): void {
     const p = inventoryItem.pricing || {};
-    /** Quinzenal exige valor cadastrado no SKU; não usar derivação automática (evita valor “inventado”). */
     if (rentalType === "biweekly") {
       const rawBiweekly = Math.max(0, Number(p.biweeklyRate ?? 0));
       if (rawBiweekly <= 0) {
         throw badRequest(
-          `Não há valor quinzenal cadastrado para o equipamento "${inventoryItem.name}". Informe o valor do período de 15 dias no cadastro do item antes de usar cobrança quinzenal.`,
+          `Não há valor quinzenal cadastrado para o equipamento "${inventoryItem.name}". Informe o valor na criação do aluguel ou cadastre no item.`,
         );
       }
       return;
@@ -1350,11 +1418,116 @@ class RentalService {
           ? `${this.rentalTypeLabelForError(rentalType)} ou a diária`
           : `${this.rentalTypeLabelForError(rentalType)}`;
       throw badRequest(
-        `Cadastre o valor ${label} do item "${inventoryItem.name}" antes de concluir o aluguel.`,
+        `Cadastre o valor ${label} do item "${inventoryItem.name}" ou informe na criação do aluguel.`,
       );
     }
   }
-  /** Valor da linha (1 unidade) no intervalo, usando sempre o cadastro bruto do equipamento. */
+
+  private async savePeriodRateToInventory(
+    companyId: string,
+    itemId: string,
+    rentalType: RentalType,
+    rate: number,
+  ): Promise<void> {
+    const fieldMap: Record<RentalType, string> = {
+      daily: "pricing.dailyRate",
+      weekly: "pricing.weeklyRate",
+      biweekly: "pricing.biweeklyRate",
+      monthly: "pricing.monthlyRate",
+    };
+    await Item.updateOne(
+      { _id: itemId, companyId },
+      { $set: { [fieldMap[rentalType]]: Number(rate.toFixed(2)) } },
+    );
+  }
+
+  private markRentalItemsAndPricingModified(rental: IRental): void {
+    if (typeof rental.markModified === "function") {
+      rental.markModified("items");
+      rental.markModified("pricing");
+    }
+  }
+
+  private async applyItemPeriodRatePatch(
+    companyId: string,
+    user: { role: RoleType },
+    inventoryItemId: string,
+    rentalItem: IRentalItem,
+    itemUpdate: {
+      periodRateOverride?: number;
+      saveRateToItem?: boolean;
+    },
+    rentalType: RentalType,
+  ): Promise<void> {
+    if (itemUpdate.periodRateOverride === undefined) {
+      return;
+    }
+
+    const periodRateOverride = Math.max(
+      0,
+      Number(itemUpdate.periodRateOverride ?? 0),
+    );
+
+    if (itemUpdate.saveRateToItem === true) {
+      if (!canApplyDiscount(user.role)) {
+        throw forbidden(
+          "Somente o administrador pode atualizar o cadastro do equipamento com o novo valor.",
+        );
+      }
+      if (periodRateOverride <= 0) {
+        throw badRequest(
+          "Informe o valor do período para salvar no cadastro do equipamento.",
+        );
+      }
+      await this.savePeriodRateToInventory(
+        companyId,
+        inventoryItemId,
+        rentalType,
+        periodRateOverride,
+      );
+    }
+
+    if (periodRateOverride > 0) {
+      rentalItem.periodRateOverride = periodRateOverride;
+    } else {
+      rentalItem.periodRateOverride = undefined;
+    }
+
+    const inventoryItem = await Item.findOne({
+      _id: inventoryItemId,
+      companyId,
+    }).lean();
+    if (!inventoryItem || this.isLoanLine(rentalItem)) {
+      return;
+    }
+
+    const pickupScheduled = rentalItem.pickupScheduled;
+    if (!pickupScheduled) {
+      return;
+    }
+
+    const pricingEndDate =
+      rentalItem.returnScheduled ||
+      this.getPricingEndDate(pickupScheduled, rentalType);
+    const pricingForLine =
+      periodRateOverride > 0
+        ? applyPeriodRateOverride(
+            inventoryItem.pricing,
+            rentalType,
+            periodRateOverride,
+          )
+        : inventoryItem.pricing;
+    const price = this.calculateRentalPrice(
+      pricingForLine,
+      pickupScheduled,
+      pricingEndDate,
+      rentalType,
+      periodRateOverride > 0 ? periodRateOverride : undefined,
+    );
+    rentalItem.unitPrice = price;
+    rentalItem.subtotal = price * Number(rentalItem.quantity || 1);
+  }
+
   private calculateRentalPrice(
     inventoryPricing: {
       dailyRate?: number;
@@ -1365,18 +1538,25 @@ class RentalService {
     startDate: Date,
     endDate: Date,
     rentalType: RentalType | undefined,
+    periodRateOverride?: number,
   ): number {
     if (!rentalType) {
       throw badRequest("RentalType é obrigatório para cálculo do aluguel");
     }
 
+    const pricing =
+      periodRateOverride && periodRateOverride > 0
+        ? applyPeriodRateOverride(
+            inventoryPricing,
+            rentalType,
+            periodRateOverride,
+          )
+        : inventoryPricing;
+
     const period = calculateBillingPeriod(startDate, endDate, rentalType);
-    return calculateRentalLineAmount(
-      inventoryPricing,
-      rentalType,
-      period,
-    ).amount;
+    return calculateRentalLineAmount(pricing, rentalType, period).amount;
   }
+
   /**
    * Calculate late fee
    */
@@ -1426,8 +1606,15 @@ class RentalService {
     const customer = await Customer.findOne({ _id: data.customerId, companyId });
     if (!customer) throw notFound("Cliente não encontrado");
 
-    const customerCpf = this.normalizeCpf(data.customerCpf || customer.cpfCnpj);
-    const hasValidCustomerCpf = this.isValidCpf(customerCpf);
+    const adminConfirmedNoCpf =
+      data.confirmNoCpf === true &&
+      canBypassCustomerCpfAsAdmin(user.role as RoleType);
+
+    const customerCpf = adminConfirmedNoCpf
+      ? this.normalizeCpf(data.customerCpf)
+      : this.normalizeCpf(data.customerCpf || customer.cpfCnpj);
+    const hasValidCustomerCpf =
+      !adminConfirmedNoCpf && this.isValidCpf(customerCpf);
     let createdWithoutCustomerCpf = false;
 
     if (hasValidCustomerCpf) {
@@ -1492,8 +1679,24 @@ class RentalService {
           ? item.rentalType
           : getRentalTypeFromItem(inventoryItem);
       const isLoan = item.isLoan === true;
-      if (!isLoan) {
+      const periodRateOverride = Math.max(
+        0,
+        Number(item.periodRateOverride ?? 0),
+      );
+      if (!isLoan && periodRateOverride <= 0) {
         this.assertConfiguredRateForRentalType(inventoryItem, rentalType);
+      }
+      if (item.saveRateToItem === true) {
+        if (!canApplyDiscount(user.role as RoleType)) {
+          throw forbidden(
+            "Somente o administrador pode atualizar o cadastro do equipamento com o novo valor.",
+          );
+        }
+        if (periodRateOverride <= 0) {
+          throw badRequest(
+            "Informe o valor do período para salvar no cadastro do equipamento.",
+          );
+        }
       }
 
       if (inventoryItem.trackingType === "unit") {
@@ -1560,18 +1763,50 @@ class RentalService {
       returnDates.push(returnScheduled);
 
       const isLoan = item.isLoan === true;
+      const periodRateOverride = Math.max(
+        0,
+        Number(item.periodRateOverride ?? 0),
+      );
+
+      if (item.saveRateToItem === true && periodRateOverride > 0) {
+        await this.savePeriodRateToInventory(
+          companyId,
+          item.itemId,
+          rentalType,
+          periodRateOverride,
+        );
+        inventoryItem.set(
+          "pricing",
+          applyPeriodRateOverride(
+            inventoryItem.pricing,
+            rentalType,
+            periodRateOverride,
+          ),
+        );
+      }
+
+      const pricingForLine =
+        periodRateOverride > 0 && !item.saveRateToItem
+          ? applyPeriodRateOverride(
+              inventoryItem.pricing,
+              rentalType,
+              periodRateOverride,
+            )
+          : inventoryItem.pricing;
+
       const unitPrice = isLoan
         ? 0
         : this.calculateRentalPrice(
-            inventoryItem.pricing,
+            pricingForLine,
             pickupScheduled,
             returnScheduled,
             rentalType,
+            periodRateOverride > 0 ? periodRateOverride : undefined,
           );
 
       const subtotal = isLoan ? 0 : unitPrice * item.quantity;
 
-      itemsWithPricing.push({
+      const rentalLine: IRentalItem = {
         itemId: item.itemId,
         lineId: randomUUID(),
         unitId: item.unitId,
@@ -1584,7 +1819,11 @@ class RentalService {
         retroactiveOpenBilling,
         subtotal,
         isLoan,
-      });
+      };
+      if (periodRateOverride > 0) {
+        rentalLine.periodRateOverride = periodRateOverride;
+      }
+      itemsWithPricing.push(rentalLine);
 
       equipmentSubtotal += subtotal;
     }
@@ -3422,9 +3661,21 @@ class RentalService {
           String(b._id),
         );
         refreshed += 1;
-      } catch {
-        /* fechamento pode não ser recalculável neste estado */
+      } catch (err) {
+        console.warn(
+          `[syncBillings] Não foi possível atualizar fechamento ${String(b._id)}:`,
+          err instanceof Error ? err.message : err,
+        );
       }
+    }
+
+    const serviceBilling = await billingService.ensureServiceBillingForRental(
+      companyId,
+      rentalId,
+      userId,
+    );
+    if (serviceBilling) {
+      created += 1;
     }
 
     return { created, draftsCreated, refreshed };
@@ -4717,11 +4968,22 @@ class RentalService {
         returnScheduled ||
         this.getPricingEndDate(pickupScheduled, item.rentalType);
 
+      const periodOverride = Number(item.periodRateOverride ?? 0);
+      const pricingForLine =
+        periodOverride > 0
+          ? applyPeriodRateOverride(
+              inventoryItem.pricing,
+              item.rentalType,
+              periodOverride,
+            )
+          : inventoryItem.pricing;
+
       const price = this.calculateRentalPrice(
-        inventoryItem.pricing,
+        pricingForLine,
         pickupScheduled,
         pricingEndDate,
         item.rentalType,
+        periodOverride > 0 ? periodOverride : undefined,
       );
       const subtotal = price * item.quantity;
 
@@ -5733,7 +5995,12 @@ class RentalService {
 
         if (existingItem) {
           const snapKey = buildRentalLineKey(existingItem as any);
-          keysToInvalidate.add(snapKey);
+          const rateOnlyPatch =
+            itemUpdate.periodRateOverride !== undefined &&
+            !this.hasItemScheduleOrQtyChanges(existingItem, itemUpdate);
+          if (!rateOnlyPatch) {
+            keysToInvalidate.add(snapKey);
+          }
           touchedSnapshots.push({ item: existingItem, snapKey });
 
           if (itemUpdate.isLoan !== undefined) {
@@ -5745,13 +6012,33 @@ class RentalService {
           }
           if (itemUpdate.rentalType) {
             if (!this.isLoanLine(existingItem)) {
-              this.assertConfiguredRateForRentalType(
-                inventoryItem,
-                itemUpdate.rentalType,
+              const override = Math.max(
+                0,
+                Number(
+                  itemUpdate.periodRateOverride ??
+                    existingItem.periodRateOverride ??
+                    0,
+                ),
               );
+              if (override <= 0) {
+                this.assertConfiguredRateForRentalType(
+                  inventoryItem,
+                  itemUpdate.rentalType,
+                );
+              }
             }
             existingItem.rentalType = itemUpdate.rentalType;
           }
+          await this.applyItemPeriodRatePatch(
+            companyId,
+            user,
+            asIdString(inventoryItem._id),
+            existingItem,
+            itemUpdate,
+            (itemUpdate.rentalType ||
+              existingItem.rentalType ||
+              "daily") as RentalType,
+          );
           if (itemUpdate.pickupScheduled) {
             existingItem.pickupScheduled = new Date(itemUpdate.pickupScheduled);
           }
@@ -5887,8 +6174,24 @@ class RentalService {
 
           const rentalType: RentalType = itemUpdate.rentalType || "daily";
           const isLoan = itemUpdate.isLoan === true;
-          if (!isLoan) {
+          const periodRateOverride = Math.max(
+            0,
+            Number(itemUpdate.periodRateOverride ?? 0),
+          );
+          if (!isLoan && periodRateOverride <= 0) {
             this.assertConfiguredRateForRentalType(inventoryItem, rentalType);
+          }
+          if (itemUpdate.saveRateToItem === true) {
+            if (!canApplyDiscount(user.role as RoleType)) {
+              throw forbidden(
+                "Somente o administrador pode atualizar o cadastro do equipamento com o novo valor.",
+              );
+            }
+            if (periodRateOverride <= 0) {
+              throw badRequest(
+                "Informe o valor do período para salvar no cadastro do equipamento.",
+              );
+            }
           }
           const pickupScheduled = itemUpdate.pickupScheduled
             ? new Date(itemUpdate.pickupScheduled)
@@ -5915,16 +6218,35 @@ class RentalService {
             }
           }
 
+          const pricingForLine =
+            periodRateOverride > 0 && !itemUpdate.saveRateToItem
+              ? applyPeriodRateOverride(
+                  inventoryItem.pricing,
+                  rentalType,
+                  periodRateOverride,
+                )
+              : inventoryItem.pricing;
+
+          if (itemUpdate.saveRateToItem === true && periodRateOverride > 0) {
+            await this.savePeriodRateToInventory(
+              companyId,
+              itemUpdate.itemId,
+              rentalType,
+              periodRateOverride,
+            );
+          }
+
           const price = isLoan
             ? 0
             : this.calculateRentalPrice(
-                inventoryItem.pricing,
+                pricingForLine,
                 pickupScheduled,
                 pricingEndDate,
                 rentalType,
+                periodRateOverride > 0 ? periodRateOverride : undefined,
               );
 
-          rental.items.push({
+          const newLine: IRentalItem = {
             itemId: itemUpdate.itemId,
             unitId: itemUpdate.unitId,
             quantity,
@@ -5936,7 +6258,11 @@ class RentalService {
             retroactiveOpenBilling,
             subtotal: isLoan ? 0 : price * quantity,
             isLoan,
-          } as any);
+          };
+          if (periodRateOverride > 0) {
+            newLine.periodRateOverride = periodRateOverride;
+          }
+          rental.items.push(newLine as any);
 
           await this.reserveThenActivateNewRentalLine(
             companyId,
@@ -5987,6 +6313,7 @@ class RentalService {
       }
 
       await this.recalcPricingForRental(rental, companyId);
+      this.markRentalItemsAndPricingModified(rental);
 
       const pickups = rental.items
         .map((i) => i.pickupScheduled)
@@ -6026,6 +6353,7 @@ class RentalService {
       }
     } else if (hasServiceChanges) {
       await this.recalcPricingForRental(rental, companyId);
+      this.markRentalItemsAndPricingModified(rental);
     }
 
     const shouldSyncBillings =
@@ -6042,6 +6370,7 @@ class RentalService {
       userId,
     );
 
+    this.markRentalItemsAndPricingModified(rental);
     await rental.save();
 
     if (shouldSyncBillings) {

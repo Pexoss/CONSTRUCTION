@@ -44,7 +44,6 @@ const InventoryPage: React.FC = () => {
       try {
         const data = await inventoryService.getInformationsItens();
         setInventorySummary(data);
-        console.log(data);
       } catch {
         // console.error('Erro ao buscar resumo do inventário');
         // console.error('Mensagem:', error?.message);
@@ -68,15 +67,19 @@ const InventoryPage: React.FC = () => {
     }));
   };
 
-  // Pesquisa
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setFilters((prev) => ({
-      ...prev,
-      search: searchTerm || undefined,
-      page: 1,
-    }));
-  };
+  // Pesquisa automática após 3 caracteres (com debounce)
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const trimmed = searchTerm.trim();
+      setFilters((prev) => ({
+        ...prev,
+        search: trimmed.length >= 3 ? trimmed : undefined,
+        page: 1,
+      }));
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
 
   const items: Item[] = itemsData?.data ?? EMPTY_ITEMS;
   const pagination = itemsData?.pagination;
@@ -229,10 +232,7 @@ const InventoryPage: React.FC = () => {
 
           {/* Filtros */}
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6 mb-8">
-            <form
-              onSubmit={handleSearch}
-              className="grid grid-cols-1 md:grid-cols-4 gap-4"
-            >
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Campo de Busca */}
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -257,6 +257,11 @@ const InventoryPage: React.FC = () => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white transition-all duration-200 sm:text-sm"
                 />
+                {searchTerm.trim().length > 0 && searchTerm.trim().length < 3 && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Digite pelo menos 3 caracteres para filtrar
+                  </p>
+                )}
               </div>
 
               {/* Seletor de Categoria */}
@@ -328,28 +333,7 @@ const InventoryPage: React.FC = () => {
                   </div>
                 </div>
               </label>
-
-              {/* Botão de Busca */}
-              <button
-                type="submit"
-                className="bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium shadow hover:shadow-md transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 flex items-center justify-center"
-              >
-                <svg
-                  className="h-5 w-5 mr-2"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
-                  />
-                </svg>
-                Buscar
-              </button>
-            </form>
+            </div>
           </div>
 
           {/* Tabela de itens */}

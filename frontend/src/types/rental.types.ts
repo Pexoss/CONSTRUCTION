@@ -33,6 +33,8 @@ export interface RentalItem {
   /** Backend: devolução prevista retroativa sem devolução registrada — gera fechamentos até hoje */
   retroactiveOpenBilling?: boolean;
   subtotal: number;
+  /** Valor por período negociado só neste contrato. */
+  periodRateOverride?: number;
   /** Empréstimo de material — sem cobrança, com devolução */
   isLoan?: boolean;
 }
@@ -177,6 +179,10 @@ export interface CreateRentalData {
     historicalDelivery?: boolean;
     /** Empréstimo de material — sem cobrança, com devolução */
     isLoan?: boolean;
+    /** Valor por período personalizado para este aluguel. */
+    periodRateOverride?: number;
+    /** Atualizar cadastro do equipamento com o valor informado. */
+    saveRateToItem?: boolean;
   }[];
   services?: RentalService[];
   workAddress?: RentalWorkAddress;

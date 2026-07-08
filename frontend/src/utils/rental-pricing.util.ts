@@ -96,3 +96,34 @@ export function periodRateFromInventory(
       return { rate: 0, message: "Tipo de cobrança inválido." };
   }
 }
+
+export function applyPeriodRateOverride(
+  pricing:
+    | {
+        dailyRate?: number;
+        weeklyRate?: number;
+        biweeklyRate?: number;
+        monthlyRate?: number;
+      }
+    | undefined,
+  rentalType: RentalTypePricing,
+  overrideRate: number,
+) {
+  const base = { ...(pricing || {}) };
+  const rate = Number(overrideRate.toFixed(2));
+  switch (rentalType) {
+    case "daily":
+      base.dailyRate = rate;
+      break;
+    case "weekly":
+      base.weeklyRate = rate;
+      break;
+    case "biweekly":
+      base.biweeklyRate = rate;
+      break;
+    case "monthly":
+      base.monthlyRate = rate;
+      break;
+  }
+  return base;
+}

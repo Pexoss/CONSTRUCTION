@@ -39,6 +39,11 @@ import {
 } from "../../utils/viacep";
 import { toast } from "react-toastify";
 import { useAuth } from "../../hooks/useAuth";
+import { canBypassCustomerCpfAsAdmin } from "../../utils/financialAccess";
+import {
+  applyPeriodRateOverride,
+  periodRateFromInventory,
+} from "../../utils/rental-pricing.util";
 
 type CustomersListResult = Awaited<
   ReturnType<typeof customerService.getCustomers>
@@ -109,6 +114,8 @@ interface SelectedItem {
   historicalDelivery?: boolean;
   /** Empréstimo de material — sem cobrança, com devolução */
   isLoan?: boolean;
+  /** Valor por período informado na tela (R$). */
+  periodRateInput?: string;
   item: Item;
 }
 interface ServiceFormRow extends RentalService {
@@ -140,16 +147,27 @@ const rentalTypeLabels: Record<RentalTypeUI, string> = {
   mensal: "mensal",
 };
 
-const getRateForRentalType = (item: Item, rentalType: RentalTypeUI): number => {
-  const pricing = item.pricing ?? {};
+const getCatalogPeriodRate = (item: Item, rentalType: RentalTypeUI): number => {
   const apiType = rentalTypeMap[rentalType];
-  const rates = {
-    daily: pricing.dailyRate ?? 0,
-    weekly: pricing.weeklyRate ?? 0,
-    biweekly: pricing.biweeklyRate ?? 0,
-    monthly: pricing.monthlyRate ?? 0,
-  };
-  return Number(rates[apiType] || 0);
+  if (apiType === "biweekly") {
+    return Math.max(0, Number(item.pricing?.biweeklyRate ?? 0));
+  }
+  return periodRateFromInventory(item.pricing, apiType).rate;
+};
+
+const buildPeriodRateInput = (item: Item, rentalType: RentalTypeUI): string => {
+  const rate = getCatalogPeriodRate(item, rentalType);
+  return rate > 0 ? formatMoneyInputBr(rate) : "";
+};
+
+const getResolvedPeriodRate = (
+  si: SelectedItem,
+  fallbackType: RentalTypeUI,
+): number => {
+  const uiType = si.rentalType ?? fallbackType;
+  const typed = parseMoneyBr(si.periodRateInput ?? "");
+  if (typed > 0) return typed;
+  return getCatalogPeriodRate(si.item, uiType);
 };
 
 const showMissingFieldsToast = (fields: string[]) => {
@@ -165,8 +183,7 @@ const CreateRentalPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const isAdminUser =
-    user?.role === "admin" || user?.role === "superadmin";
+  const isAdminUser = canBypassCustomerCpfAsAdmin(user?.role);
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
@@ -409,8 +426,13 @@ const CreateRentalPage: React.FC = () => {
     startDate: Date,
     endDate: Date | null,
     rentalType: RentalTypeAPI,
+    periodRateOverride?: number,
   ) => {
-    const pricing = item.pricing ?? {};
+    const basePricing = item.pricing ?? {};
+    const pricing =
+      periodRateOverride && periodRateOverride > 0
+        ? applyPeriodRateOverride(basePricing, rentalType, periodRateOverride)
+        : basePricing;
     let effectiveEndDate = endDate ? new Date(endDate) : new Date(startDate);
     const diffTime = effectiveEndDate.getTime() - startDate.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -478,12 +500,14 @@ const CreateRentalPage: React.FC = () => {
           ? rentalTypeMapper[item.rentalType]
           : "daily";
 
+        const periodRate = getResolvedPeriodRate(item, rentalType);
         const price = calculatePrice(
           item.item,
           item.quantity,
           itemPickup,
           itemReturn,
           rentalTypeAPI,
+          periodRate > 0 ? periodRate : undefined,
         );
 
         equipmentSubtotal += price;
@@ -582,6 +606,7 @@ const CreateRentalPage: React.FC = () => {
           pickupTime: defaultPickupTime,
           returnDate: calculatedReturn,
           rentalType,
+          periodRateInput: buildPeriodRateInput(item, rentalType),
         },
       ]);
     }
@@ -767,10 +792,7 @@ const CreateRentalPage: React.FC = () => {
 
     if (hasValidDocumentForRental) {
       if (!documentToSubmit) missingFields.push("CPF/CNPJ do cliente");
-      else if (!isValidCpfCnpj(documentToSubmit)) {
-        missingFields.push("CPF/CNPJ do cliente (inválido)");
-      }
-    } else if (documentToSubmit) {
+    } else if (documentToSubmit && !isAdminUser) {
       missingFields.push("CPF/CNPJ do cliente (inválido)");
     } else if (!isAdminUser) {
       if (!cpfBypassTokenId) {
@@ -833,7 +855,9 @@ const CreateRentalPage: React.FC = () => {
     if (!hasValidDocumentForRental && isAdminUser) {
       const customerName = selectedCustomerData?.name || "este cliente";
       const shouldContinue = window.confirm(
-        `O cliente "${customerName}" não possui CPF/CNPJ cadastrado. Tem certeza de que deseja criar o aluguel mesmo assim?`,
+        documentToSubmit
+          ? `O CPF/CNPJ informado é inválido. Deseja criar o aluguel para "${customerName}" sem CPF/CNPJ cadastrado?`
+          : `O cliente "${customerName}" não possui CPF/CNPJ cadastrado. Deseja criar o aluguel mesmo assim?`,
       );
       if (!shouldContinue) return;
     }
@@ -871,16 +895,59 @@ const CreateRentalPage: React.FC = () => {
     setSelectedItems(refreshedSelectedItems);
 
     const pricingIssues: string[] = [];
+    const itemsWithPricing: Array<
+      (typeof refreshedSelectedItems)[number] & {
+        periodRateOverride?: number;
+        saveRateToItem?: boolean;
+      }
+    > = [];
+
     for (const si of refreshedSelectedItems) {
+      if (si.isLoan) {
+        itemsWithPricing.push(si);
+        continue;
+      }
+
       const selectedRentalType = si.rentalType ?? rentalType;
-      if (
-        !si.isLoan &&
-        getRateForRentalType(si.item, selectedRentalType) <= 0
-      ) {
+      const catalogRate = getCatalogPeriodRate(si.item, selectedRentalType);
+      const effectiveRate = getResolvedPeriodRate(si, rentalType);
+
+      if (effectiveRate <= 0) {
         pricingIssues.push(
           `valor ${rentalTypeLabels[selectedRentalType]} do item "${si.item.name}"`,
         );
+        continue;
       }
+
+      const differsFromCatalog =
+        Math.abs(effectiveRate - catalogRate) > 0.009 || catalogRate <= 0;
+
+      let saveRateToItem = false;
+      if (differsFromCatalog) {
+        const customerName = selectedCustomerData?.name || "este cliente";
+        const saveGlobally = window.confirm(
+          catalogRate <= 0
+            ? `O item "${si.item.name}" não tem valor ${rentalTypeLabels[selectedRentalType]} cadastrado.\n\nUsar ${formatCurrencyBr(effectiveRate)} neste aluguel?\n\n• OK = salvar também no cadastro do item (todos os clientes)\n• Cancelar = usar só neste aluguel${customerName ? ` para ${customerName}` : ""}`
+            : `Valor informado para "${si.item.name}" (${formatCurrencyBr(effectiveRate)}) difere do cadastro (${formatCurrencyBr(catalogRate)}).\n\n• OK = atualizar cadastro do item para todos os clientes\n• Cancelar = cobrar ${formatCurrencyBr(effectiveRate)} só neste aluguel${customerName ? ` para ${customerName}` : ""}`,
+        );
+
+        if (saveGlobally) {
+          if (!isAdminUser) {
+            toast.info(
+              "Somente administradores podem atualizar o cadastro do item. O valor será usado só neste aluguel.",
+            );
+          } else {
+            saveRateToItem = true;
+          }
+        }
+      }
+
+      itemsWithPricing.push({
+        ...si,
+        ...(differsFromCatalog
+          ? { periodRateOverride: effectiveRate, saveRateToItem }
+          : {}),
+      });
     }
 
     if (pricingIssues.length > 0) {
@@ -889,7 +956,7 @@ const CreateRentalPage: React.FC = () => {
     }
 
     const availabilityIssues: string[] = [];
-    for (const si of refreshedSelectedItems) {
+    for (const si of itemsWithPricing) {
       if (si.item.trackingType === "unit" && si.unitId) {
         const unit = si.item.units?.find(
           (u: ItemUnit) => u.unitId === si.unitId,
@@ -943,8 +1010,8 @@ const CreateRentalPage: React.FC = () => {
             }),
       fulfillmentMethod: fulfillmentMethod as RentalFulfillmentMethod,
       pickedUpBy: pickedUpBy.trim() || undefined,
-      items: refreshedSelectedItems.map((si) => {
-        const uiType = si.rentalType ?? rentalType; // fallback da tela
+      items: itemsWithPricing.map((si) => {
+        const uiType = si.rentalType ?? rentalType;
         const row: CreateRentalData["items"][number] = {
           itemId: si.itemId,
           unitId: si.item.trackingType === "unit" ? si.unitId : undefined,
@@ -958,6 +1025,12 @@ const CreateRentalPage: React.FC = () => {
             ? formatDateTimeToISO(si.returnDate, si.pickupTime)
             : undefined,
         };
+        if (si.periodRateOverride && si.periodRateOverride > 0) {
+          row.periodRateOverride = si.periodRateOverride;
+        }
+        if (si.saveRateToItem) {
+          row.saveRateToItem = true;
+        }
         if (
           si.returnDate &&
           si.returnDate < today &&
@@ -1499,6 +1572,13 @@ const CreateRentalPage: React.FC = () => {
                                                   selectedItem.rentalType
                                                 ]
                                               : "daily",
+                                            (() => {
+                                              const rate = getResolvedPeriodRate(
+                                                selectedItem,
+                                                rentalType,
+                                              );
+                                              return rate > 0 ? rate : undefined;
+                                            })(),
                                           ),
                                         )}/un`
                                       : "Defina a retirada"}
@@ -1541,138 +1621,206 @@ const CreateRentalPage: React.FC = () => {
                                 </div>
                               )}
 
-                              {/* BLOCO PRINCIPAL (tipo + datas) */}
-                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                <div className="flex flex-col">
-                                  <label className="text-xs text-gray-500 mb-1">
-                                    Tipo de cobrança
-                                  </label>
+                              {/* BLOCO PRINCIPAL (tipo + valor / datas) */}
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  <div className="flex flex-col">
+                                    <label className="text-xs text-gray-500 mb-1">
+                                      Tipo de cobrança
+                                    </label>
 
-                                  <select
-                                    value={
-                                      selectedItem.rentalType ?? rentalType
-                                    }
-                                    onChange={(e) => {
-                                      const newType = e.target
-                                        .value as RentalTypeUI;
-                                      setSelectedItems(
-                                        selectedItems.map((si) => {
-                                          if (si.itemId !== selectedItem.itemId)
-                                            return si;
-                                          const nextReturn = si.pickupDate
-                                            ? calculateReturnDate(
-                                                si.pickupDate,
-                                                newType,
-                                              )
-                                            : si.returnDate;
-                                          return {
-                                            ...si,
-                                            rentalType: newType,
-                                            returnDate: nextReturn || si.returnDate,
-                                          };
-                                        }),
-                                      );
-                                    }}
-                                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                  >
-                                    <option value="diario">Diário</option>
-                                    <option value="semanal">
-                                      Semanal (7 dias)
-                                    </option>
-                                    <option value="quinzenal">
-                                      Quinzenal (15 dias)
-                                    </option>
-                                    <option value="mensal">Mensal (30 dias)</option>
-                                  </select>
-                                </div>
-                                {/* Retirada */}
-                                <div className="flex flex-col">
-                                  <label className="text-xs text-gray-500 mb-1">
-                                    Data de entrega/retirada
-                                  </label>
-                                  <input
-                                    type="date"
-                                    value={selectedItem.pickupDate || ""}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      if (selectedIndex === 0) {
-                                        setPickupDate(value);
+                                    <select
+                                      value={
+                                        selectedItem.rentalType ?? rentalType
                                       }
-
-                                      const updated = selectedItems.map(
-                                        (si) => {
-                                          if (
-                                            selectedIndex !== 0 &&
-                                            si.itemId !== selectedItem.itemId
-                                          ) {
-                                            return si;
-                                          }
-                                          if (
-                                            selectedIndex === 0 ||
-                                            si.itemId === selectedItem.itemId
-                                          ) {
-                                            const newReturn = value
+                                      onChange={(e) => {
+                                        const newType = e.target
+                                          .value as RentalTypeUI;
+                                        setSelectedItems(
+                                          selectedItems.map((si) => {
+                                            if (si.itemId !== selectedItem.itemId)
+                                              return si;
+                                            const nextReturn = si.pickupDate
                                               ? calculateReturnDate(
-                                                  value,
-                                                  si.rentalType ?? "diario",
+                                                  si.pickupDate,
+                                                  newType,
                                                 )
                                               : si.returnDate;
-
                                             return {
                                               ...si,
-                                              pickupDate: value,
-                                              returnDate: newReturn,
+                                              rentalType: newType,
+                                              returnDate: nextReturn || si.returnDate,
+                                              periodRateInput: buildPeriodRateInput(
+                                                si.item,
+                                                newType,
+                                              ),
                                             };
-                                          }
-                                          return si;
-                                        },
-                                      );
+                                          }),
+                                        );
+                                      }}
+                                      className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                    >
+                                      <option value="diario">Diário</option>
+                                      <option value="semanal">
+                                        Semanal (7 dias)
+                                      </option>
+                                      <option value="quinzenal">
+                                        Quinzenal (15 dias)
+                                      </option>
+                                      <option value="mensal">Mensal (30 dias)</option>
+                                    </select>
+                                  </div>
 
-                                      setSelectedItems(updated);
-                                    }}
-                                    required
-                                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                  />
+                                  {!selectedItem.isLoan && (
+                                    <div className="flex flex-col">
+                                      <label className="text-xs text-gray-500 mb-1">
+                                        Valor{" "}
+                                        {rentalTypeLabels[
+                                          selectedItem.rentalType ?? rentalType
+                                        ]}{" "}
+                                        (por período)
+                                      </label>
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={selectedItem.periodRateInput ?? ""}
+                                        onChange={(e) => {
+                                          const value = formatMoneyInputBrLive(
+                                            e.target.value,
+                                          );
+                                          setSelectedItems(
+                                            selectedItems.map((si) =>
+                                              si.itemId === selectedItem.itemId
+                                                ? { ...si, periodRateInput: value }
+                                                : si,
+                                            ),
+                                          );
+                                        }}
+                                        onFocus={selectInputText}
+                                        placeholder="Informe o valor do período"
+                                        className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                      />
+                                      {(() => {
+                                        const uiType =
+                                          selectedItem.rentalType ?? rentalType;
+                                        const catalog = getCatalogPeriodRate(
+                                          selectedItem.item,
+                                          uiType,
+                                        );
+                                        const typed = parseMoneyBr(
+                                          selectedItem.periodRateInput ?? "",
+                                        );
+                                        const differs =
+                                          typed > 0 &&
+                                          Math.abs(typed - catalog) > 0.009;
+                                        const hint = differs
+                                          ? "Valor personalizado"
+                                          : catalog <= 0
+                                            ? "Valor do item não cadastrado"
+                                            : `Cadastro: ${formatCurrencyBr(catalog)}`;
+                                        return (
+                                          <p
+                                            className={`mt-1 text-2xs ${
+                                              catalog <= 0
+                                                ? "text-amber-700 dark:text-amber-400"
+                                                : "text-gray-500 dark:text-gray-400"
+                                            }`}
+                                          >
+                                            {hint}
+                                          </p>
+                                        );
+                                      })()}
+                                    </div>
+                                  )}
                                 </div>
 
-                                {/* Horário */}
-                                <div className="flex flex-col">
-                                  <label className="text-xs text-gray-500 mb-1">
-                                    Horário *
-                                  </label>
-                                  <input
-                                    type="time"
-                                    value={selectedItem.pickupTime || ""}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      if (selectedIndex === 0) {
-                                        setPickupTime(value);
-                                      }
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                  <div className="flex flex-col">
+                                    <label className="text-xs text-gray-500 mb-1">
+                                      Data de entrega/retirada
+                                    </label>
+                                    <input
+                                      type="date"
+                                      value={selectedItem.pickupDate || ""}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        if (selectedIndex === 0) {
+                                          setPickupDate(value);
+                                        }
 
-                                      setSelectedItems(
-                                        selectedItems.map((si) => {
-                                          if (
-                                            selectedIndex !== 0 &&
-                                            si.itemId !== selectedItem.itemId
-                                          ) {
+                                        const updated = selectedItems.map(
+                                          (si) => {
+                                            if (
+                                              selectedIndex !== 0 &&
+                                              si.itemId !== selectedItem.itemId
+                                            ) {
+                                              return si;
+                                            }
+                                            if (
+                                              selectedIndex === 0 ||
+                                              si.itemId === selectedItem.itemId
+                                            ) {
+                                              const newReturn = value
+                                                ? calculateReturnDate(
+                                                    value,
+                                                    si.rentalType ?? "diario",
+                                                  )
+                                                : si.returnDate;
+
+                                              return {
+                                                ...si,
+                                                pickupDate: value,
+                                                returnDate: newReturn,
+                                              };
+                                            }
                                             return si;
-                                          }
-                                          return { ...si, pickupTime: value };
-                                        }),
-                                      );
-                                    }}
-                                    required
-                                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                                  />
-                                </div>
+                                          },
+                                        );
 
-                                {/* Devolução prevista */}
-                                <div className="flex flex-col">
-                                  <label className="text-xs text-gray-500 mb-1">
-                                    Devolução prevista
-                                  </label>
-                                  <div className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-gray-100 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300">
-                                    {selectedItem.returnDate || "Calculada após a retirada"}
+                                        setSelectedItems(updated);
+                                      }}
+                                      required
+                                      className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                    />
+                                  </div>
+
+                                  <div className="flex flex-col">
+                                    <label className="text-xs text-gray-500 mb-1">
+                                      Horário *
+                                    </label>
+                                    <input
+                                      type="time"
+                                      value={selectedItem.pickupTime || ""}
+                                      onChange={(e) => {
+                                        const value = e.target.value;
+                                        if (selectedIndex === 0) {
+                                          setPickupTime(value);
+                                        }
+
+                                        setSelectedItems(
+                                          selectedItems.map((si) => {
+                                            if (
+                                              selectedIndex !== 0 &&
+                                              si.itemId !== selectedItem.itemId
+                                            ) {
+                                              return si;
+                                            }
+                                            return { ...si, pickupTime: value };
+                                          }),
+                                        );
+                                      }}
+                                      required
+                                      className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                    />
+                                  </div>
+
+                                  <div className="flex flex-col">
+                                    <label className="text-xs text-gray-500 mb-1">
+                                      Devolução prevista
+                                    </label>
+                                    <div className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-gray-100 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300">
+                                      {selectedItem.returnDate || "Calculada após a retirada"}
+                                    </div>
                                   </div>
                                 </div>
                               </div>

@@ -78,12 +78,6 @@ export function effectivePricingPeriods(pricing?: {
   return { dailyRate, weeklyRate, biweeklyRate, monthlyRate };
 }
 
-/**
- * Valor unitário de cobrança por período conforme o tipo selecionado.
- * Prioriza o valor cadastrado explícito no período solicitado.
- * Para diária/semanal/mensal, fallback em effectivePricingPeriods quando o campo bruto está zero.
- * Quinzenal exige biweeklyRate explícito (não deriva de semanal/mensal/diária).
- */
 export function periodRateFromInventory(
   pricing:
     | {
@@ -131,6 +125,43 @@ export function periodRateFromInventory(
     default:
       return { rate: 0, message: "Tipo de cobrança inválido." };
   }
+}
+
+/** Aplica valor personalizado no período escolhido (demais campos preservados). */
+export function applyPeriodRateOverride(
+  pricing:
+    | {
+        dailyRate?: number;
+        weeklyRate?: number;
+        biweeklyRate?: number;
+        monthlyRate?: number;
+      }
+    | undefined,
+  rentalType: RentalType,
+  overrideRate: number,
+): {
+  dailyRate?: number;
+  weeklyRate?: number;
+  biweeklyRate?: number;
+  monthlyRate?: number;
+} {
+  const base = { ...(pricing || {}) };
+  const rate = Number(overrideRate.toFixed(2));
+  switch (rentalType) {
+    case "daily":
+      base.dailyRate = rate;
+      break;
+    case "weekly":
+      base.weeklyRate = rate;
+      break;
+    case "biweekly":
+      base.biweeklyRate = rate;
+      break;
+    case "monthly":
+      base.monthlyRate = rate;
+      break;
+  }
+  return base;
 }
 
 /**
@@ -366,6 +397,15 @@ class BillingService {
       );
     }
 
+    const override = Number(item.periodRateOverride ?? 0);
+    if (override > 0) {
+      return {
+        lineUnit: override,
+        pricing: applyPeriodRateOverride(inv.pricing, rentalType, override),
+        autoNote: "Valor personalizado do contrato",
+      };
+    }
+
     const { rate, message } = periodRateFromInventory(inv.pricing, rentalType);
     if (rate <= 0) {
       throw new Error(
@@ -528,6 +568,12 @@ class BillingService {
       const it = rental.items[i];
       if (Number(it.unitPrice) > 0) continue;
       const rt = (it.rentalType || 'daily') as RentalType;
+      const lineOverride = Number(it.periodRateOverride ?? 0);
+      if (lineOverride > 0) {
+        rental.items[i].unitPrice = lineOverride;
+        changed = true;
+        continue;
+      }
       const inv = await Item.findOne({
         _id: asIdString(it.itemId),
         companyId,
@@ -967,6 +1013,57 @@ class BillingService {
       requestedBy: userId,
       notes: options?.notes ? `${options.notes}\nServiços do aluguel em fechamento separado.` : 'Serviços do aluguel em fechamento separado.',
     });
+  }
+
+  /**
+   * Garante fechamento separado dos serviços quando ainda não foram faturados.
+   * Necessário quando o primeiro fechamento do equipamento é só rascunho futuro (sem serviços).
+   */
+  async ensureServiceBillingForRental(
+    companyId: string,
+    rentalId: string,
+    userId: string,
+  ): Promise<IBilling | null> {
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+    if (!rental) {
+      return null;
+    }
+
+    const servicesSubtotal = Number(rental.pricing?.servicesSubtotal ?? 0);
+    if (!(rental.services?.length) || servicesSubtotal <= 0) {
+      return null;
+    }
+
+    const alreadyBilled = await Billing.exists({
+      companyId,
+      rentalId: rental._id,
+      status: { $ne: 'cancelled' },
+      $or: [
+        { 'services.0': { $exists: true } },
+        { 'calculation.servicesAmount': { $gt: 0 } },
+      ],
+    });
+    if (alreadyBilled) {
+      return null;
+    }
+
+    const periodStart =
+      rental.dates?.pickupScheduled ??
+      rental.items?.[0]?.pickupScheduled ??
+      new Date();
+    const periodEnd =
+      rental.dates?.returnScheduled ??
+      rental.items?.[0]?.returnScheduled ??
+      periodStart;
+
+    return this.createServiceBillingIfNeeded(
+      companyId,
+      rental,
+      new Date(periodStart),
+      new Date(periodEnd),
+      userId,
+      { notes: rental.notes, status: 'approved' },
+    );
   }
 
   async createPeriodicBilling(

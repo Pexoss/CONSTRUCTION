@@ -236,6 +236,8 @@ export const rentalService = {
         returnScheduled?: string;
         historicalDelivery?: boolean;
         recalculateScheduledReturn?: boolean;
+        periodRateOverride?: number;
+        saveRateToItem?: boolean;
       }>;
       workAddress?: {
         street: string;
