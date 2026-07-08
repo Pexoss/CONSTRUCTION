@@ -1,18 +1,43 @@
 // modules/customers/ViewCustomerPage.tsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Layout from "../../components/Layout";
 import { customerService } from "./customer.service";
-import { Customer, CustomerAddress } from "../../types/customer.types";
+import {
+  Customer,
+  CustomerAddress,
+  CustomerResponsible,
+} from "../../types/customer.types";
 import {
   formatDocumentForDisplay,
   formatPhoneForDisplay,
+  formatPhoneInputBr,
 } from "../../utils/formatters";
+import { toast } from "react-toastify";
+
+const responsibleRoleLabel: Record<CustomerResponsible["role"], string> = {
+  financial: "Financeiro",
+  work: "Obra",
+  other: "Outro",
+};
 
 const ViewCustomerPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [showAddResponsibleModal, setShowAddResponsibleModal] = useState(false);
+  const [newResponsibleForm, setNewResponsibleForm] = useState<{
+    name: string;
+    phone: string;
+    role: CustomerResponsible["role"];
+    workName: string;
+  }>({
+    name: "",
+    phone: "",
+    role: "financial",
+    workName: "",
+  });
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["customer", id],
@@ -32,6 +57,94 @@ const ViewCustomerPage: React.FC = () => {
       navigate("/customers");
     },
   });
+
+  const addResponsibleMutation = useMutation({
+    mutationFn: async ({
+      customerId,
+      responsible,
+      existingResponsibles,
+    }: {
+      customerId: string;
+      responsible: Omit<CustomerResponsible, "_id">;
+      existingResponsibles: CustomerResponsible[];
+    }) => {
+      const responsibles = [
+        ...existingResponsibles.map((resp) => ({
+          ...(resp._id ? { _id: resp._id } : {}),
+          name: String(resp.name || "").trim(),
+          phone: resp.phone?.trim(),
+          role: resp.role,
+          workName: resp.workName?.trim(),
+          notes: resp.notes?.trim(),
+        })),
+        {
+          name: responsible.name.trim(),
+          phone: responsible.phone?.trim(),
+          role: responsible.role,
+          workName: responsible.workName?.trim(),
+        },
+      ].filter((resp) => resp.name.length > 0);
+
+      const response = await customerService.updateCustomer(customerId, {
+        responsibles,
+      });
+      return response.data;
+    },
+    onSuccess: (updatedCustomer) => {
+      setCustomer(updatedCustomer);
+      queryClient.setQueryData(["customer", id], {
+        success: true,
+        data: updatedCustomer,
+      });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      setShowAddResponsibleModal(false);
+      setNewResponsibleForm({
+        name: "",
+        phone: "",
+        role: "financial",
+        workName: "",
+      });
+      toast.success("Responsável cadastrado com sucesso.");
+    },
+    onError: (error: unknown) => {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message ?? "Não foi possível cadastrar o responsável.";
+      toast.error(message);
+    },
+  });
+
+  const openAddResponsibleModal = (
+    defaultRole: CustomerResponsible["role"] = "financial",
+  ) => {
+    setNewResponsibleForm({
+      name: "",
+      phone: "",
+      role: defaultRole,
+      workName: "",
+    });
+    setShowAddResponsibleModal(true);
+  };
+
+  const handleAddResponsible = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customer?._id) return;
+    const name = newResponsibleForm.name.trim();
+    if (!name) {
+      toast.warning("Informe o nome do responsável.");
+      return;
+    }
+    addResponsibleMutation.mutate({
+      customerId: customer._id,
+      existingResponsibles: customer.responsibles || [],
+      responsible: {
+        name,
+        phone: newResponsibleForm.phone.trim() || undefined,
+        role: newResponsibleForm.role,
+        workName: newResponsibleForm.workName.trim() || undefined,
+      },
+    });
+  };
 
   if (isLoading) {
     return (
@@ -449,6 +562,103 @@ const ViewCustomerPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Responsáveis */}
+          <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg mr-3">
+                    <svg
+                      className="w-5 h-5 text-gray-700 dark:text-gray-300"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"
+                      />
+                    </svg>
+                  </div>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Responsáveis
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openAddResponsibleModal()}
+                  className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <svg
+                    className="w-4 h-4 mr-1.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 4v16m8-8H4"
+                    />
+                  </svg>
+                  Cadastrar responsável
+                </button>
+              </div>
+            </div>
+            <div className="p-6">
+              {(customer.responsibles ?? []).length === 0 ? (
+                <div className="text-center py-8 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Nenhum responsável cadastrado
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => openAddResponsibleModal()}
+                    className="mt-2 inline-flex items-center text-sm text-gray-900 dark:text-white hover:text-gray-700 dark:hover:text-gray-300 font-medium underline"
+                  >
+                    Cadastrar responsável
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {(customer.responsibles ?? []).map((resp, index) => (
+                    <div
+                      key={resp._id || `resp-${index}`}
+                      className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          {resp.name}
+                        </p>
+                        <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full">
+                          {responsibleRoleLabel[resp.role] || "Outro"}
+                        </span>
+                      </div>
+                      {resp.phone ? (
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          {formatPhoneForDisplay(resp.phone)}
+                        </p>
+                      ) : null}
+                      {resp.workName ? (
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                          Obra: {resp.workName}
+                        </p>
+                      ) : null}
+                      {resp.notes ? (
+                        <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
+                          {resp.notes}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Histórico de Aluguéis - Placeholder para futura implementação */}
           <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
             <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
@@ -496,6 +706,120 @@ const ViewCustomerPage: React.FC = () => {
           </div>
         </div>
       </div>
+      {showAddResponsibleModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Novo responsável
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAddResponsibleModal(false)}
+                className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleAddResponsible} className="p-6 space-y-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Cadastre um responsável para{" "}
+                <span className="font-medium text-gray-900 dark:text-white">
+                  {customer.name}
+                </span>
+                .
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Nome *
+                </label>
+                <input
+                  type="text"
+                  value={newResponsibleForm.name}
+                  onChange={(e) =>
+                    setNewResponsibleForm({
+                      ...newResponsibleForm,
+                      name: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Telefone
+                </label>
+                <input
+                  type="text"
+                  value={newResponsibleForm.phone}
+                  onChange={(e) =>
+                    setNewResponsibleForm({
+                      ...newResponsibleForm,
+                      phone: formatPhoneInputBr(e.target.value),
+                    })
+                  }
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Tipo
+                </label>
+                <select
+                  value={newResponsibleForm.role}
+                  onChange={(e) =>
+                    setNewResponsibleForm({
+                      ...newResponsibleForm,
+                      role: e.target.value as CustomerResponsible["role"],
+                    })
+                  }
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                >
+                  <option value="financial">Financeiro</option>
+                  <option value="work">Obra</option>
+                  <option value="other">Outro</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Obra vinculada
+                </label>
+                <input
+                  type="text"
+                  value={newResponsibleForm.workName}
+                  onChange={(e) =>
+                    setNewResponsibleForm({
+                      ...newResponsibleForm,
+                      workName: e.target.value,
+                    })
+                  }
+                  placeholder="Opcional"
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddResponsibleModal(false)}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={addResponsibleMutation.isPending}
+                  className="px-4 py-2 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium disabled:opacity-60"
+                >
+                  {addResponsibleMutation.isPending
+                    ? "Salvando..."
+                    : "Cadastrar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 };
