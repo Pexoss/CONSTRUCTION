@@ -1097,13 +1097,13 @@ const CreateRentalPage: React.FC = () => {
       let saveRateToItem = false;
       if (differsFromCatalog) {
         const customerName = selectedCustomerData?.name || "este cliente";
-        const saveGlobally = window.confirm(
+        const onlyThisRental = window.confirm(
           catalogRate <= 0
-            ? `O item "${si.item.name}" não tem valor ${rentalTypeLabels[selectedRentalType]} cadastrado.\n\nUsar ${formatCurrencyBr(effectiveRate)} neste aluguel?\n\n• OK = salvar também no cadastro do item (todos os clientes)\n• Cancelar = usar só neste aluguel${customerName ? ` para ${customerName}` : ""}`
-            : `Valor informado para "${si.item.name}" (${formatCurrencyBr(effectiveRate)}) difere do cadastro (${formatCurrencyBr(catalogRate)}).\n\n• OK = atualizar cadastro do item para todos os clientes\n• Cancelar = cobrar ${formatCurrencyBr(effectiveRate)} só neste aluguel${customerName ? ` para ${customerName}` : ""}`,
+            ? `O item "${si.item.name}" não tem valor ${rentalTypeLabels[selectedRentalType]} cadastrado.\n\nUsar ${formatCurrencyBr(effectiveRate)} neste aluguel?\n\n• OK = usar só neste aluguel${customerName ? ` para ${customerName}` : ""}\n• Cancelar = salvar também no cadastro do item (todos os clientes)`
+            : `Valor informado para "${si.item.name}" (${formatCurrencyBr(effectiveRate)}) difere do cadastro (${formatCurrencyBr(catalogRate)}).\n\n• OK = cobrar ${formatCurrencyBr(effectiveRate)} só neste aluguel${customerName ? ` para ${customerName}` : ""}\n• Cancelar = atualizar cadastro do item para todos os clientes`,
         );
 
-        if (saveGlobally) {
+        if (!onlyThisRental) {
           if (!isAdminUser) {
             toast.info(
               "Somente administradores podem atualizar o cadastro do item. O valor será usado só neste aluguel.",

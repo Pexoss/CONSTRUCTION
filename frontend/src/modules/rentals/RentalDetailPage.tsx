@@ -2434,13 +2434,13 @@ const RentalDetailPage: React.FC = () => {
                             Math.abs(effective - previousEffective) > 0.009;
 
                           if (needsContractOverride) {
-                            const saveGlobally = window.confirm(
+                            const onlyThisRental = window.confirm(
                               catalog <= 0
-                                ? `O item não tem valor ${rentalTypeUiShortLabels[item.rentalType]} cadastrado.\n\nUsar ${formatCurrencyBr(effective)} neste aluguel?\n\n• OK = salvar também no cadastro do item\n• Cancelar = usar só neste aluguel`
-                                : `Valor informado (${formatCurrencyBr(effective)}) difere do cadastro (${formatCurrencyBr(catalog)}).\n\n• OK = atualizar cadastro do item para todos\n• Cancelar = cobrar só neste aluguel`,
+                                ? `O item não tem valor ${rentalTypeUiShortLabels[item.rentalType]} cadastrado.\n\nUsar ${formatCurrencyBr(effective)} neste aluguel?\n\n• OK = usar só neste aluguel\n• Cancelar = salvar também no cadastro do item`
+                                : `Valor informado (${formatCurrencyBr(effective)}) difere do cadastro (${formatCurrencyBr(catalog)}).\n\n• OK = cobrar só neste aluguel\n• Cancelar = atualizar cadastro do item para todos`,
                             );
                             row.periodRateOverride = effective;
-                            if (saveGlobally) {
+                            if (!onlyThisRental) {
                               if (!canManageFinancial(user?.role)) {
                                 toast.info(
                                   "Somente administradores podem atualizar o cadastro do item. O valor será usado só neste aluguel.",

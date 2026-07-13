@@ -4137,8 +4137,8 @@ class RentalService {
   }
 
   /**
-   * Tabela IV do PDF do contrato: tarifa cadastrada do período × quantidade × períodos
-   * cobráveis nas datas da linha (alinha ao fechamento; não usa só valores persistidos no aluguel).
+   * Tabela IV do PDF do contrato: tarifa do período × quantidade × períodos
+   * cobráveis nas datas da linha. Respeita periodRateOverride do contrato.
    */
   private resolveCommercialRowForPdf(
     ritem: any,
@@ -4168,12 +4168,13 @@ class RentalService {
         ? `${pickup} a ${ret}`
         : this.rentalTypeLabelForPdf(ritem.rentalType || "daily");
 
-    const pricing =
+    const inventoryPricing =
       inv && typeof inv === "object" && inv.pricing ? inv.pricing : null;
     const rt = (ritem.rentalType || "daily") as RentalType;
     const qty = Number(ritem.quantity || 1);
+    const override = Number(ritem.periodRateOverride ?? 0);
 
-    if (!pricing) {
+    if (!inventoryPricing && override <= 0) {
       return {
         periodLabel,
         tariffShown: Number(ritem.unitPrice ?? 0),
@@ -4194,19 +4195,30 @@ class RentalService {
     const endDt = new Date(endSrc);
 
     try {
+      const pricingForLine =
+        override > 0
+          ? applyPeriodRateOverride(inventoryPricing || {}, rt, override)
+          : inventoryPricing || {};
       const pc = calculateBillingPeriod(pickupDt, endDt, rt);
-      const lineUnit = calculateRentalLineAmount(pricing, rt, pc).amount;
-      const tariff = periodRateFromInventory(pricing, rt).rate;
+      const lineUnit = calculateRentalLineAmount(pricingForLine, rt, pc).amount;
+      const tariff =
+        override > 0
+          ? override
+          : periodRateFromInventory(pricingForLine, rt).rate;
       return {
         periodLabel,
-        tariffShown: tariff,
+        tariffShown: Number(tariff.toFixed(2)),
         lineTotal: Number((lineUnit * qty).toFixed(2)),
       };
     } catch {
+      const fallbackTariff =
+        override > 0 ? override : Number(ritem.unitPrice ?? 0);
       return {
         periodLabel,
-        tariffShown: Number(ritem.unitPrice ?? 0),
-        lineTotal: Number(ritem.subtotal ?? 0),
+        tariffShown: fallbackTariff,
+        lineTotal: Number(
+          ritem.subtotal ?? qty * fallbackTariff,
+        ),
       };
     }
   }
