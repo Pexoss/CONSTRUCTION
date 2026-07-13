@@ -304,7 +304,20 @@ const FinancialCenterPage: React.FC = () => {
   const canManageFinancialUser = canManageFinancial(user?.role);
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedBillingIds, setSelectedBillingIds] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<"billings" | "charges" | "invoices">("billings");
+  const tabParam = searchParams.get("tab");
+  const activeTab: "billings" | "charges" | "invoices" =
+    tabParam === "charges" || tabParam === "invoices" || tabParam === "billings"
+      ? tabParam
+      : "billings";
+  const setActiveTab = (tab: "billings" | "charges" | "invoices") => {
+    const next = new URLSearchParams(searchParams);
+    if (tab === "billings") {
+      next.delete("tab");
+    } else {
+      next.set("tab", tab);
+    }
+    setSearchParams(next, { replace: true });
+  };
   const [finBillSort, setFinBillSort] = useState<ColumnSort<FinBillSortKey> | null>({
     key: "period",
     dir: "asc",
@@ -1684,6 +1697,13 @@ const FinancialCenterPage: React.FC = () => {
                                   {rentalIdStr ? (
                                     <Link
                                       to={`/rentals/${rentalIdStr}`}
+                                      state={{
+                                        returnTo: `/finance${
+                                          searchParams.toString()
+                                            ? `?${searchParams.toString()}`
+                                            : ""
+                                        }`,
+                                      }}
                                       className="px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
                                       title="Abrir o aluguel (consulta, edição e devoluções de itens)"
                                     >

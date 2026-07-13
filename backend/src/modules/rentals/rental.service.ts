@@ -2150,7 +2150,7 @@ class RentalService {
 
   /**
    * Menor custo entre tipos de cobrança disponíveis e ajuste de data de cálculo
-   * quando a devolução “estoura” um período a mais por poucos dias/horas.
+   * somente quando a devolução ultrapassa o ciclo por no máximo 1 dia.
    */
   private buildCheapestCloseSuggestion(params: {
     targetItem: IRentalItem;
@@ -2241,17 +2241,26 @@ class RentalService {
         kind: rt === params.currentBillingType ? "type" : "type",
       });
 
-      // Ajuste de data: evita 1 período a mais por poucos dias além do ciclo.
+      // Ajuste de data: só se a devolução passou exatamente 1 dia do ciclo
+      // (evita sugerir datas bem anteriores e divergir do caixa do aluguel).
       if (rt !== "daily") {
         const pc = calculateBillingPeriod(periodStart, periodEnd, rt);
-        if (pc.extraDays > 0 && pc.periodsCompleted >= 1) {
+        if (pc.extraDays === 1 && pc.periodsCompleted >= 1) {
           const periodLen = this.getPeriodLengthDays(rt);
           const completeDays = pc.periodsCompleted * periodLen;
           const adjustedEnd = this.addDays(
             this.normalizeDate(periodStart),
             completeDays - 1,
           );
-          if (adjustedEnd.getTime() < this.normalizeDate(periodEnd).getTime()) {
+          const dayDiff = Math.round(
+            (this.normalizeDate(periodEnd).getTime() -
+              this.normalizeDate(adjustedEnd).getTime()) /
+              (1000 * 60 * 60 * 24),
+          );
+          if (
+            dayDiff === 1 &&
+            adjustedEnd.getTime() < this.normalizeDate(periodEnd).getTime()
+          ) {
             const adj = this.tryCloseAmountForSuggestion(
               params.inventoryPricing,
               rt,
@@ -2281,6 +2290,7 @@ class RentalService {
         const units = Math.max(1, pc.periodsCompleted);
         if (units >= 2) {
           const HOUR_MS = 1000 * 60 * 60;
+          const DAY_MS = 24 * HOUR_MS;
           const prevUnits = units - 1;
           const maxMsForPrev =
             prevUnits <= 1
@@ -2297,7 +2307,9 @@ class RentalService {
           } else {
             adjustedEnd = new Date(periodStart.getTime() + maxMsForPrev);
           }
-          if (adjustedEnd.getTime() < periodEnd.getTime()) {
+          const spillMs = periodEnd.getTime() - adjustedEnd.getTime();
+          // Só sugere se o “estouro” for de no máximo 1 dia (24h).
+          if (spillMs > 0 && spillMs <= DAY_MS + 60_000) {
             const adj = this.tryCloseAmountForSuggestion(
               params.inventoryPricing,
               "daily",
@@ -2382,7 +2394,7 @@ class RentalService {
             hour: "2-digit",
             minute: "2-digit",
           });
-      explanation = `A data atual estoura um período a mais no ciclo ${currentLabel}. Usando o cálculo em ${whenLabel} (fim de ${best.periodsCharged} período(s)), o valor cai de ${formatCurrencyBr(params.currentBaseAmount)} para ${formatCurrencyBr(best.baseAmount)} — economia de ${formatCurrencyBr(savings)}. A data real informativa pode permanecer como está.`;
+      explanation = `A data atual passa 1 dia além do ciclo ${currentLabel} e gera um período a mais. Usando o cálculo em ${whenLabel} (1 dia antes), o valor cai de ${formatCurrencyBr(params.currentBaseAmount)} para ${formatCurrencyBr(best.baseAmount)} — economia de ${formatCurrencyBr(savings)}. A data real informativa pode permanecer como está.`;
     } else {
       title = `Cobrança ${bestLabel} com data ajustada`;
       explanation = `Combinando tipo ${bestLabel} e data de cálculo no fim do período completo, o fechamento fica em ${formatCurrencyBr(best.baseAmount)} (economia de ${formatCurrencyBr(savings)} em relação ao atual).`;

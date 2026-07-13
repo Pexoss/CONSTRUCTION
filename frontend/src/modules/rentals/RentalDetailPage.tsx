@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
 import {
@@ -334,6 +334,24 @@ const RentalDetailPage: React.FC = () => {
 
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnToFromFinance = (() => {
+    const raw = (location.state as { returnTo?: string } | null)?.returnTo;
+    if (
+      typeof raw === "string" &&
+      raw.startsWith("/finance") &&
+      !raw.startsWith("//")
+    ) {
+      return raw;
+    }
+    return null;
+  })();
+  const rentalListBackTo = returnToFromFinance || "/rentals";
+  const rentalDetailBackTo = returnToFromFinance || "/dashboard";
+  const financeHubTo = returnToFromFinance || "/finance";
+  const backLinkLabel = returnToFromFinance
+    ? "Voltar ao financeiro"
+    : "Voltar para Aluguéis";
   const queryClient = useQueryClient();
   // const [showStatusModal, setShowStatusModal] = useState(false);
   const [showExtendModal] = useState(false);
@@ -1170,7 +1188,7 @@ const RentalDetailPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <Layout title="Detalhes do Aluguel" backTo="/rentals">
+      <Layout title="Detalhes do Aluguel" backTo={rentalListBackTo}>
         <div className="flex justify-center items-center h-64">
           <div className="text-gray-600">Carregando...</div>
         </div>
@@ -1180,7 +1198,7 @@ const RentalDetailPage: React.FC = () => {
 
   if (!data?.data) {
     return (
-      <Layout title="Detalhes do Aluguel" backTo="/rentals">
+      <Layout title="Detalhes do Aluguel" backTo={rentalListBackTo}>
         <div className="bg-red-50 border border-red-200 rounded-md p-4">
           <p className="text-red-800">Aluguel não encontrado</p>
         </div>
@@ -2853,7 +2871,7 @@ const RentalDetailPage: React.FC = () => {
   }
 
   return (
-    <Layout title="Detalhes do Aluguel" backTo="/dashboard">
+    <Layout title="Detalhes do Aluguel" backTo={rentalDetailBackTo}>
       {showSuccessToast && (
         <SuccessToast
           onClose={() => setShowSuccessToast(false)}
@@ -2875,7 +2893,7 @@ const RentalDetailPage: React.FC = () => {
           {/* Cabeçalho */}
           <div className="mb-6">
             <Link
-              to="/rentals"
+              to={rentalListBackTo}
               className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 inline-flex items-center"
             >
               <svg
@@ -2891,7 +2909,7 @@ const RentalDetailPage: React.FC = () => {
                   d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
                 />
               </svg>
-              Voltar para Aluguéis
+              {backLinkLabel}
             </Link>
           </div>
 
@@ -3713,7 +3731,7 @@ const RentalDetailPage: React.FC = () => {
                   {features.financialUnifiedModule && (
                     <button
                       type="button"
-                      onClick={() => navigate("/finance")}
+                      onClick={() => navigate(financeHubTo)}
                       className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                     >
                       Gerenciar no financeiro
