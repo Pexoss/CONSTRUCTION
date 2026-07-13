@@ -94,6 +94,23 @@ export const rentalService = {
         isLoan?: boolean;
         baseBillingAmount?: number;
         additionalAmount?: number;
+        cheapestSuggestion?: {
+          expectedBillingAmount: number;
+          baseBillingAmount: number;
+          savings: number;
+          billingRentalType: string;
+          usedDays: number;
+          periodsCharged: number;
+          periodStart: string;
+          periodEnd: string;
+          title: string;
+          explanation: string;
+          actions: {
+            billingRentalType: "" | "daily" | "weekly" | "biweekly" | "monthly";
+            returnDate: string;
+            returnTime: string;
+          };
+        } | null;
       };
     }>(`/rentals/${rentalId}/items/${itemId}/close-preview${qs}`);
 

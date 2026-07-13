@@ -1991,8 +1991,17 @@ class RentalService {
       const period = calculateBillingPeriod(pickupDate, returnDate, rentalType);
       maxUsedDaysBilling = Math.max(maxUsedDaysBilling, period.daysPassed);
 
+      const periodOverride = Number(item.periodRateOverride ?? 0);
+      const pricingForLine =
+        periodOverride > 0
+          ? applyPeriodRateOverride(
+              inventoryItem.pricing,
+              rentalType,
+              periodOverride,
+            )
+          : inventoryItem.pricing;
       const unitPrice = calculateRentalLineAmount(
-        inventoryItem.pricing,
+        pricingForLine,
         rentalType,
         period,
       ).amount;
@@ -2038,6 +2047,374 @@ class RentalService {
     return rental;
   }
 
+  private rentalTypeLabelPt(rentalType: RentalType): string {
+    switch (rentalType) {
+      case "daily":
+        return "diário";
+      case "weekly":
+        return "semanal";
+      case "biweekly":
+        return "quinzenal";
+      case "monthly":
+        return "mensal";
+      default:
+        return rentalType;
+    }
+  }
+
+  private pricingForCloseSuggestion(
+    inventoryPricing: {
+      dailyRate?: number;
+      weeklyRate?: number;
+      biweeklyRate?: number;
+      monthlyRate?: number;
+    } | undefined,
+    rentalType: RentalType,
+    contractRentalType: RentalType,
+    periodOverride: number,
+  ) {
+    if (periodOverride > 0 && rentalType === contractRentalType) {
+      return applyPeriodRateOverride(
+        inventoryPricing,
+        rentalType,
+        periodOverride,
+      );
+    }
+    return inventoryPricing;
+  }
+
+  private tryCloseAmountForSuggestion(
+    inventoryPricing: {
+      dailyRate?: number;
+      weeklyRate?: number;
+      biweeklyRate?: number;
+      monthlyRate?: number;
+    } | undefined,
+    rentalType: RentalType,
+    periodStart: Date,
+    periodEnd: Date,
+    returnedQuantity: number,
+    contractRentalType: RentalType,
+    periodOverride: number,
+  ): {
+    baseAmount: number;
+    usedDays: number;
+    periodsCharged: number;
+    periodStart: Date;
+    periodEnd: Date;
+  } | null {
+    try {
+      if (periodEnd.getTime() < periodStart.getTime()) {
+        return null;
+      }
+      const pricing = this.pricingForCloseSuggestion(
+        inventoryPricing,
+        rentalType,
+        contractRentalType,
+        periodOverride,
+      );
+      const rateCheck = periodRateFromInventory(pricing, rentalType);
+      if (rateCheck.rate <= 0) {
+        return null;
+      }
+      const pc = calculateBillingPeriod(periodStart, periodEnd, rentalType);
+      const { amount } = calculateRentalLineAmount(pricing, rentalType, pc);
+      const periodsCharged =
+        rentalType === "daily"
+          ? Math.max(1, pc.periodsCompleted)
+          : pc.periodsCompleted + (pc.extraDays > 0 ? 1 : 0);
+      return {
+        baseAmount: Number((amount * returnedQuantity).toFixed(2)),
+        usedDays: Math.max(0, pc.daysPassed),
+        periodsCharged,
+        periodStart,
+        periodEnd,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private formatLocalDateInput(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  private formatLocalTimeInput(d: Date): string {
+    const h = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `${h}:${min}`;
+  }
+
+  /**
+   * Menor custo entre tipos de cobrança disponíveis e ajuste de data de cálculo
+   * quando a devolução “estoura” um período a mais por poucos dias/horas.
+   */
+  private buildCheapestCloseSuggestion(params: {
+    targetItem: IRentalItem;
+    rental: { dates?: { pickupScheduled?: Date }; items?: IRentalItem[] };
+    inventoryPricing:
+      | {
+          dailyRate?: number;
+          weeklyRate?: number;
+          biweeklyRate?: number;
+          monthlyRate?: number;
+        }
+      | undefined;
+    periodOverride: number;
+    contractRentalType: RentalType;
+    currentBillingType: RentalType;
+    returnAt: Date;
+    periodStartRaw: Date;
+    periodEndCharge: Date;
+    returnedQuantity: number;
+    currentBaseAmount: number;
+    additionalAmount: number;
+  }): {
+    expectedBillingAmount: number;
+    baseBillingAmount: number;
+    savings: number;
+    billingRentalType: RentalType;
+    usedDays: number;
+    periodsCharged: number;
+    periodStart: string;
+    periodEnd: string;
+    title: string;
+    explanation: string;
+    actions: {
+      billingRentalType: RentalType | "";
+      returnDate: string;
+      returnTime: string;
+    };
+  } | null {
+    type Candidate = {
+      baseAmount: number;
+      billingType: RentalType;
+      usedDays: number;
+      periodsCharged: number;
+      periodStart: Date;
+      periodEnd: Date;
+      returnAtForCalc: Date;
+      kind: "type" | "date" | "type_and_date";
+    };
+
+    const candidates: Candidate[] = [];
+    const types: RentalType[] = ["daily", "weekly", "biweekly", "monthly"];
+
+    for (const rt of types) {
+      let periodStart: Date;
+      let periodEnd: Date;
+      try {
+        const resolved = this.resolveReturnChargePeriod(
+          params.targetItem,
+          params.rental,
+          params.returnAt,
+          rt,
+        );
+        periodStart = resolved.periodStartRaw;
+        periodEnd = resolved.periodEndCharge;
+      } catch {
+        continue;
+      }
+
+      const calc = this.tryCloseAmountForSuggestion(
+        params.inventoryPricing,
+        rt,
+        periodStart,
+        periodEnd,
+        params.returnedQuantity,
+        params.contractRentalType,
+        params.periodOverride,
+      );
+      if (!calc) continue;
+
+      candidates.push({
+        baseAmount: calc.baseAmount,
+        billingType: rt,
+        usedDays: calc.usedDays,
+        periodsCharged: calc.periodsCharged,
+        periodStart: calc.periodStart,
+        periodEnd: calc.periodEnd,
+        returnAtForCalc: params.returnAt,
+        kind: rt === params.currentBillingType ? "type" : "type",
+      });
+
+      // Ajuste de data: evita 1 período a mais por poucos dias além do ciclo.
+      if (rt !== "daily") {
+        const pc = calculateBillingPeriod(periodStart, periodEnd, rt);
+        if (pc.extraDays > 0 && pc.periodsCompleted >= 1) {
+          const periodLen = this.getPeriodLengthDays(rt);
+          const completeDays = pc.periodsCompleted * periodLen;
+          const adjustedEnd = this.addDays(
+            this.normalizeDate(periodStart),
+            completeDays - 1,
+          );
+          if (adjustedEnd.getTime() < this.normalizeDate(periodEnd).getTime()) {
+            const adj = this.tryCloseAmountForSuggestion(
+              params.inventoryPricing,
+              rt,
+              periodStart,
+              adjustedEnd,
+              params.returnedQuantity,
+              params.contractRentalType,
+              params.periodOverride,
+            );
+            if (adj && adj.baseAmount < calc.baseAmount - 0.009) {
+              candidates.push({
+                baseAmount: adj.baseAmount,
+                billingType: rt,
+                usedDays: adj.usedDays,
+                periodsCharged: adj.periodsCharged,
+                periodStart: adj.periodStart,
+                periodEnd: adj.periodEnd,
+                returnAtForCalc: adjustedEnd,
+                kind:
+                  rt === params.currentBillingType ? "date" : "type_and_date",
+              });
+            }
+          }
+        }
+      } else {
+        const pc = calculateBillingPeriod(periodStart, periodEnd, "daily");
+        const units = Math.max(1, pc.periodsCompleted);
+        if (units >= 2) {
+          const HOUR_MS = 1000 * 60 * 60;
+          const prevUnits = units - 1;
+          const maxMsForPrev =
+            prevUnits <= 1
+              ? 24 * HOUR_MS
+              : (24 + (prevUnits - 1) * 26) * HOUR_MS;
+          const calendarOnly =
+            isLocalMidnight(periodStart) && isLocalMidnight(periodEnd);
+          let adjustedEnd: Date;
+          if (calendarOnly) {
+            adjustedEnd = this.addDays(
+              this.normalizeDate(periodStart),
+              prevUnits - 1,
+            );
+          } else {
+            adjustedEnd = new Date(periodStart.getTime() + maxMsForPrev);
+          }
+          if (adjustedEnd.getTime() < periodEnd.getTime()) {
+            const adj = this.tryCloseAmountForSuggestion(
+              params.inventoryPricing,
+              "daily",
+              periodStart,
+              adjustedEnd,
+              params.returnedQuantity,
+              params.contractRentalType,
+              params.periodOverride,
+            );
+            if (adj && adj.baseAmount < calc.baseAmount - 0.009) {
+              candidates.push({
+                baseAmount: adj.baseAmount,
+                billingType: "daily",
+                usedDays: adj.usedDays,
+                periodsCharged: adj.periodsCharged,
+                periodStart: adj.periodStart,
+                periodEnd: adj.periodEnd,
+                returnAtForCalc: adjustedEnd,
+                kind:
+                  params.currentBillingType === "daily"
+                    ? "date"
+                    : "type_and_date",
+              });
+            }
+          }
+        }
+      }
+    }
+
+    const cheaper = candidates
+      .filter((c) => c.baseAmount < params.currentBaseAmount - 0.009)
+      .sort((a, b) => {
+        if (a.baseAmount !== b.baseAmount) {
+          return a.baseAmount - b.baseAmount;
+        }
+        // Empate: prioriza só ajuste de data no tipo atual (menos invasivo)
+        const score = (c: Candidate) => {
+          let s = 0;
+          if (c.billingType === params.currentBillingType) s += 2;
+          if (c.kind === "date") s += 1;
+          return s;
+        };
+        return score(b) - score(a);
+      });
+
+    const best = cheaper[0];
+    if (!best) {
+      return null;
+    }
+
+    const savings = Number(
+      (params.currentBaseAmount - best.baseAmount).toFixed(2),
+    );
+    const totalWithExtra = Number(
+      (best.baseAmount + params.additionalAmount).toFixed(2),
+    );
+    const typeChanged = best.billingType !== params.currentBillingType;
+    const dateChanged =
+      Math.abs(
+        best.returnAtForCalc.getTime() - params.returnAt.getTime(),
+      ) > 60_000 ||
+      this.normalizeDate(best.periodEnd).getTime() !==
+        this.normalizeDate(params.periodEndCharge).getTime();
+
+    const currentLabel = this.rentalTypeLabelPt(params.currentBillingType);
+    const bestLabel = this.rentalTypeLabelPt(best.billingType);
+    let title = "Opção mais econômica";
+    let explanation = "";
+
+    if (typeChanged && !dateChanged) {
+      title = `Trocar para cobrança ${bestLabel}`;
+      explanation = `Com ${best.usedDays} dia(s) usado(s), fechar como ${bestLabel} (${best.periodsCharged} período(s)) fica em ${formatCurrencyBr(best.baseAmount)} em vez de ${formatCurrencyBr(params.currentBaseAmount)} no ${currentLabel} — economia de ${formatCurrencyBr(savings)}.`;
+    } else if (!typeChanged && dateChanged) {
+      title = "Ajustar data de cálculo";
+      const when = best.returnAtForCalc;
+      const whenLabel = isLocalMidnight(when)
+        ? when.toLocaleDateString("pt-BR")
+        : when.toLocaleString("pt-BR", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+      explanation = `A data atual estoura um período a mais no ciclo ${currentLabel}. Usando o cálculo em ${whenLabel} (fim de ${best.periodsCharged} período(s)), o valor cai de ${formatCurrencyBr(params.currentBaseAmount)} para ${formatCurrencyBr(best.baseAmount)} — economia de ${formatCurrencyBr(savings)}. A data real informativa pode permanecer como está.`;
+    } else {
+      title = `Cobrança ${bestLabel} com data ajustada`;
+      explanation = `Combinando tipo ${bestLabel} e data de cálculo no fim do período completo, o fechamento fica em ${formatCurrencyBr(best.baseAmount)} (economia de ${formatCurrencyBr(savings)} em relação ao atual).`;
+    }
+
+    const returnDate = this.formatLocalDateInput(best.returnAtForCalc);
+    const returnTime = isLocalMidnight(best.returnAtForCalc)
+      ? "00:00"
+      : this.formatLocalTimeInput(best.returnAtForCalc);
+
+    return {
+      expectedBillingAmount: totalWithExtra,
+      baseBillingAmount: best.baseAmount,
+      savings,
+      billingRentalType: best.billingType,
+      usedDays: best.usedDays,
+      periodsCharged: best.periodsCharged,
+      periodStart: best.periodStart.toISOString(),
+      periodEnd: best.periodEnd.toISOString(),
+      title,
+      explanation,
+      actions: {
+        billingRentalType:
+          best.billingType === params.contractRentalType
+            ? ""
+            : best.billingType,
+        returnDate,
+        returnTime,
+      },
+    };
+  }
+
   async getClosePreview(rentalId: string, companyId: string) {
     const rental = await Rental.findOne({
       _id: rentalId,
@@ -2074,7 +2451,7 @@ class RentalService {
 
     const originalTotal = rental.pricing.total;
 
-    // Calcular valor proporcional de cada item
+    // Calcular valor proporcional de cada item (respeita valor personalizado do contrato)
     let recalculatedEquipment = 0;
     let maxUsedDaysBilling = 0;
     for (const item of rental.items) {
@@ -2083,8 +2460,17 @@ class RentalService {
       const itemRentalType = item.rentalType || "daily";
       const period = calculateBillingPeriod(startDate, endDate, itemRentalType);
       maxUsedDaysBilling = Math.max(maxUsedDaysBilling, period.daysPassed);
+      const periodOverride = Number((item as { periodRateOverride?: number }).periodRateOverride ?? 0);
+      const pricingForLine =
+        periodOverride > 0
+          ? applyPeriodRateOverride(
+              inventoryItem.pricing,
+              itemRentalType as RentalType,
+              periodOverride,
+            )
+          : inventoryItem.pricing;
       const { amount } = calculateRentalLineAmount(
-        inventoryItem.pricing,
+        pricingForLine,
         itemRentalType,
         period,
       );
@@ -2208,6 +2594,7 @@ class RentalService {
         periodStart: null,
         periodEnd: null,
         isLoan: true,
+        cheapestSuggestion: null,
       };
     }
 
@@ -2219,7 +2606,10 @@ class RentalService {
       throw notFound("Item do inventário não encontrado");
     }
 
-    if (opts?.billingRentalType) {
+    const periodOverride = Number(
+      (targetItem as { periodRateOverride?: number }).periodRateOverride ?? 0,
+    );
+    if (opts?.billingRentalType && periodOverride <= 0) {
       this.assertConfiguredRateForRentalType(inventoryItem, billingRt);
     }
 
@@ -2260,8 +2650,16 @@ class RentalService {
       periodEndCharge,
       effectiveRt,
     );
+    const pricingForLine =
+      periodOverride > 0
+        ? applyPeriodRateOverride(
+            inventoryItem.pricing,
+            effectiveRt,
+            periodOverride,
+          )
+        : inventoryItem.pricing;
     const { amount } = calculateRentalLineAmount(
-      inventoryItem.pricing,
+      pricingForLine,
       effectiveRt,
       pc,
     );
@@ -2272,6 +2670,21 @@ class RentalService {
     const additionalAmount = Math.max(0, Number(opts?.additionalAmount || 0));
     const baseTotal = Number((amount * returnedQuantity).toFixed(2));
     const recalculatedTotal = Number((baseTotal + additionalAmount).toFixed(2));
+
+    const cheapestSuggestion = this.buildCheapestCloseSuggestion({
+      targetItem,
+      rental,
+      inventoryPricing: inventoryItem.pricing,
+      periodOverride,
+      contractRentalType: (targetItem.rentalType || "daily") as RentalType,
+      currentBillingType: effectiveRt,
+      returnAt,
+      periodStartRaw,
+      periodEndCharge,
+      returnedQuantity,
+      currentBaseAmount: baseTotal,
+      additionalAmount,
+    });
 
     let rentalTotalAfterClose = 0;
     const targetLineKey = buildRentalLineKey(targetItem as any);
@@ -2307,6 +2720,7 @@ class RentalService {
       periodStart: periodStartRaw.toISOString(),
       periodEnd: periodEndCharge.toISOString(),
       isLoan: false,
+      cheapestSuggestion,
     };
   }
 
@@ -2711,7 +3125,11 @@ class RentalService {
       if (!invForLine) {
         throw notFound("Item do inventário não encontrado");
       }
-      if (!isLoan && reqItem.billingRentalType) {
+      if (
+        !isLoan &&
+        reqItem.billingRentalType &&
+        Number(targetItem.periodRateOverride ?? 0) <= 0
+      ) {
         this.assertConfiguredRateForRentalType(
           invForLine,
           reqItem.billingRentalType,
@@ -2909,14 +3327,23 @@ class RentalService {
               targetItem.rentalType ||
               plainItem.rentalType ||
               "daily") as RentalType;
-          if (reqItem.remainderRentalType) {
+          const remainderOverride = Number(plainItem.periodRateOverride ?? 0);
+          if (reqItem.remainderRentalType && remainderOverride <= 0) {
             this.assertConfiguredRateForRentalType(
               invForLine,
               reqItem.remainderRentalType,
             );
           }
+          const remainderPricing =
+            remainderOverride > 0
+              ? applyPeriodRateOverride(
+                  invForLine.pricing,
+                  remainderType,
+                  remainderOverride,
+                )
+              : invForLine.pricing;
           const { rate: remainderRate, message: remainderMsg } =
-            periodRateFromInventory(invForLine.pricing, remainderType);
+            periodRateFromInventory(remainderPricing, remainderType);
           if (remainderRate <= 0) {
             throw badRequest(
               remainderMsg ||
@@ -2934,6 +3361,9 @@ class RentalService {
           targetItem.quantity = prevQty - returnedQuantity;
           targetItem.rentalType = remainderType;
           targetItem.unitPrice = remainderRate;
+          if (remainderOverride > 0) {
+            targetItem.periodRateOverride = remainderOverride;
+          }
           targetItem.retroactiveOpenBilling = false;
           targetItem.lastBillingDate =
             billingRt === "daily"
@@ -3194,7 +3624,11 @@ class RentalService {
       returnedLine.rentalType ||
       "daily") as RentalType;
 
-    if (payload.billingRentalType && !this.isLoanLine(returnedLine)) {
+    if (
+      payload.billingRentalType &&
+      !this.isLoanLine(returnedLine) &&
+      Number(returnedLine.periodRateOverride ?? 0) <= 0
+    ) {
       this.assertConfiguredRateForRentalType(inventoryItem, billingRt);
     }
 
