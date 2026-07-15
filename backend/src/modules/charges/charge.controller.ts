@@ -81,6 +81,26 @@ class ChargeController {
     }
   }
 
+  async reverseLastPayment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const companyId = req.companyId!;
+      const role = req.user?.role;
+      const isAdmin = role === "admin" || role === "superadmin";
+      const charge = await chargeService.reverseLastPayment(
+        companyId,
+        req.params.id,
+        isAdmin,
+      );
+      res.json({
+        success: true,
+        message: "Última baixa estornada com sucesso.",
+        data: charge,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async cancel(req: Request, res: Response, next: NextFunction) {
     try {
       const companyId = req.companyId!;

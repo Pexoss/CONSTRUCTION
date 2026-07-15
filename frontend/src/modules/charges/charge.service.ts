@@ -30,6 +30,12 @@ export const chargeService = {
     const response = await api.post<{ success: boolean; data: any }>(`/charges/${chargeId}/payments`, payload);
     return response.data;
   },
+  reverseLastPayment: async (chargeId: string) => {
+    const response = await api.post<{ success: boolean; message?: string; data: any }>(
+      `/charges/${chargeId}/payments/reverse-last`,
+    );
+    return response.data;
+  },
   cancel: async (chargeId: string) => {
     const response = await api.post<{ success: boolean; data: any }>(`/charges/${chargeId}/cancel`);
     return response.data;

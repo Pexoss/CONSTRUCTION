@@ -166,6 +166,39 @@ class TransactionService {
   }
 
   /**
+   * Cancela lançamento de recebimento gerado por baixa de cobrança.
+   */
+  async cancelSettlementIncomeForChargePayment(
+    companyId: string,
+    chargeId: string,
+    payment: { amount: number; paidAt: Date },
+  ): Promise<void> {
+    const paidAtMs = new Date(payment.paidAt).getTime();
+    const candidates = await Transaction.find({
+      companyId,
+      type: "income",
+      category: "rental_settlement",
+      status: "paid",
+      amount: Number(payment.amount || 0),
+      "relatedTo.type": "other",
+      "relatedTo.id": new mongoose.Types.ObjectId(chargeId),
+    }).sort({ paidDate: -1, createdAt: -1 });
+
+    const match =
+      candidates.find((tx) => {
+        const txPaid = tx.paidDate ? new Date(tx.paidDate).getTime() : 0;
+        return Math.abs(txPaid - paidAtMs) < 60_000;
+      }) || candidates[0];
+
+    if (!match) {
+      return;
+    }
+
+    match.status = "cancelled";
+    await match.save();
+  }
+
+  /**
    * Get financial dashboard data
    */
   async getFinancialDashboard(companyId: string, startDate?: Date, endDate?: Date): Promise<{

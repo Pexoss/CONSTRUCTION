@@ -276,6 +276,79 @@ class ChargeService {
     return charge;
   }
 
+  /**
+   * Estorna a última baixa da cobrança (somente admin).
+   * Reabre saldo da cobrança/fechamentos e cancela o lançamento financeiro correspondente.
+   */
+  async reverseLastPayment(
+    companyId: string,
+    chargeId: string,
+    isAdmin: boolean,
+  ): Promise<ICharge> {
+    if (!isAdmin) {
+      throw new Error("Apenas administrador pode estornar baixa de cobrança");
+    }
+
+    const charge = await Charge.findOne({ _id: chargeId, companyId });
+    if (!charge) {
+      throw new Error("Cobrança não encontrada");
+    }
+    if (charge.status === "cancelled") {
+      throw new Error("Cobrança cancelada não permite estorno de baixa");
+    }
+    if (!charge.payments?.length || Number(charge.paidAmount || 0) <= 0) {
+      throw new Error("Não há baixa registrada para estornar");
+    }
+
+    const payment = charge.payments[charge.payments.length - 1];
+    const amount = Number(payment.amount || 0);
+    const discount = Number(payment.discount || 0);
+    const net = Number((amount + discount).toFixed(2));
+    if (net <= 0.01) {
+      throw new Error("Baixa inválida para estorno");
+    }
+
+    await financialService.reverseBillingPaymentsFromCharge(
+      charge.billingIds || [],
+      String(charge._id),
+      {
+        amount,
+        discount,
+        paidAt: payment.paidAt,
+      },
+    );
+
+    charge.payments.pop();
+    charge.paidAmount = Math.max(
+      0,
+      Number((Number(charge.paidAmount || 0) - amount).toFixed(2)),
+    );
+    charge.outstandingAmount = Number(
+      (Number(charge.outstandingAmount || 0) + net).toFixed(2),
+    );
+    if (charge.outstandingAmount > Number(charge.total || 0)) {
+      charge.outstandingAmount = Number(charge.total || 0);
+    }
+    charge.status =
+      charge.paidAmount <= 0.01
+        ? "pending"
+        : charge.outstandingAmount <= 0.01
+          ? "paid"
+          : "partial";
+    if (charge.paidAmount <= 0.01) {
+      charge.paidAmount = 0;
+    }
+    await charge.save();
+
+    await transactionService.cancelSettlementIncomeForChargePayment(
+      companyId,
+      chargeId,
+      { amount, paidAt: payment.paidAt },
+    );
+
+    return charge;
+  }
+
   private async applyAdditionalToChargeBillings(
     charge: ICharge,
     companyId: string,

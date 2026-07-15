@@ -82,6 +82,75 @@ class FinancialService {
     await billing.save();
   }
 
+  /**
+   * Remove baixas de cobrança nos fechamentos (ex.: estorno da última baixa).
+   * Restaura saldo e reabre fechamento quitado.
+   */
+  async reverseBillingPaymentsFromCharge(
+    billingIds: Array<mongoose.Types.ObjectId | string>,
+    chargeId: string,
+    payment: { amount: number; discount?: number; paidAt: Date },
+  ): Promise<void> {
+    const chargeIdStr = String(chargeId);
+    const paidAtMs = new Date(payment.paidAt).getTime();
+    const expectedNet = Number(
+      (Number(payment.amount || 0) + Number(payment.discount || 0)).toFixed(2),
+    );
+    let reversedNet = 0;
+
+    for (const billingId of billingIds) {
+      const billing = await Billing.findById(billingId);
+      if (!billing) continue;
+
+      const history = [...(billing.paymentHistory || [])];
+      const keep: typeof history = [];
+      let restored = 0;
+
+      for (const entry of history) {
+        const sameOrigin =
+          entry.origin === "charge" && String(entry.originId) === chargeIdStr;
+        const sameMoment =
+          Math.abs(new Date(entry.paidAt).getTime() - paidAtMs) < 2_000;
+        if (sameOrigin && sameMoment) {
+          restored = Number(
+            (
+              restored +
+              Number(entry.amount || 0) +
+              Number(entry.discount || 0)
+            ).toFixed(2),
+          );
+          continue;
+        }
+        keep.push(entry);
+      }
+
+      if (restored <= 0.01) {
+        continue;
+      }
+
+      billing.paymentHistory = keep;
+      const currentOutstanding = Number(
+        billing.outstandingAmount ?? billing.calculation?.total ?? 0,
+      );
+      const nextOutstanding = Number((currentOutstanding + restored).toFixed(2));
+      const total = Number(billing.calculation?.total ?? 0);
+      billing.outstandingAmount = Math.min(nextOutstanding, total > 0 ? total : nextOutstanding);
+      if (billing.outstandingAmount > 0.01) {
+        billing.status = billing.status === "cancelled" ? billing.status : "approved";
+        billing.financialStage = "charge";
+        billing.paymentDate = undefined;
+      }
+      await billing.save();
+      reversedNet = Number((reversedNet + restored).toFixed(2));
+    }
+
+    if (Math.abs(reversedNet - expectedNet) > 0.05) {
+      throw new Error(
+        "Não foi possível localizar nos fechamentos o valor completo da baixa a estornar.",
+      );
+    }
+  }
+
   async getUnifiedBoard(
     companyId: string,
     filters: {

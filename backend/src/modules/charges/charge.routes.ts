@@ -19,6 +19,11 @@ router.post(
   chargeController.applyPayment.bind(chargeController),
 );
 router.post(
+  "/charges/:id/payments/reverse-last",
+  requireFinancialManager,
+  chargeController.reverseLastPayment.bind(chargeController),
+);
+router.post(
   "/charges/:id/cancel",
   requireFinancialManager,
   chargeController.cancel.bind(chargeController),

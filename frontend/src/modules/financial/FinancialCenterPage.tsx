@@ -610,6 +610,24 @@ const FinancialCenterPage: React.FC = () => {
     },
   });
 
+  const reverseLastPaymentMutation = useMutation({
+    mutationFn: async (chargeId: string) => chargeService.reverseLastPayment(chargeId),
+    onSuccess: async (result) => {
+      toast.success(result?.message || "Última baixa estornada com sucesso.");
+      await queryClient.invalidateQueries({ queryKey: ["financial-board"] });
+      await queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      const chargeId = result?.data?._id;
+      if (chargeId) {
+        await refreshChargeModalFromBoard(String(chargeId));
+      }
+    },
+    onError: (error: any) => {
+      const message =
+        error?.response?.data?.message || "Não foi possível estornar a baixa.";
+      toast.error(message);
+    },
+  });
+
   const generateInvoiceMutation = useMutation({
     mutationFn: async ({ chargeId, billingIds }: { chargeId: string; billingIds: string[] }) => {
       return invoiceService.createInvoiceFromBillings({
@@ -1266,6 +1284,14 @@ const FinancialCenterPage: React.FC = () => {
   const chargeModalViewOnly =
     !canManageFinancialUser ||
     Boolean(chargeModal && isChargeEditLocked(chargeModal));
+  const chargeModalCanReverseBaixa = Boolean(
+    canManageFinancialUser &&
+      chargeModal &&
+      chargeModal.status !== "cancelled" &&
+      Number(chargeModal.paidAmount || 0) > 0.01 &&
+      Array.isArray(chargeModal.payments) &&
+      chargeModal.payments.length > 0,
+  );
   /** Cobrança cancelada não gera NF a partir deste fluxo; quitada (paga) pode — só gestores. */
   const chargeModalShowInvoiceSection = Boolean(
     canManageFinancialUser &&
@@ -2067,9 +2093,57 @@ const FinancialCenterPage: React.FC = () => {
                   {!canManageFinancialUser
                     ? "Modo consulta: você pode visualizar os dados e imprimir o PDF. Alterações são restritas a administradores."
                     : chargeModal.status === "paid"
-                      ? "Esta cobrança está quitada: não é possível alterar dados, fechamentos nem baixas. Você pode gerar a fatura nesta tela se os fechamentos ainda não estiverem em outra nota, ou imprimir o PDF."
+                      ? "Esta cobrança está quitada: não é possível alterar dados nem fechamentos. Se a baixa foi registrada por engano, use “Estornar última baixa” abaixo e registre uma nova."
                       : "Esta cobrança foi cancelada e não pode ser alterada."}
                 </div>
+              ) : null}
+
+              {chargeModalCanReverseBaixa ? (
+                <section className="rounded-lg border border-amber-300 dark:border-amber-800/70 bg-amber-50/80 dark:bg-amber-950/30 px-4 py-3 space-y-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-amber-950 dark:text-amber-100">
+                        Estornar baixa (admin)
+                      </h4>
+                      <p className="text-xs text-amber-900/90 dark:text-amber-200/90 mt-0.5">
+                        Remove a última baixa registrada
+                        {(() => {
+                          const last =
+                            chargeModal.payments[chargeModal.payments.length - 1];
+                          if (!last) return "";
+                          const net =
+                            Number(last.amount || 0) + Number(last.discount || 0);
+                          const when = last.paidAt
+                            ? formatDateNoTimezoneShift(last.paidAt)
+                            : "";
+                          return ` (${formatCurrencyBr(net)}${
+                            when ? ` em ${when}` : ""
+                          })`;
+                        })()}
+                        . Depois você poderá registrar a baixa correta.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-amber-700 hover:bg-amber-800 text-white disabled:opacity-50"
+                      disabled={reverseLastPaymentMutation.isPending}
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            "Estornar a última baixa desta cobrança? Os fechamentos e o saldo serão reabertos para uma nova baixa.",
+                          )
+                        ) {
+                          return;
+                        }
+                        reverseLastPaymentMutation.mutate(chargeModal._id);
+                      }}
+                    >
+                      {reverseLastPaymentMutation.isPending
+                        ? "Estornando…"
+                        : "Estornar última baixa"}
+                    </button>
+                  </div>
+                </section>
               ) : null}
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
