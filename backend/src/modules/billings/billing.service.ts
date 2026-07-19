@@ -398,7 +398,14 @@ class BillingService {
     }
 
     const override = Number(item.periodRateOverride ?? 0);
-    if (override > 0) {
+    /**
+     * Valor personalizado vale só para o tipo negociado no contrato.
+     * Em devolução com troca de tipo (ex.: semanal→diário), usa tarifa do inventário do novo tipo.
+     */
+    const overrideAppliesTo = (item.contractRentalType ||
+      item.rentalType ||
+      "daily") as RentalType;
+    if (override > 0 && overrideAppliesTo === rentalType) {
       return {
         lineUnit: override,
         pricing: applyPeriodRateOverride(inv.pricing, rentalType, override),

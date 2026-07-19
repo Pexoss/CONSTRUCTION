@@ -44,7 +44,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { canBypassCustomerCpfAsAdmin } from "../../utils/financialAccess";
 import {
   applyPeriodRateOverride,
-  periodRateFromInventory,
+  registeredPeriodRateFromInventory,
 } from "../../utils/rental-pricing.util";
 
 type CustomersListResult = Awaited<
@@ -150,11 +150,10 @@ const rentalTypeLabels: Record<RentalTypeUI, string> = {
 };
 
 const getCatalogPeriodRate = (item: Item, rentalType: RentalTypeUI): number => {
-  const apiType = rentalTypeMap[rentalType];
-  if (apiType === "biweekly") {
-    return Math.max(0, Number(item.pricing?.biweeklyRate ?? 0));
-  }
-  return periodRateFromInventory(item.pricing, apiType).rate;
+  return registeredPeriodRateFromInventory(
+    item.pricing,
+    rentalTypeMap[rentalType],
+  );
 };
 
 const buildPeriodRateInput = (item: Item, rentalType: RentalTypeUI): string => {
@@ -1976,9 +1975,7 @@ const CreateRentalPage: React.FC = () => {
                                           Math.abs(typed - catalog) > 0.009;
                                         const hint = differs
                                           ? "Valor personalizado"
-                                          : catalog <= 0
-                                            ? "Valor do item não cadastrado"
-                                            : `Cadastro: ${formatCurrencyBr(catalog)}`;
+                                          : `Cadastro: ${formatCurrencyBr(catalog)}`;
                                         return (
                                           <p
                                             className={`mt-1 text-2xs ${

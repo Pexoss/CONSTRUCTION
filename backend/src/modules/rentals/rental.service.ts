@@ -2621,7 +2621,10 @@ class RentalService {
     const periodOverride = Number(
       (targetItem as { periodRateOverride?: number }).periodRateOverride ?? 0,
     );
-    if (opts?.billingRentalType && periodOverride <= 0) {
+    const contractRt = (targetItem.rentalType || "daily") as RentalType;
+    const usesContractOverride =
+      periodOverride > 0 && billingRt === contractRt;
+    if (opts?.billingRentalType && !usesContractOverride) {
       this.assertConfiguredRateForRentalType(inventoryItem, billingRt);
     }
 
@@ -2663,7 +2666,7 @@ class RentalService {
       effectiveRt,
     );
     const pricingForLine =
-      periodOverride > 0
+      periodOverride > 0 && effectiveRt === contractRt
         ? applyPeriodRateOverride(
             inventoryItem.pricing,
             effectiveRt,
@@ -3140,7 +3143,11 @@ class RentalService {
       if (
         !isLoan &&
         reqItem.billingRentalType &&
-        Number(targetItem.periodRateOverride ?? 0) <= 0
+        !(
+          Number(targetItem.periodRateOverride ?? 0) > 0 &&
+          reqItem.billingRentalType ===
+            ((targetItem.rentalType || "daily") as RentalType)
+        )
       ) {
         this.assertConfiguredRateForRentalType(
           invForLine,
@@ -3237,6 +3244,8 @@ class RentalService {
           lineForBilling.lineId = splitReturnedLineId;
         }
         if (reqItem.billingRentalType) {
+          lineForBilling.contractRentalType =
+            plainItem.rentalType || "daily";
           lineForBilling.rentalType = reqItem.billingRentalType;
         }
 
@@ -3639,7 +3648,11 @@ class RentalService {
     if (
       payload.billingRentalType &&
       !this.isLoanLine(returnedLine) &&
-      Number(returnedLine.periodRateOverride ?? 0) <= 0
+      !(
+        Number(returnedLine.periodRateOverride ?? 0) > 0 &&
+        payload.billingRentalType ===
+          ((returnedLine.rentalType || "daily") as RentalType)
+      )
     ) {
       this.assertConfiguredRateForRentalType(inventoryItem, billingRt);
     }
@@ -3781,6 +3794,8 @@ class RentalService {
     }
 
     if (payload.billingRentalType) {
+      (returnedLine as any).contractRentalType =
+        returnedLine.rentalType || "daily";
       returnedLine.rentalType = billingRt;
     }
     returnedLine.returnActual = newReturnNorm;

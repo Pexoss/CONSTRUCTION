@@ -39,6 +39,7 @@ import {
 import { selectInputText } from "../../utils/selectInputText";
 import {
   periodRateFromInventory,
+  registeredPeriodRateFromInventory,
   type RentalTypePricing,
 } from "../../utils/rental-pricing.util";
 import { canManageFinancial } from "../../utils/financialAccess";
@@ -213,11 +214,10 @@ const getCatalogPeriodRateForItem = (
   rentalType: RentalTypeUI,
 ): number => {
   if (!itemData?.pricing) return 0;
-  const apiType = rentalTypeUiToApiMap[rentalType];
-  if (apiType === "biweekly") {
-    return Math.max(0, Number(itemData.pricing.biweeklyRate ?? 0));
-  }
-  return periodRateFromInventory(itemData.pricing, apiType).rate;
+  return registeredPeriodRateFromInventory(
+    itemData.pricing,
+    rentalTypeUiToApiMap[rentalType],
+  );
 };
 
 const buildPeriodRateInputForEdit = (
@@ -1672,9 +1672,7 @@ const RentalDetailPage: React.FC = () => {
                                     Math.abs(typed - catalog) > 0.009;
                                   const hint = differs
                                     ? "Valor personalizado"
-                                    : catalog <= 0
-                                      ? "Valor do item não cadastrado"
-                                      : `Cadastro: ${formatCurrencyBr(catalog)}`;
+                                    : `Cadastro: ${formatCurrencyBr(catalog)}`;
                                   return (
                                     <p
                                       className={`mt-1 text-2xs ${

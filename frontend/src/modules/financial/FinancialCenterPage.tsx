@@ -1864,37 +1864,73 @@ const FinancialCenterPage: React.FC = () => {
                     <div
                       key={charge._id}
                       className={`border rounded-md p-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2 cursor-pointer ${
-                        charge.status === "paid"
-                          ? "bg-emerald-50 border-emerald-200/90 dark:bg-emerald-950/40 dark:border-emerald-800/50 hover:bg-emerald-100/90 dark:hover:bg-emerald-900/45"
-                          : "hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                        charge.status === "cancelled"
+                          ? "bg-gray-100 border-gray-300 text-gray-500 dark:bg-gray-800/80 dark:border-gray-600 dark:text-gray-400 hover:bg-gray-200/80 dark:hover:bg-gray-700/60 opacity-80"
+                          : charge.status === "paid"
+                            ? "bg-emerald-50 border-emerald-200/90 dark:bg-emerald-950/40 dark:border-emerald-800/50 hover:bg-emerald-100/90 dark:hover:bg-emerald-900/45"
+                            : "hover:bg-gray-50 dark:hover:bg-gray-800/60"
                       }`}
                       onDoubleClick={() => openChargeModal(charge)}
                       title="Duplo clique para abrir detalhes"
                     >
                       <div className="min-w-0">
-                        <p className="text-base font-semibold text-gray-900 dark:text-white truncate">
+                        <p
+                          className={`text-base font-semibold truncate ${
+                            charge.status === "cancelled"
+                              ? "text-gray-500 dark:text-gray-400"
+                              : "text-gray-900 dark:text-white"
+                          }`}
+                        >
                           {charge.customerId?.name || "Cliente"}
                         </p>
                         {chargeObraLabel ? (
                           <p
-                            className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 truncate"
+                            className={`text-xs mt-0.5 truncate ${
+                              charge.status === "cancelled"
+                                ? "text-gray-400 dark:text-gray-500"
+                                : "text-gray-600 dark:text-gray-300"
+                            }`}
                             title={chargeObraLabel}
                           >
                             Obra{chargeObraLabel.includes(",") ? "s" : ""}: {chargeObraLabel}
                           </p>
                         ) : null}
                         {chargeFinancialResponsibleLabel ? (
-                          <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 truncate">
+                          <p
+                            className={`text-xs mt-0.5 truncate ${
+                              charge.status === "cancelled"
+                                ? "text-gray-400 dark:text-gray-500"
+                                : "text-gray-600 dark:text-gray-300"
+                            }`}
+                          >
                             Responsável financeiro: {chargeFinancialResponsibleLabel}
                           </p>
                         ) : null}
                         {chargeDueOrPeriodLabel ? (
-                          <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5 tabular-nums">
+                          <p
+                            className={`text-xs mt-0.5 tabular-nums ${
+                              charge.status === "cancelled"
+                                ? "text-gray-400 dark:text-gray-500"
+                                : "text-gray-600 dark:text-gray-300"
+                            }`}
+                          >
                             {chargeDueOrPeriodLabel}
                           </p>
                         ) : null}
-                        <p className="text-2xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          <span className="text-gray-600 dark:text-gray-300 font-medium tabular-nums">
+                        <p
+                          className={`text-2xs mt-0.5 ${
+                            charge.status === "cancelled"
+                              ? "text-gray-400 dark:text-gray-500"
+                              : "text-gray-500 dark:text-gray-400"
+                          }`}
+                        >
+                          <span
+                            className={`font-medium tabular-nums ${
+                              charge.status === "cancelled"
+                                ? "text-gray-500 dark:text-gray-400"
+                                : "text-gray-600 dark:text-gray-300"
+                            }`}
+                          >
                             {charge.chargeNumber}
                           </span>
                           {" · "}
@@ -1908,7 +1944,13 @@ const FinancialCenterPage: React.FC = () => {
                             <>
                               {" · "}
                               Pago{" "}
-                              <span className="tabular-nums font-medium text-gray-700 dark:text-gray-200">
+                              <span
+                                className={`tabular-nums font-medium ${
+                                  charge.status === "cancelled"
+                                    ? "text-gray-500 dark:text-gray-400"
+                                    : "text-gray-700 dark:text-gray-200"
+                                }`}
+                              >
                                 {formatCurrencyBr(charge.paidAmount || 0)}
                               </span>
                               {(() => {

@@ -47,6 +47,33 @@ export function effectivePricingPeriods(pricing?: {
   return { dailyRate, weeklyRate, biweeklyRate, monthlyRate };
 }
 
+/** Valor explícito no cadastro do período (sem derivar de diária/outros). */
+export function registeredPeriodRateFromInventory(
+  pricing:
+    | {
+        dailyRate?: number;
+        weeklyRate?: number;
+        biweeklyRate?: number;
+        monthlyRate?: number;
+      }
+    | undefined,
+  rentalType: RentalTypePricing,
+): number {
+  if (!pricing) return 0;
+  switch (rentalType) {
+    case "daily":
+      return Math.max(0, Number(pricing.dailyRate ?? 0));
+    case "weekly":
+      return Math.max(0, Number(pricing.weeklyRate ?? 0));
+    case "biweekly":
+      return Math.max(0, Number(pricing.biweeklyRate ?? 0));
+    case "monthly":
+      return Math.max(0, Number(pricing.monthlyRate ?? 0));
+    default:
+      return 0;
+  }
+}
+
 export function periodRateFromInventory(
   pricing:
     | {
@@ -77,12 +104,12 @@ export function periodRateFromInventory(
           "Cadastre o valor semanal do equipamento (ou a diária para derivar).",
       };
     case "biweekly":
+      // Quinzenal: só valor explícito (igual ao backend).
       if (rawBiweekly > 0) return { rate: rawBiweekly };
-      if (eff.biweeklyRate > 0) return { rate: eff.biweeklyRate };
       return {
         rate: 0,
         message:
-          "Cadastre o valor quinzenal do equipamento (ou a diária para derivar).",
+          "Cadastre o valor quinzenal no cadastro do equipamento (15 dias). Não basta ter só semanal ou mensal — o período quinzenal deve estar explícito.",
       };
     case "monthly":
       if (rawMonthly > 0) return { rate: rawMonthly };
