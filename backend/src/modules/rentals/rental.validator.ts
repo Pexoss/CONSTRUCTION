@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { partnerSupplySchema } from '../partners/partner.validator';
 
 const rentalStatusSchema = z.enum([
   'reserved',
@@ -44,6 +45,7 @@ export const createRentalSchema = z.object({
         periodRateOverride: z.number().min(0).optional(),
         /** Atualizar cadastro do equipamento com periodRateOverride. */
         saveRateToItem: z.boolean().optional(),
+        partnerSupply: partnerSupplySchema,
       })
     )
     .min(1, 'At least one item is required'),
@@ -114,6 +116,7 @@ export const updateRentalSchema = z.object({
         isLoan: z.boolean().optional(),
         periodRateOverride: z.number().min(0).optional(),
         saveRateToItem: z.boolean().optional(),
+        partnerSupply: partnerSupplySchema,
       })
     )
     .optional(),

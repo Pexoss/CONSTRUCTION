@@ -76,6 +76,11 @@ const Dashboard: React.FC = () => {
           description: "Manutenção preventiva e corretiva",
           to: "/maintenance",
         },
+        {
+          title: "Parceiros",
+          description: "Equipamentos de terceiros e empréstimos",
+          to: "/partners",
+        },
       ],
     },
 

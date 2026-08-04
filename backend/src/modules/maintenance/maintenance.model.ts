@@ -37,7 +37,6 @@ const MaintenanceSchema = new Schema<IMaintenance>(
     },
     scheduledDate: {
       type: Date,
-      required: [true, 'Scheduled date is required'],
       index: true,
     },
 
@@ -62,9 +61,7 @@ const MaintenanceSchema = new Schema<IMaintenance>(
     },
     cost: {
       type: Number,
-      required: [true, 'Cost is required'],
       min: 0,
-      default: 0,
     },
 
     // NOVO: Dados do fornecedor

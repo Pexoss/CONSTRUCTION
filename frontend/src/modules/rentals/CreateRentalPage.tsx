@@ -46,6 +46,8 @@ import {
   applyPeriodRateOverride,
   registeredPeriodRateFromInventory,
 } from "../../utils/rental-pricing.util";
+import { partnerService } from "../partners/partner.service";
+import { Partner } from "../../types/partner.types";
 
 type CustomersListResult = Awaited<
   ReturnType<typeof customerService.getCustomers>
@@ -118,6 +120,12 @@ interface SelectedItem {
   isLoan?: boolean;
   /** Valor por período informado na tela (R$). */
   periodRateInput?: string;
+  /** Inclui equipamento de parceiro nesta linha. */
+  usePartnerSupply?: boolean;
+  partnerId?: string;
+  partnerQuantity?: number;
+  partnerAgreedCostInput?: string;
+  partnerNotes?: string;
   item: Item;
 }
 interface ServiceFormRow extends RentalService {
@@ -254,6 +262,12 @@ const CreateRentalPage: React.FC = () => {
     isActive: true,
     limit: 100,
   });
+
+  const { data: partnersData } = useQuery({
+    queryKey: ["partners-active-rental"],
+    queryFn: () => partnerService.getPartners({ isActive: true, limit: 200 }),
+  });
+  const partners: Partner[] = partnersData?.data ?? [];
 
   useEffect(() => {
     const freshItems: Item[] = itemsData?.data ?? EMPTY_ITEMS;
@@ -1128,6 +1142,22 @@ const CreateRentalPage: React.FC = () => {
 
     const availabilityIssues: string[] = [];
     for (const si of itemsWithPricing) {
+      if (si.usePartnerSupply) {
+        if (si.item.trackingType === "unit") {
+          availabilityIssues.push(
+            `item unitário "${si.item.name}" não permite equipamento de parceiro`,
+          );
+        } else if (!si.partnerId) {
+          availabilityIssues.push(`parceiro do item "${si.item.name}"`);
+        } else {
+          const partnerQty = Math.max(0, Math.floor(Number(si.partnerQuantity || 0)));
+          if (partnerQty < 1 || partnerQty > si.quantity) {
+            availabilityIssues.push(
+              `quantidade de terceiros do item "${si.item.name}" (1 a ${si.quantity})`,
+            );
+          }
+        }
+      }
       if (si.item.trackingType === "unit" && si.unitId) {
         const unit = si.item.units?.find(
           (u: ItemUnit) => u.unitId === si.unitId,
@@ -1142,13 +1172,16 @@ const CreateRentalPage: React.FC = () => {
             `unidade do item "${si.item.name}" (disponíveis: ${availableUnits})`,
           );
         }
-      } else if (
-        si.item.trackingType !== "unit" &&
-        si.quantity > (si.item.quantity.available || 0)
-      ) {
-        availabilityIssues.push(
-          `estoque do item "${si.item.name}" (disponível: ${si.item.quantity.available || 0}, solicitado: ${si.quantity})`,
-        );
+      } else if (si.item.trackingType !== "unit") {
+        const partnerQty = si.usePartnerSupply
+          ? Math.max(0, Math.floor(Number(si.partnerQuantity || 0)))
+          : 0;
+        const ownQty = Math.max(0, si.quantity - partnerQty);
+        if (ownQty > (si.item.quantity.available || 0)) {
+          availabilityIssues.push(
+            `estoque próprio do item "${si.item.name}" (disponível: ${si.item.quantity.available || 0}, necessário: ${ownQty})`,
+          );
+        }
       }
     }
 
@@ -1211,6 +1244,23 @@ const CreateRentalPage: React.FC = () => {
         }
         if (si.isLoan) {
           row.isLoan = true;
+        }
+        if (si.usePartnerSupply && si.partnerId) {
+          const partnerQty = Math.max(
+            1,
+            Math.floor(Number(si.partnerQuantity || 0)),
+          );
+          const agreed = parseMoneyBr(si.partnerAgreedCostInput ?? "");
+          row.partnerSupply = {
+            partnerId: si.partnerId,
+            quantity: Math.min(partnerQty, si.quantity),
+            ...(Number.isFinite(agreed) && agreed >= 0
+              ? { agreedCost: agreed }
+              : {}),
+            ...(si.partnerNotes?.trim()
+              ? { notes: si.partnerNotes.trim() }
+              : {}),
+          };
         }
         return row;
       }),
@@ -2141,6 +2191,173 @@ const CreateRentalPage: React.FC = () => {
                                   entra no contrato e precisa ser devolvido.
                                 </span>
                               </label>
+
+                              {selectedItem.item.trackingType !== "unit" && (
+                                <div className="border border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-3 space-y-3">
+                                  <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={
+                                        selectedItem.usePartnerSupply === true
+                                      }
+                                      onChange={(e) => {
+                                        const checked = e.target.checked;
+                                        setSelectedItems(
+                                          selectedItems.map((si) =>
+                                            si.itemId === selectedItem.itemId
+                                              ? {
+                                                  ...si,
+                                                  usePartnerSupply: checked,
+                                                  partnerQuantity:
+                                                    checked
+                                                      ? Math.min(
+                                                          si.partnerQuantity ||
+                                                            Math.max(
+                                                              1,
+                                                              si.quantity -
+                                                                (si.item
+                                                                  .quantity
+                                                                  ?.available ||
+                                                                  0),
+                                                            ),
+                                                          si.quantity,
+                                                        )
+                                                      : undefined,
+                                                  partnerId: checked
+                                                    ? si.partnerId
+                                                    : undefined,
+                                                }
+                                              : si,
+                                          ),
+                                        );
+                                      }}
+                                      className="mt-0.5 rounded border-gray-300"
+                                    />
+                                    <span>
+                                      Inclui equipamento de parceiro (interno —
+                                      não aparece no contrato)
+                                    </span>
+                                  </label>
+
+                                  {selectedItem.usePartnerSupply && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                      <div>
+                                        <label className="text-xs text-gray-500 mb-1 block">
+                                          Parceiro
+                                        </label>
+                                        <select
+                                          value={selectedItem.partnerId || ""}
+                                          onChange={(e) =>
+                                            setSelectedItems(
+                                              selectedItems.map((si) =>
+                                                si.itemId ===
+                                                selectedItem.itemId
+                                                  ? {
+                                                      ...si,
+                                                      partnerId:
+                                                        e.target.value ||
+                                                        undefined,
+                                                    }
+                                                  : si,
+                                              ),
+                                            )
+                                          }
+                                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600"
+                                        >
+                                          <option value="">Selecione</option>
+                                          {partners.map((p) => (
+                                            <option key={p._id} value={p._id}>
+                                              {p.name}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="text-xs text-gray-500 mb-1 block">
+                                          Qtd. de terceiros
+                                        </label>
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          max={selectedItem.quantity}
+                                          value={
+                                            selectedItem.partnerQuantity ?? ""
+                                          }
+                                          onChange={(e) => {
+                                            const v = Math.max(
+                                              1,
+                                              Math.min(
+                                                selectedItem.quantity,
+                                                Number(e.target.value) || 1,
+                                              ),
+                                            );
+                                            setSelectedItems(
+                                              selectedItems.map((si) =>
+                                                si.itemId ===
+                                                selectedItem.itemId
+                                                  ? { ...si, partnerQuantity: v }
+                                                  : si,
+                                              ),
+                                            );
+                                          }}
+                                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-xs text-gray-500 mb-1 block">
+                                          Valor a pagar ao parceiro (R$)
+                                        </label>
+                                        <input
+                                          type="text"
+                                          inputMode="decimal"
+                                          value={
+                                            selectedItem.partnerAgreedCostInput ||
+                                            ""
+                                          }
+                                          onChange={(e) => {
+                                            const value =
+                                              formatMoneyInputBrLive(
+                                                e.target.value,
+                                              );
+                                            setSelectedItems(
+                                              selectedItems.map((si) =>
+                                                si.itemId ===
+                                                selectedItem.itemId
+                                                  ? {
+                                                      ...si,
+                                                      partnerAgreedCostInput:
+                                                        value,
+                                                    }
+                                                  : si,
+                                              ),
+                                            );
+                                          }}
+                                          placeholder="0,00"
+                                          className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600"
+                                        />
+                                      </div>
+                                      <div className="md:col-span-2 text-2xs text-gray-500">
+                                        Disponível próprio:{" "}
+                                        {selectedItem.item.quantity
+                                          ?.available ?? 0}
+                                        {" · "}Esta linha baixará{" "}
+                                        {Math.max(
+                                          0,
+                                          selectedItem.quantity -
+                                            Math.max(
+                                              0,
+                                              Number(
+                                                selectedItem.partnerQuantity ||
+                                                  0,
+                                              ),
+                                            ),
+                                        )}{" "}
+                                        do seu estoque.
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
 
                               <div className="text-xs text-gray-500">
                                 Os itens podem ter períodos diferentes. O

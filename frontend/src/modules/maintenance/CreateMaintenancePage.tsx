@@ -30,10 +30,13 @@ const CreateMaintenancePage: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const parsedCost = parseMoneyBr(costInput);
-    createMutation.mutate({
+    const payload: CreateMaintenanceData = {
       ...formData,
-      cost: Number.isFinite(parsedCost) ? parsedCost : 0,
-    });
+      scheduledDate: formData.scheduledDate?.trim() || undefined,
+      completedDate: formData.completedDate?.trim() || undefined,
+      cost: Number.isFinite(parsedCost) ? parsedCost : undefined,
+    };
+    createMutation.mutate(payload);
   };
 
   const createMutation = useMutation({
@@ -318,15 +321,13 @@ const CreateMaintenancePage: React.FC = () => {
                   htmlFor="scheduledDate"
                   className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
                 >
-                  Data Prevista para Devolução{" "}
-                  <span className="text-red-500 dark:text-red-400">*</span>
+                  Data Prevista para Devolução
                 </label>
                 <input
                   type="datetime-local"
                   id="scheduledDate"
                   name="scheduledDate"
-                  required
-                  value={formData.scheduledDate}
+                  value={formData.scheduledDate || ""}
                   onChange={handleChange}
                   className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                 />
@@ -382,8 +383,7 @@ const CreateMaintenancePage: React.FC = () => {
                     htmlFor="cost"
                     className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
                   >
-                    Custo (R$){" "}
-                    <span className="text-red-500 dark:text-red-400">*</span>
+                    Custo (R$)
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -396,7 +396,6 @@ const CreateMaintenancePage: React.FC = () => {
                       inputMode="decimal"
                       id="cost"
                       name="cost"
-                      required
                       placeholder="0,00"
                       value={costInput}
                       onFocus={selectInputText}

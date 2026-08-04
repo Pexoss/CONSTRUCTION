@@ -813,15 +813,17 @@ class ReportService {
         completedCost += cost;
       }
 
-      //Agrupar por mês
-      const month = new Date(m.scheduledDate).toISOString().slice(0, 7);
+      // Agrupar por mês (só com data prevista informada)
+      if (m.scheduledDate) {
+        const month = new Date(m.scheduledDate).toISOString().slice(0, 7);
 
-      if (!byMonthMap[month]) {
-        byMonthMap[month] = { count: 0, cost: 0 };
+        if (!byMonthMap[month]) {
+          byMonthMap[month] = { count: 0, cost: 0 };
+        }
+
+        byMonthMap[month].count += 1;
+        byMonthMap[month].cost += cost;
       }
-
-      byMonthMap[month].count += 1;
-      byMonthMap[month].cost += cost;
     });
 
     const byMonth = Object.entries(byMonthMap)

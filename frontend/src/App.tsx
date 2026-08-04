@@ -37,6 +37,11 @@ import MaintenancesPage from "./modules/maintenance/MaintenancesPage";
 import CreateMaintenancePage from "./modules/maintenance/CreateMaintenancePage";
 import EditMaintenancePage from "./modules/maintenance/EditMaintenancePage";
 import MaintenanceDetailPage from "./modules/maintenance/MaintenanceDetailPage";
+import PartnersPage from "./modules/partners/PartnersPage";
+import CreatePartnerPage from "./modules/partners/CreatePartnerPage";
+import EditPartnerPage from "./modules/partners/EditPartnerPage";
+import PartnerDetailPage from "./modules/partners/PartnerDetailPage";
+import PartnerLoansPage from "./modules/partners/PartnerLoansPage";
 import FinancialDashboardPage from "./modules/transactions/FinancialDashboardPage";
 import FinancialCenterPage from "./modules/financial/FinancialCenterPage";
 import FinancialKanbanDashboardPage from "./modules/financial/FinancialKanbanDashboardPage";
@@ -244,6 +249,46 @@ function App() {
                 element={
                   <ProtectedRoute>
                     <EditMaintenancePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/partners"
+                element={
+                  <ProtectedRoute>
+                    <PartnersPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/partners/new"
+                element={
+                  <ProtectedRoute>
+                    <CreatePartnerPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/partners/loans"
+                element={
+                  <ProtectedRoute requiredRoles={["admin", "superadmin"]}>
+                    <PartnerLoansPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/partners/:id"
+                element={
+                  <ProtectedRoute>
+                    <PartnerDetailPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/partners/:id/edit"
+                element={
+                  <ProtectedRoute>
+                    <EditPartnerPage />
                   </ProtectedRoute>
                 }
               />

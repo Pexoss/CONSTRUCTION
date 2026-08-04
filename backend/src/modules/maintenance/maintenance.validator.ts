@@ -1,5 +1,15 @@
 import { z } from 'zod';
 
+const optionalDate = z.preprocess((val) => {
+  if (val === '' || val === null || val === undefined) return undefined;
+  return val;
+}, z.coerce.date().optional());
+
+const optionalCost = z.preprocess((val) => {
+  if (val === '' || val === null || val === undefined) return undefined;
+  return val;
+}, z.coerce.number().min(0).optional());
+
 export const createMaintenanceSchema = z.object({
   itemId: z.string().min(1, 'Item ID is required'),
   unitId: z.string().optional(),
@@ -8,11 +18,11 @@ export const createMaintenanceSchema = z.object({
     invalid_type_error: 'Type must be preventive or corrective',
   }),
   status: z.enum(['scheduled', 'in_progress', 'completed']).optional().default('scheduled'),
-  scheduledDate: z.coerce.date(),
-  expectedReturnDate: z.coerce.date().optional(),
-  completedDate: z.coerce.date().optional(),
+  scheduledDate: optionalDate,
+  expectedReturnDate: optionalDate,
+  completedDate: optionalDate,
   description: z.string().min(1, 'Description is required'),
-  cost: z.coerce.number().min(0).default(0),
+  cost: optionalCost,
   itemUnavailable: z.coerce.boolean().optional(),
   performedBy: z.string().optional(),
   notes: z.string().optional(),

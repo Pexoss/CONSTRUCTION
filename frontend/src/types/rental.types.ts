@@ -37,6 +37,13 @@ export interface RentalItem {
   periodRateOverride?: number;
   /** Empréstimo de material — sem cobrança, com devolução */
   isLoan?: boolean;
+  /** Parte da quantidade de parceiro (interno; não sai no contrato). */
+  partnerSupply?: {
+    partnerId: string | { _id: string; name?: string };
+    quantity: number;
+    agreedCost?: number;
+    notes?: string;
+  };
 }
 
 export interface RentalDates {
@@ -193,6 +200,12 @@ export interface CreateRentalData {
     periodRateOverride?: number;
     /** Atualizar cadastro do equipamento com o valor informado. */
     saveRateToItem?: boolean;
+    partnerSupply?: {
+      partnerId: string;
+      quantity: number;
+      agreedCost?: number;
+      notes?: string;
+    };
   }[];
   services?: RentalService[];
   workAddress?: RentalWorkAddress;

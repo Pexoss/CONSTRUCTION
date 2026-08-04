@@ -29,6 +29,7 @@ import companyRoutes from "./modules/companies/company.routes";
 import employeRoutes from "./modules/employes/employes.routes";
 import chargeRoutes from "./modules/charges/charge.routes";
 import financialRoutes from "./modules/financial/financial.routes";
+import partnerRoutes from "./modules/partners/partner.routes";
 
 const app: Express = express();
 
@@ -142,8 +143,9 @@ app.use("/api/billings", billingRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/company", companyRoutes);
 app.use("/api/employees", employeRoutes);
-app.use("/api", chargeRoutes);
-app.use("/api", financialRoutes);
+  app.use("/api", chargeRoutes);
+  app.use("/api", financialRoutes);
+  app.use("/api", partnerRoutes);
 
 // 404 handler
 app.use((req, res) => {

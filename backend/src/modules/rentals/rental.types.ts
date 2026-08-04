@@ -99,6 +99,16 @@ export interface IRentalItem {
   periodRateOverride?: number;
   /** Empréstimo de material: aparece no contrato, exige devolução, sem cobrança. */
   isLoan?: boolean;
+  /**
+   * Parte da quantidade vem de parceiro (terceiros).
+   * Não aparece no contrato; custo interno não afeta cobrança do cliente.
+   */
+  partnerSupply?: {
+    partnerId: mongoose.Types.ObjectId;
+    quantity: number;
+    agreedCost?: number;
+    notes?: string;
+  };
 }
 
 export interface IRentalDates {

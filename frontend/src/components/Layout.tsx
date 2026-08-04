@@ -89,6 +89,12 @@ const Layout: React.FC<LayoutProps> = ({
             <div className="hidden md:flex items-center space-x-4 lg:space-x-6">
               <FontSizeToggle />
               <ThemeToggle />
+              <Link
+                to="/partners"
+                className="text-sm text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+              >
+                Parceiros
+              </Link>
               {(user?.role === "admin" || user?.role === "superadmin") && (
                 <Link
                   to="/company/settings"
@@ -221,6 +227,13 @@ const Layout: React.FC<LayoutProps> = ({
                 </button>
               )}
 
+              <Link
+                to="/partners"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="flex items-center w-full p-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
+              >
+                Parceiros
+              </Link>
               {(user?.role === "admin" || user?.role === "superadmin") && (
                 <Link
                   to="/company/settings"

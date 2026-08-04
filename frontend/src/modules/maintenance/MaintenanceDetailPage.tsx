@@ -252,16 +252,20 @@ const MaintenanceDetailPage: React.FC = () => {
                       Data Agendada
                     </p>
                     <p className="font-medium text-gray-900 dark:text-white">
-                      {new Date(maintenance.scheduledDate).toLocaleDateString(
-                        "pt-BR",
-                        {
-                          day: "2-digit",
-                          month: "2-digit",
-                          year: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        },
-                      )}
+                      {(() => {
+                        const scheduledDate = maintenance.scheduledDate;
+                        if (!scheduledDate) return "-";
+                        return new Date(scheduledDate).toLocaleDateString(
+                          "pt-BR",
+                          {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          },
+                        );
+                      })()}
                     </p>
                   </div>
                   {maintenance.completedDate && (
@@ -288,7 +292,10 @@ const MaintenanceDetailPage: React.FC = () => {
                       Custo
                     </p>
                     <p className="font-medium text-gray-900 dark:text-white">
-                      {formatCurrencyBr(maintenance.cost)}
+                      {maintenance.cost != null &&
+                      Number.isFinite(Number(maintenance.cost))
+                        ? formatCurrencyBr(maintenance.cost)
+                        : "-"}
                     </p>
                   </div>
                   {maintenance.performedBy && (

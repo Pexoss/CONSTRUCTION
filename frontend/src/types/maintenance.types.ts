@@ -10,11 +10,11 @@ export interface Maintenance {
   unitId?: string;
   type: MaintenanceType;
   status: MaintenanceStatus;
-  scheduledDate: string;
+  scheduledDate?: string;
   expectedReturnDate?: string;
   completedDate?: string;
   description: string;
-  cost: number;
+  cost?: number;
   itemUnavailable?: boolean;
   performedBy?: string;
   notes?: string;
@@ -28,11 +28,11 @@ export interface CreateMaintenanceData {
   unitId?: string;
   type: MaintenanceType;
   status?: MaintenanceStatus;
-  scheduledDate: string;
+  scheduledDate?: string;
   expectedReturnDate?: string;
   completedDate?: string;
   description: string;
-  cost: number;
+  cost?: number;
   itemUnavailable?: boolean;
   performedBy?: string;
   notes?: string;

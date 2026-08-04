@@ -43,6 +43,8 @@ import {
   type RentalTypePricing,
 } from "../../utils/rental-pricing.util";
 import { canManageFinancial } from "../../utils/financialAccess";
+import { partnerService } from "../partners/partner.service";
+import { Partner } from "../../types/partner.types";
 import { features } from "../../config/features";
 import SortableTh from "../../components/SortableTh";
 import {
@@ -476,6 +478,10 @@ const RentalDetailPage: React.FC = () => {
       lineId?: string;
       isLoan?: boolean;
       periodRateInput?: string;
+      usePartnerSupply?: boolean;
+      partnerId?: string;
+      partnerQuantity?: number;
+      partnerAgreedCostInput?: string;
     }>,
     workAddress: {
       street: "",
@@ -501,6 +507,10 @@ const RentalDetailPage: React.FC = () => {
     pickupTime: string;
     returnDate: string;
     isLoan?: boolean;
+    usePartnerSupply?: boolean;
+    partnerId?: string;
+    partnerQuantity?: number;
+    partnerAgreedCostInput?: string;
   }>({
     itemId: "",
     unitId: "",
@@ -510,6 +520,7 @@ const RentalDetailPage: React.FC = () => {
     pickupTime: "",
     returnDate: "",
     isLoan: false,
+    usePartnerSupply: false,
   });
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [addItemSearch, setAddItemSearch] = useState("");
@@ -538,6 +549,11 @@ const RentalDetailPage: React.FC = () => {
     enabled: !!id,
   });
   const { data: itemsData } = useItems({ isActive: true, limit: 200 });
+  const { data: partnersData } = useQuery({
+    queryKey: ["partners-active-rental-detail"],
+    queryFn: () => partnerService.getPartners({ isActive: true, limit: 200 }),
+  });
+  const partnersList: Partner[] = partnersData?.data ?? [];
   const inventoryItems: Item[] = itemsData?.data ?? EMPTY_ITEMS;
   const selectedInventoryItem = inventoryItems.find(
     (item) => item._id === newItemForm.itemId,
@@ -1687,6 +1703,107 @@ const RentalDetailPage: React.FC = () => {
                                 })()}
                               </div>
                             )}
+                            {itemData?.trackingType !== "unit" && !isReturned && (
+                              <div className="md:col-span-2 border border-dashed border-gray-300 dark:border-gray-600 rounded-md p-3 space-y-2">
+                                <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.usePartnerSupply === true}
+                                    onChange={(e) => {
+                                      const updated = [...editForm.items];
+                                      updated[index] = {
+                                        ...updated[index],
+                                        usePartnerSupply: e.target.checked,
+                                        partnerQuantity: e.target.checked
+                                          ? updated[index].partnerQuantity ||
+                                            Math.min(
+                                              updated[index].quantity,
+                                              Math.max(1, 1),
+                                            )
+                                          : undefined,
+                                      };
+                                      setEditForm({
+                                        ...editForm,
+                                        items: updated,
+                                      });
+                                    }}
+                                  />
+                                  Inclui equipamento de parceiro (interno)
+                                </label>
+                                {item.usePartnerSupply ? (
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                    <select
+                                      value={item.partnerId || ""}
+                                      onChange={(e) => {
+                                        const updated = [...editForm.items];
+                                        updated[index] = {
+                                          ...updated[index],
+                                          partnerId: e.target.value || undefined,
+                                        };
+                                        setEditForm({
+                                          ...editForm,
+                                          items: updated,
+                                        });
+                                      }}
+                                      className="px-2 py-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600"
+                                    >
+                                      <option value="">Parceiro</option>
+                                      {partnersList.map((p) => (
+                                        <option key={p._id} value={p._id}>
+                                          {p.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={item.quantity}
+                                      value={item.partnerQuantity ?? ""}
+                                      onChange={(e) => {
+                                        const updated = [...editForm.items];
+                                        updated[index] = {
+                                          ...updated[index],
+                                          partnerQuantity: Math.max(
+                                            1,
+                                            Math.min(
+                                              item.quantity,
+                                              Number(e.target.value) || 1,
+                                            ),
+                                          ),
+                                        };
+                                        setEditForm({
+                                          ...editForm,
+                                          items: updated,
+                                        });
+                                      }}
+                                      placeholder="Qtd. terceiros"
+                                      className="px-2 py-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600"
+                                    />
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      value={item.partnerAgreedCostInput ?? ""}
+                                      onChange={(e) => {
+                                        const updated = [...editForm.items];
+                                        updated[index] = {
+                                          ...updated[index],
+                                          partnerAgreedCostInput:
+                                            formatMoneyInputBrLive(
+                                              e.target.value,
+                                            ),
+                                        };
+                                        setEditForm({
+                                          ...editForm,
+                                          items: updated,
+                                        });
+                                      }}
+                                      placeholder="Custo ao parceiro"
+                                      className="px-2 py-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600"
+                                    />
+                                  </div>
+                                ) : null}
+                              </div>
+                            )}
                             <div>
                               <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
                                 Retirada
@@ -2389,6 +2506,28 @@ const RentalDetailPage: React.FC = () => {
                             ? (rentalLine.itemId as Item)
                             : inventoryItems.find((inv) => inv._id === item.itemId);
 
+                        if (
+                          item.usePartnerSupply &&
+                          itemData?.trackingType !== "unit"
+                        ) {
+                          if (!item.partnerId) {
+                            toast.error(
+                              `Selecione o parceiro no item ${index + 1}.`,
+                            );
+                            return;
+                          }
+                          if (
+                            !item.partnerQuantity ||
+                            item.partnerQuantity < 1 ||
+                            item.partnerQuantity > item.quantity
+                          ) {
+                            toast.error(
+                              `Quantidade de terceiros inválida no item ${index + 1}.`,
+                            );
+                            return;
+                          }
+                        }
+
                         const row: {
                           itemId: string;
                           unitId?: string;
@@ -2485,6 +2624,28 @@ const RentalDetailPage: React.FC = () => {
                           } else if (previousOverride > 0 && rateChanged) {
                             row.periodRateOverride = 0;
                           }
+                        }
+
+                        if (item.usePartnerSupply && item.partnerId) {
+                          const partnerQty = Math.max(
+                            1,
+                            Math.min(
+                              item.quantity,
+                              Math.floor(Number(item.partnerQuantity || 0)),
+                            ),
+                          );
+                          const agreed = parseMoneyBr(
+                            item.partnerAgreedCostInput ?? "",
+                          );
+                          (row as any).partnerSupply = {
+                            partnerId: item.partnerId,
+                            quantity: partnerQty,
+                            ...(Number.isFinite(agreed) && agreed >= 0
+                              ? { agreedCost: agreed }
+                              : {}),
+                          };
+                        } else {
+                          (row as any).partnerSupply = null;
                         }
 
                         itemsPayload.push(row);
@@ -2796,6 +2957,85 @@ const RentalDetailPage: React.FC = () => {
                       Empréstimo de material (sem cobrança, com devolução)
                     </span>
                   </label>
+                  {selectedInventoryItem?.trackingType !== "unit" ? (
+                    <div className="border border-dashed border-gray-300 dark:border-gray-600 rounded-md p-3 space-y-2">
+                      <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                        <input
+                          type="checkbox"
+                          checked={newItemForm.usePartnerSupply === true}
+                          onChange={(e) =>
+                            setNewItemForm({
+                              ...newItemForm,
+                              usePartnerSupply: e.target.checked,
+                              partnerQuantity: e.target.checked
+                                ? Math.min(
+                                    newItemForm.quantity,
+                                    Math.max(1, newItemForm.partnerQuantity || 1),
+                                  )
+                                : undefined,
+                            })
+                          }
+                        />
+                        Inclui equipamento de parceiro (interno)
+                      </label>
+                      {newItemForm.usePartnerSupply ? (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                          <select
+                            value={newItemForm.partnerId || ""}
+                            onChange={(e) =>
+                              setNewItemForm({
+                                ...newItemForm,
+                                partnerId: e.target.value || undefined,
+                              })
+                            }
+                            className="px-2 py-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600"
+                          >
+                            <option value="">Parceiro</option>
+                            {partnersList.map((p: Partner) => (
+                              <option key={p._id} value={p._id}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="number"
+                            min={1}
+                            max={newItemForm.quantity}
+                            value={newItemForm.partnerQuantity ?? ""}
+                            onChange={(e) =>
+                              setNewItemForm({
+                                ...newItemForm,
+                                partnerQuantity: Math.max(
+                                  1,
+                                  Math.min(
+                                    newItemForm.quantity,
+                                    Number(e.target.value) || 1,
+                                  ),
+                                ),
+                              })
+                            }
+                            placeholder="Qtd. terceiros"
+                            className="px-2 py-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600"
+                          />
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={newItemForm.partnerAgreedCostInput ?? ""}
+                            onChange={(e) =>
+                              setNewItemForm({
+                                ...newItemForm,
+                                partnerAgreedCostInput: formatMoneyInputBrLive(
+                                  e.target.value,
+                                ),
+                              })
+                            }
+                            placeholder="Custo ao parceiro"
+                            className="px-2 py-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600"
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <div className="flex justify-end gap-2 pt-2">
                     <button
                       type="button"
@@ -2823,6 +3063,26 @@ const RentalDetailPage: React.FC = () => {
                           toast.error("Informe o horário de retirada/entrega do item.");
                           return;
                         }
+                        if (
+                          newItemForm.usePartnerSupply &&
+                          selectedInventoryItem?.trackingType !== "unit"
+                        ) {
+                          if (!newItemForm.partnerId) {
+                            toast.error("Selecione o parceiro.");
+                            return;
+                          }
+                          if (
+                            !newItemForm.partnerQuantity ||
+                            newItemForm.partnerQuantity < 1
+                          ) {
+                            toast.error("Informe a quantidade de terceiros.");
+                            return;
+                          }
+                        }
+                        const qty =
+                          selectedInventoryItem?.trackingType === "unit"
+                            ? 1
+                            : newItemForm.quantity;
                         setEditForm({
                           ...editForm,
                           items: [
@@ -2830,15 +3090,29 @@ const RentalDetailPage: React.FC = () => {
                             {
                               itemId: newItemForm.itemId,
                               unitId: newItemForm.unitId,
-                              quantity:
-                                selectedInventoryItem?.trackingType === "unit"
-                                  ? 1
-                                  : newItemForm.quantity,
+                              quantity: qty,
                               rentalType: newItemForm.rentalType,
                               pickupDate: newItemForm.pickupDate,
                               pickupTime: newItemForm.pickupTime,
                               returnDate: newItemForm.returnDate,
                               isLoan: newItemForm.isLoan ? true : undefined,
+                              usePartnerSupply:
+                                newItemForm.usePartnerSupply &&
+                                selectedInventoryItem?.trackingType !== "unit"
+                                  ? true
+                                  : undefined,
+                              partnerId: newItemForm.usePartnerSupply
+                                ? newItemForm.partnerId
+                                : undefined,
+                              partnerQuantity: newItemForm.usePartnerSupply
+                                ? Math.min(
+                                    qty,
+                                    Math.max(1, Number(newItemForm.partnerQuantity || 1)),
+                                  )
+                                : undefined,
+                              partnerAgreedCostInput: newItemForm.usePartnerSupply
+                                ? newItemForm.partnerAgreedCostInput
+                                : undefined,
                             },
                           ],
                         });
@@ -2851,6 +3125,10 @@ const RentalDetailPage: React.FC = () => {
                           pickupTime: "",
                           returnDate: "",
                           isLoan: false,
+                          usePartnerSupply: false,
+                          partnerId: undefined,
+                          partnerQuantity: undefined,
+                          partnerAgreedCostInput: undefined,
                         });
                         setShowAddItemModal(false);
                       }}
@@ -3013,6 +3291,24 @@ const RentalDetailPage: React.FC = () => {
                             itemData,
                             itemRentalType,
                           ),
+                          usePartnerSupply: !!(
+                            item.partnerSupply &&
+                            Number(item.partnerSupply.quantity) > 0
+                          ),
+                          partnerId:
+                            typeof item.partnerSupply?.partnerId === "object"
+                              ? String(
+                                  (item.partnerSupply.partnerId as any)._id ||
+                                    "",
+                                )
+                              : item.partnerSupply?.partnerId
+                                ? String(item.partnerSupply.partnerId)
+                                : undefined,
+                          partnerQuantity: item.partnerSupply?.quantity,
+                          partnerAgreedCostInput:
+                            item.partnerSupply?.agreedCost != null
+                              ? formatMoneyInputBr(item.partnerSupply.agreedCost)
+                              : "",
                         };
                       }),
                       workAddress: {
@@ -3325,12 +3621,28 @@ const RentalDetailPage: React.FC = () => {
                                 Empréstimo
                               </span>
                             )}
+                            {item.partnerSupply &&
+                              Number(item.partnerSupply.quantity) > 0 && (
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+                                {item.partnerSupply.quantity} de parceiro
+                                {typeof item.partnerSupply.partnerId ===
+                                  "object" &&
+                                item.partnerSupply.partnerId &&
+                                "name" in item.partnerSupply.partnerId
+                                  ? ` (${(item.partnerSupply.partnerId as { name?: string }).name})`
+                                  : ""}
+                              </span>
+                            )}
                           </div>
                           <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                             Quantidade: {item.quantity} •{" "}
                             {item.isLoan
                               ? "Sem cobrança (empréstimo)"
                               : `Preço unitário: ${formatCurrencyBr(displayUnitPrice)}`}
+                            {item.partnerSupply &&
+                            Number(item.partnerSupply.quantity) > 0
+                              ? ` • Próprio: ${Math.max(0, item.quantity - Number(item.partnerSupply.quantity))}`
+                              : ""}
                           </div>
                           <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                             Tipo: {formatRentalTypeLabel(item.rentalType)} • Retirada:{" "}

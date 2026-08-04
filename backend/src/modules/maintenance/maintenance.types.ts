@@ -21,7 +21,7 @@ export interface IMaintenance extends Document {
   
   type: MaintenanceType;
   status: MaintenanceStatus;
-  scheduledDate: Date;
+  scheduledDate?: Date;
   
   // NOVO: Data de início
   startedDate?: Date;
@@ -32,7 +32,7 @@ export interface IMaintenance extends Document {
   expectedReturnDate?: Date;
   
   description: string;
-  cost: number;
+  cost?: number;
   
   // NOVO: Dados do fornecedor
   supplier?: IMaintenanceSupplier;

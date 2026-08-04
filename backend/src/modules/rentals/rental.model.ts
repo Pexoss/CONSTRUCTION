@@ -68,6 +68,24 @@ const RentalItemSchema = new Schema<IRentalItem>(
       type: Boolean,
       default: false,
     },
+    partnerSupply: {
+      partnerId: {
+        type: Schema.Types.ObjectId,
+        ref: "Partner",
+      },
+      quantity: {
+        type: Number,
+        min: 1,
+      },
+      agreedCost: {
+        type: Number,
+        min: 0,
+      },
+      notes: {
+        type: String,
+        trim: true,
+      },
+    },
   },
   { _id: false }
 );

@@ -459,14 +459,21 @@ const MaintenancesPage: React.FC = () => {
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="text-sm text-gray-900 dark:text-white">
-                                {new Date(
-                                  maintenance.scheduledDate,
-                                ).toLocaleDateString("pt-BR")}
+                                {(() => {
+                                  const scheduledDate = maintenance.scheduledDate;
+                                  if (!scheduledDate) return "-";
+                                  return new Date(scheduledDate).toLocaleDateString(
+                                    "pt-BR",
+                                  );
+                                })()}
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                {formatCurrencyBr(maintenance.cost)}
+                                {maintenance.cost != null &&
+                                Number.isFinite(Number(maintenance.cost))
+                                  ? formatCurrencyBr(maintenance.cost)
+                                  : "-"}
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">

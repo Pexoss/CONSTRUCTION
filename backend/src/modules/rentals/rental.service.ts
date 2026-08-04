@@ -32,6 +32,12 @@ import {
   canUpdateRentalStatus,
 } from "../../helpers/UserPermission";
 import { rentalCpfBypassService } from "./rental-cpf-bypass.service";
+import {
+  ownStockQuantity,
+  partnerService,
+  partnerStockQuantity,
+} from "../partners/partner.service";
+import { Partner } from "../partners/partner.model";
 import { notificationService } from "../notification/notification.service";
 import { User } from "../users/user.model";
 import billingService, {
@@ -1701,6 +1707,11 @@ class RentalService {
       }
 
       if (inventoryItem.trackingType === "unit") {
+        if (item.partnerSupply?.quantity) {
+          throw badRequest(
+            `Item unitário "${inventoryItem.name}" não pode usar equipamento de parceiro nesta versão.`,
+          );
+        }
         if (!item.unitId)
           throw badRequest(`Item ${inventoryItem.name} precisa de unitId`);
 
@@ -1717,10 +1728,38 @@ class RentalService {
           );
         }
       } else {
+        const partnerQty = Math.max(0, Number(item.partnerSupply?.quantity ?? 0));
+        if (partnerQty > 0) {
+          if (!item.partnerSupply?.partnerId) {
+            throw badRequest(
+              `Informe o parceiro para o equipamento de terceiros em "${inventoryItem.name}".`,
+            );
+          }
+          if (partnerQty > item.quantity) {
+            throw badRequest(
+              `Quantidade de terceiros maior que a quantidade da linha em "${inventoryItem.name}".`,
+            );
+          }
+          const partner = await Partner.findOne({
+            _id: item.partnerSupply.partnerId,
+            companyId,
+            isActive: true,
+          });
+          if (!partner) {
+            throw badRequest(
+              `Parceiro inválido ou inativo para "${inventoryItem.name}".`,
+            );
+          }
+        }
+        const ownQty = ownStockQuantity({
+          quantity: item.quantity,
+          partnerSupply: item.partnerSupply,
+        });
         const available = inventoryItem.quantity.available || 0;
-        if (available < item.quantity) {
+        if (ownQty > 0 && available < ownQty) {
           throw badRequest(
-            `Estoque insuficiente para "${inventoryItem.name}". Disponível: ${available}. Solicitado: ${item.quantity}.`,
+            `Estoque insuficiente para "${inventoryItem.name}". Disponível próprio: ${available}. Necessário do seu estoque: ${ownQty}` +
+              (partnerQty > 0 ? ` (${partnerQty} de parceiro).` : "."),
           );
         }
       }
@@ -1824,6 +1863,18 @@ class RentalService {
       if (periodRateOverride > 0) {
         rentalLine.periodRateOverride = periodRateOverride;
       }
+      const partnerQty = Math.max(0, Number(item.partnerSupply?.quantity ?? 0));
+      if (partnerQty > 0 && item.partnerSupply?.partnerId) {
+        rentalLine.partnerSupply = {
+          partnerId: new mongoose.Types.ObjectId(item.partnerSupply.partnerId),
+          quantity: partnerQty,
+          agreedCost:
+            item.partnerSupply.agreedCost != null
+              ? Number(item.partnerSupply.agreedCost)
+              : undefined,
+          notes: item.partnerSupply.notes,
+        };
+      }
       itemsWithPricing.push(rentalLine);
 
       equipmentSubtotal += subtotal;
@@ -1923,12 +1974,14 @@ class RentalService {
       createdWithoutCustomerCpf,
     });
 
-    // Estoque: reserva e em seguida ativa (aluguel já ativo na criação)
-    for (const item of data.items) {
+    // Estoque: reserva e em seguida ativa (aluguel já ativo na criação) — só quantidade própria
+    for (const item of itemsWithPricing) {
+      const ownQty = ownStockQuantity(item);
+      if (ownQty <= 0 && !item.unitId) continue;
       await this.updateItemQuantityForRental(
         companyId,
         item.itemId,
-        item.quantity,
+        item.unitId ? item.quantity : ownQty,
         "reserve",
         userId,
         rental._id,
@@ -1936,11 +1989,13 @@ class RentalService {
         data.customerId,
       );
     }
-    for (const item of data.items) {
+    for (const item of itemsWithPricing) {
+      const ownQty = ownStockQuantity(item);
+      if (ownQty <= 0 && !item.unitId) continue;
       await this.updateItemQuantityForRental(
         companyId,
         item.itemId,
-        item.quantity,
+        item.unitId ? item.quantity : ownQty,
         "activate",
         userId,
         rental._id,
@@ -1948,6 +2003,12 @@ class RentalService {
         data.customerId,
       );
     }
+
+    await partnerService.syncLoansForRental(
+      companyId,
+      String(rental._id),
+      itemsWithPricing,
+    );
 
     await this.syncBillingsAfterRentalChange(
       companyId,
@@ -2811,15 +2872,26 @@ class RentalService {
 
     // Validar estoque antes de qualquer efeito colateral (fechamento / inventário)
     let inventoryReturnQty = 0;
+    const ownQtyOnLine = ownStockQuantity(targetItem);
+    const partnerQtyOnLine = partnerStockQuantity(targetItem);
     if (inventoryItem.trackingType !== "unit") {
       const resolved = await this.resolveInventoryReturnForRentalLine(
         companyId,
         inventoryItem,
-        targetItem.quantity,
+        ownQtyOnLine,
         rental._id,
       );
       inventoryReturnQty = resolved.applyQuantity;
     }
+
+    await partnerService.applyCustomerReturn(
+      companyId,
+      String(rental._id),
+      targetItem.lineId,
+      targetItem.quantity,
+      partnerQtyOnLine,
+      ownQtyOnLine,
+    );
 
     // =========================
     // 2. BILLING FINAL DO ITEM
@@ -3156,15 +3228,27 @@ class RentalService {
       }
 
       let inventoryReturnQty = 0;
+      const ownQtyOnLine = ownStockQuantity(targetItem);
+      const partnerQtyOnLine = partnerStockQuantity(targetItem);
       if (invForLine.trackingType !== "unit") {
+        const ownReturnCap = Math.min(returnedQuantity, ownQtyOnLine);
         const resolved = await this.resolveInventoryReturnForRentalLine(
           companyId,
           invForLine,
-          returnedQuantity,
+          ownReturnCap,
           rental._id,
         );
         inventoryReturnQty = resolved.applyQuantity;
       }
+
+      await partnerService.applyCustomerReturn(
+        companyId,
+        String(rental._id),
+        targetItem.lineId,
+        returnedQuantity,
+        partnerQtyOnLine,
+        ownQtyOnLine,
+      );
 
       const storeReturnActual =
         billingRt === "daily" ? returnAt : finalReturnDateNorm;
@@ -3376,10 +3460,38 @@ class RentalService {
           const pickupContinued = this.normalizeDate(
             new Date(plainItem.pickupScheduled),
           );
+          const oldLineId =
+            typeof targetItem.lineId === "string" ? targetItem.lineId : "";
+          const partnerReleased = Math.max(
+            0,
+            returnedQuantity - ownQtyOnLine,
+          );
+          const remainingPartner = Math.max(
+            0,
+            partnerQtyOnLine - partnerReleased,
+          );
           targetItem.lineId = splitRemainderLineId;
           /** Mesma retirada civil; cobrança do saldo começa após o fim do trecho devolvido parcialmente. */
           targetItem.pickupScheduled = pickupContinued;
           targetItem.quantity = prevQty - returnedQuantity;
+          if (remainingPartner > 0 && plainItem.partnerSupply?.partnerId) {
+            targetItem.partnerSupply = {
+              partnerId: plainItem.partnerSupply.partnerId,
+              quantity: remainingPartner,
+              agreedCost: plainItem.partnerSupply.agreedCost,
+              notes: plainItem.partnerSupply.notes,
+            };
+          } else {
+            targetItem.partnerSupply = undefined;
+          }
+          if (oldLineId && splitRemainderLineId) {
+            await partnerService.reassignLoanLineId(
+              companyId,
+              String(rental._id),
+              oldLineId,
+              splitRemainderLineId,
+            );
+          }
           targetItem.rentalType = remainderType;
           targetItem.unitPrice = remainderRate;
           if (remainderOverride > 0) {
@@ -4588,6 +4700,7 @@ class RentalService {
     const rental = await Rental.findOne({ _id: rentalId, companyId })
       .populate("customerId", "name cpfCnpj email phone addresses")
       .populate("items.itemId", "name sku pricing photos trackingType")
+      .populate("items.partnerSupply.partnerId", "name")
       .populate("createdBy", "name email")
       .populate("checklistPickup.completedBy", "name email")
       .populate("checklistReturn.completedBy", "name email");
@@ -5815,10 +5928,13 @@ class RentalService {
           continue;
         }
 
+        const ownQty = ownStockQuantity(item);
+        if (ownQty <= 0 && !item.unitId) continue;
+
         await this.updateItemQuantityForRental(
           companyId,
           item.itemId,
-          item.quantity,
+          item.unitId ? item.quantity : ownQty,
           "cancel",
           userId,
           rental._id,
@@ -5826,6 +5942,8 @@ class RentalService {
           rental.customerId.toString(),
         );
       }
+
+      await partnerService.cancelLoansForRental(companyId, String(rental._id));
     }
 
     /**
@@ -6536,6 +6654,54 @@ class RentalService {
               existingItem.subtotal = 0;
             }
           }
+
+          const oldOwnQty = ownStockQuantity(existingItem);
+
+          if (itemUpdate.partnerSupply !== undefined) {
+            if (isUnit && itemUpdate.partnerSupply) {
+              throw badRequest(
+                `Item unitário "${inventoryItem.name}" não pode usar equipamento de parceiro nesta versão.`,
+              );
+            }
+            const ps = itemUpdate.partnerSupply;
+            if (!ps || !ps.partnerId || !(Number(ps.quantity) > 0)) {
+              existingItem.partnerSupply = undefined;
+            } else {
+              const nextQty = Math.max(
+                1,
+                Math.floor(
+                  Number(
+                    itemUpdate.quantity !== undefined
+                      ? itemUpdate.quantity
+                      : existingItem.quantity,
+                  ),
+                ),
+              );
+              const partnerQty = Math.max(1, Math.floor(Number(ps.quantity)));
+              if (partnerQty > nextQty) {
+                throw badRequest(
+                  `Quantidade de terceiros maior que a quantidade da linha em "${inventoryItem.name}".`,
+                );
+              }
+              const partner = await Partner.findOne({
+                _id: ps.partnerId,
+                companyId,
+                isActive: true,
+              });
+              if (!partner) {
+                throw badRequest(
+                  `Parceiro inválido ou inativo para "${inventoryItem.name}".`,
+                );
+              }
+              existingItem.partnerSupply = {
+                partnerId: new mongoose.Types.ObjectId(ps.partnerId),
+                quantity: partnerQty,
+                agreedCost:
+                  ps.agreedCost != null ? Number(ps.agreedCost) : undefined,
+                notes: ps.notes,
+              };
+            }
+          }
           if (itemUpdate.rentalType) {
             if (!this.isLoanLine(existingItem)) {
               const override = Math.max(
@@ -6593,98 +6759,128 @@ class RentalService {
             );
           }
 
-          if (itemUpdate.quantity !== undefined && !isUnit) {
-            const newQty = Math.max(1, Math.floor(Number(itemUpdate.quantity)));
-            const oldQty = Number(existingItem.quantity || 1);
-            if (newQty !== oldQty) {
-              if (existingItem.returnActual) {
+          if (
+            (itemUpdate.quantity !== undefined ||
+              itemUpdate.partnerSupply !== undefined) &&
+            !isUnit
+          ) {
+            if (existingItem.returnActual) {
+              throw badRequest(
+                `Não é possível alterar a quantidade de "${inventoryItem.name}" após a devolução.`,
+              );
+            }
+            if (itemUpdate.quantity !== undefined) {
+              existingItem.quantity = Math.max(
+                1,
+                Math.floor(Number(itemUpdate.quantity)),
+              );
+            }
+            if (
+              existingItem.partnerSupply &&
+              Number(existingItem.partnerSupply.quantity) >
+                Number(existingItem.quantity)
+            ) {
+              throw badRequest(
+                `Quantidade de terceiros maior que a quantidade da linha em "${inventoryItem.name}".`,
+              );
+            }
+            const newOwnQty = ownStockQuantity(existingItem);
+            const delta = newOwnQty - oldOwnQty;
+            const customerIdStr = rental.customerId.toString();
+            const onField =
+              rental.status === "active" ||
+              rental.status === "overdue" ||
+              rental.status === "ready_to_close";
+
+            if (delta > 0) {
+              const available = inventoryItem.quantity.available || 0;
+              if (available < delta) {
                 throw badRequest(
-                  `Não é possível alterar a quantidade de "${inventoryItem.name}" após a devolução.`,
+                  `Estoque insuficiente para "${inventoryItem.name}". Disponível próprio: ${available}, adicional solicitado: ${delta}.`,
                 );
               }
-              const delta = newQty - oldQty;
-              const customerIdStr = rental.customerId.toString();
-              const onField =
-                rental.status === "active" ||
-                rental.status === "overdue" ||
-                rental.status === "ready_to_close";
-
-              if (delta > 0) {
-                const available = inventoryItem.quantity.available || 0;
-                if (available < delta) {
-                  throw badRequest(
-                    `Estoque insuficiente para "${inventoryItem.name}". Disponível: ${available}, adicional solicitado: ${delta}.`,
-                  );
-                }
-                if (onField) {
-                  await this.updateItemQuantityForRental(
-                    companyId,
-                    itemUpdate.itemId,
-                    delta,
-                    "reserve",
-                    userId,
-                    rental._id,
-                    undefined,
-                    customerIdStr,
-                  );
-                  await this.updateItemQuantityForRental(
-                    companyId,
-                    itemUpdate.itemId,
-                    delta,
-                    "activate",
-                    userId,
-                    rental._id,
-                    undefined,
-                    customerIdStr,
-                  );
-                } else {
-                  await this.updateItemQuantityForRental(
-                    companyId,
-                    itemUpdate.itemId,
-                    delta,
-                    "reserve",
-                    userId,
-                    rental._id,
-                    undefined,
-                    customerIdStr,
-                  );
-                }
+              if (onField) {
+                await this.updateItemQuantityForRental(
+                  companyId,
+                  itemUpdate.itemId,
+                  delta,
+                  "reserve",
+                  userId,
+                  rental._id,
+                  undefined,
+                  customerIdStr,
+                );
+                await this.updateItemQuantityForRental(
+                  companyId,
+                  itemUpdate.itemId,
+                  delta,
+                  "activate",
+                  userId,
+                  rental._id,
+                  undefined,
+                  customerIdStr,
+                );
               } else {
-                const absDelta = -delta;
-                if (onField) {
-                  await this.updateItemQuantityForRental(
-                    companyId,
-                    itemUpdate.itemId,
-                    absDelta,
-                    "return",
-                    userId,
-                    rental._id,
-                    undefined,
-                    customerIdStr,
-                  );
-                } else {
-                  await this.updateItemQuantityForRental(
-                    companyId,
-                    itemUpdate.itemId,
-                    absDelta,
-                    "cancel",
-                    userId,
-                    rental._id,
-                    undefined,
-                    customerIdStr,
-                  );
-                }
+                await this.updateItemQuantityForRental(
+                  companyId,
+                  itemUpdate.itemId,
+                  delta,
+                  "reserve",
+                  userId,
+                  rental._id,
+                  undefined,
+                  customerIdStr,
+                );
               }
-              existingItem.quantity = newQty;
+            } else if (delta < 0) {
+              const absDelta = -delta;
+              if (onField) {
+                await this.updateItemQuantityForRental(
+                  companyId,
+                  itemUpdate.itemId,
+                  absDelta,
+                  "return",
+                  userId,
+                  rental._id,
+                  undefined,
+                  customerIdStr,
+                );
+              } else {
+                await this.updateItemQuantityForRental(
+                  companyId,
+                  itemUpdate.itemId,
+                  absDelta,
+                  "cancel",
+                  userId,
+                  rental._id,
+                  undefined,
+                  customerIdStr,
+                );
+              }
             }
           }
         } else {
           const quantity = itemUpdate.quantity || 1;
+          const partnerQty = Math.max(
+            0,
+            Number(itemUpdate.partnerSupply?.quantity ?? 0),
+          );
+          if (isUnit && partnerQty > 0) {
+            throw badRequest(
+              `Item unitário "${inventoryItem.name}" não pode usar equipamento de parceiro nesta versão.`,
+            );
+          }
+          if (partnerQty > quantity) {
+            throw badRequest(
+              `Quantidade de terceiros maior que a quantidade da linha em "${inventoryItem.name}".`,
+            );
+          }
+          const ownQty = quantity - partnerQty;
           if (!isUnit) {
             const available = inventoryItem.quantity.available || 0;
-            if (available < quantity) {
+            if (ownQty > 0 && available < ownQty) {
               throw badRequest(
-                `Insufficient quantity for item ${inventoryItem.name}. Available: ${available}, Requested: ${quantity}`,
+                `Estoque insuficiente para "${inventoryItem.name}". Disponível próprio: ${available}. Necessário: ${ownQty}.`,
               );
             }
           } else {
@@ -6694,6 +6890,19 @@ class RentalService {
             if (!unit || unit.status !== "available") {
               throw badRequest(
                 `Unit ${itemUpdate.unitId} is not available for rental`,
+              );
+            }
+          }
+
+          if (partnerQty > 0) {
+            const partner = await Partner.findOne({
+              _id: itemUpdate.partnerSupply!.partnerId,
+              companyId,
+              isActive: true,
+            });
+            if (!partner) {
+              throw badRequest(
+                `Parceiro inválido ou inativo para "${inventoryItem.name}".`,
               );
             }
           }
@@ -6774,6 +6983,7 @@ class RentalService {
 
           const newLine: IRentalItem = {
             itemId: itemUpdate.itemId,
+            lineId: randomUUID(),
             unitId: itemUpdate.unitId,
             quantity,
             unitPrice: price,
@@ -6788,18 +6998,39 @@ class RentalService {
           if (periodRateOverride > 0) {
             newLine.periodRateOverride = periodRateOverride;
           }
+          if (partnerQty > 0 && itemUpdate.partnerSupply?.partnerId) {
+            newLine.partnerSupply = {
+              partnerId: new mongoose.Types.ObjectId(
+                itemUpdate.partnerSupply.partnerId,
+              ),
+              quantity: partnerQty,
+              agreedCost:
+                itemUpdate.partnerSupply.agreedCost != null
+                  ? Number(itemUpdate.partnerSupply.agreedCost)
+                  : undefined,
+              notes: itemUpdate.partnerSupply.notes,
+            };
+          }
           rental.items.push(newLine as any);
 
-          await this.reserveThenActivateNewRentalLine(
-            companyId,
-            rental,
-            itemUpdate.itemId,
-            quantity,
-            itemUpdate.unitId,
-            userId,
-          );
+          if (ownQty > 0 || itemUpdate.unitId) {
+            await this.reserveThenActivateNewRentalLine(
+              companyId,
+              rental,
+              itemUpdate.itemId,
+              itemUpdate.unitId ? quantity : ownQty,
+              itemUpdate.unitId,
+              userId,
+            );
+          }
         }
       }
+
+      await partnerService.syncLoansForRental(
+        companyId,
+        String(rental._id),
+        rental.items as any,
+      );
 
       await this.removeObsoleteUnpaidBillingsForRentalLineKeys(
         companyId,
@@ -7045,7 +7276,7 @@ class RentalService {
         ? ((line.itemId as any)._id as mongoose.Types.ObjectId)
         : (line.itemId as mongoose.Types.ObjectId);
     const customerIdStr = rental.customerId.toString();
-    const qty = Math.max(1, Math.floor(Number(line.quantity || 1)));
+    const qty = Math.max(0, ownStockQuantity(line));
     const onField =
       rental.status === "active" ||
       rental.status === "overdue" ||
@@ -7080,6 +7311,8 @@ class RentalService {
       }
       return;
     }
+
+    if (qty <= 0) return;
 
     if (onField) {
       await this.updateItemQuantityForRental(

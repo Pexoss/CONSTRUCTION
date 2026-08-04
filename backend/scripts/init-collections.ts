@@ -21,6 +21,8 @@ import { Rental } from "../src/modules/rentals/rental.model";
 import { SubscriptionPayment } from "../src/modules/subscriptions/subscriptionPayment.model";
 import { Transaction } from "../src/modules/transactions/transaction.model";
 import { User } from "../src/modules/users/user.model";
+import { Partner } from "../src/modules/partners/partner.model";
+import { PartnerLoan } from "../src/modules/partners/partner-loan.model";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
@@ -38,6 +40,8 @@ const syncTasks: Array<{ name: string; sync: () => Promise<void> }> = [
     sync: async () => { await RentalCpfBypassToken.syncIndexes(); },
   },
   { name: "Maintenance", sync: async () => { await Maintenance.syncIndexes(); } },
+  { name: "Partner", sync: async () => { await Partner.syncIndexes(); } },
+  { name: "PartnerLoan", sync: async () => { await PartnerLoan.syncIndexes(); } },
   { name: "Charge", sync: async () => { await Charge.syncIndexes(); } },
   { name: "Billing", sync: async () => { await Billing.syncIndexes(); } },
   { name: "Transaction", sync: async () => { await Transaction.syncIndexes(); } },
