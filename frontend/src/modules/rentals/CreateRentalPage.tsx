@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
@@ -46,8 +46,14 @@ import {
   applyPeriodRateOverride,
   registeredPeriodRateFromInventory,
 } from "../../utils/rental-pricing.util";
+import {
+  allocateRentalQuantities,
+  maxOwnStockForRentalLine,
+  ownQuantityFromLine,
+} from "../../utils/rental-partner-qty.util";
 import { partnerService } from "../partners/partner.service";
 import { Partner } from "../../types/partner.types";
+import CreatePartnerModal from "../partners/CreatePartnerModal";
 
 type CustomersListResult = Awaited<
   ReturnType<typeof customerService.getCustomers>
@@ -252,6 +258,10 @@ const CreateRentalPage: React.FC = () => {
     null,
   );
   const [cpfBypassRequestLoading, setCpfBypassRequestLoading] = useState(false);
+  const [partnerModalItemId, setPartnerModalItemId] = useState<string | null>(
+    null,
+  );
+  const partnerQtySnapshotRef = useRef<Record<string, number>>({});
 
   const { data: customersData } = useQuery<CustomersListResult>({
     queryKey: ["customers"],
@@ -709,14 +719,32 @@ const CreateRentalPage: React.FC = () => {
     if (existingIndex >= 0) {
       const updated = [...selectedItems];
       if (item.trackingType !== "unit") {
-        const available = item.quantity.available || 0;
-        if (updated[existingIndex].quantity >= available) {
-          toast.warn(
-            `Estoque disponível para "${item.name}": ${available}.`,
-          );
-          return;
+        const current = updated[existingIndex];
+        const maxOwn = maxOwnStockForRentalLine({
+          warehouseAvailable: item.quantity.available,
+        });
+        const nextQty = current.quantity + 1;
+        if (current.usePartnerSupply) {
+          const allocated = allocateRentalQuantities({
+            quantity: nextQty,
+            partnerEnabled: true,
+            partnerQuantity: current.partnerQuantity,
+            maxOwn,
+            changed: "quantity",
+          });
+          updated[existingIndex] = {
+            ...current,
+            quantity: allocated.quantity,
+            partnerQuantity: allocated.partnerQuantity,
+          };
+        } else {
+          updated[existingIndex] = { ...current, quantity: nextQty };
+          if (nextQty > maxOwn) {
+            toast.info(
+              `Estoque próprio de "${item.name}": ${maxOwn}. Marque equipamento de parceiro para cobrir o restante.`,
+            );
+          }
         }
-        updated[existingIndex].quantity += 1;
       }
       setSelectedItems(updated);
     } else {
@@ -746,24 +774,34 @@ const CreateRentalPage: React.FC = () => {
   };
 
   const handleQuantityChange = (itemId: string, quantity: number) => {
-    if (quantity <= 0) {
-      handleRemoveItem(itemId);
-      return;
-    }
     setSelectedItems(
       selectedItems.map((si) => {
         if (si.itemId !== itemId) return si;
         if (si.item.trackingType === "unit") return { ...si, quantity: 1 };
 
-        const available = si.item.quantity.available || 0;
-        const nextQuantity = Math.min(quantity, available);
-        if (quantity > available) {
-          toast.warn(
-            `Estoque disponível para "${si.item.name}": ${available}.`,
-          );
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          return { ...si, quantity: 0 };
         }
 
-        return { ...si, quantity: Math.max(1, nextQuantity) };
+        if (!si.usePartnerSupply) {
+          return { ...si, quantity, partnerQuantity: undefined };
+        }
+
+        const maxOwn = maxOwnStockForRentalLine({
+          warehouseAvailable: si.item.quantity.available,
+        });
+        const allocated = allocateRentalQuantities({
+          quantity,
+          partnerEnabled: true,
+          partnerQuantity: si.partnerQuantity,
+          maxOwn,
+          changed: "quantity",
+        });
+        return {
+          ...si,
+          quantity: allocated.quantity,
+          partnerQuantity: allocated.partnerQuantity,
+        };
       }),
     );
   };
@@ -868,6 +906,17 @@ const CreateRentalPage: React.FC = () => {
     } finally {
       setCpfBypassRequestLoading(false);
     }
+  };
+
+  const handlePartnerCreated = (partner: Partner) => {
+    if (!partnerModalItemId) return;
+    setSelectedItems((prev) =>
+      prev.map((si) =>
+        si.itemId === partnerModalItemId
+          ? { ...si, partnerId: partner._id, usePartnerSupply: true }
+          : si,
+      ),
+    );
   };
 
   const openNewCustomerModal = () => {
@@ -1179,7 +1228,9 @@ const CreateRentalPage: React.FC = () => {
         const ownQty = Math.max(0, si.quantity - partnerQty);
         if (ownQty > (si.item.quantity.available || 0)) {
           availabilityIssues.push(
-            `estoque próprio do item "${si.item.name}" (disponível: ${si.item.quantity.available || 0}, necessário: ${ownQty})`,
+            si.usePartnerSupply
+              ? `estoque próprio do item "${si.item.name}" (disponível: ${si.item.quantity.available || 0}, necessário: ${ownQty})`
+              : `estoque próprio do item "${si.item.name}" (disponível: ${si.item.quantity.available || 0}, solicitado: ${ownQty}). Marque equipamento de parceiro para cobrir o restante`,
           );
         }
       }
@@ -1430,7 +1481,14 @@ const CreateRentalPage: React.FC = () => {
   }, [customerAddresses, applyCustomerAddressAtIndex]);
 
   const filteredItems = items.filter((item) => {
-    if (item.quantity.available <= 0) return false;
+    if (item.trackingType === "unit") {
+      const hasAvailableUnit = item.units?.some(
+        (unit: ItemUnit) => unit.status === "available",
+      );
+      if (!hasAvailableUnit && (item.quantity.available || 0) <= 0) {
+        return false;
+      }
+    }
 
     if (search) {
       const term = search.toLowerCase();
@@ -2203,32 +2261,37 @@ const CreateRentalPage: React.FC = () => {
                                       onChange={(e) => {
                                         const checked = e.target.checked;
                                         setSelectedItems(
-                                          selectedItems.map((si) =>
-                                            si.itemId === selectedItem.itemId
-                                              ? {
-                                                  ...si,
-                                                  usePartnerSupply: checked,
-                                                  partnerQuantity:
-                                                    checked
-                                                      ? Math.min(
-                                                          si.partnerQuantity ||
-                                                            Math.max(
-                                                              1,
-                                                              si.quantity -
-                                                                (si.item
-                                                                  .quantity
-                                                                  ?.available ||
-                                                                  0),
-                                                            ),
-                                                          si.quantity,
-                                                        )
-                                                      : undefined,
-                                                  partnerId: checked
-                                                    ? si.partnerId
-                                                    : undefined,
-                                                }
-                                              : si,
-                                          ),
+                                          selectedItems.map((si) => {
+                                            if (si.itemId !== selectedItem.itemId) {
+                                              return si;
+                                            }
+                                            const maxOwn = maxOwnStockForRentalLine({
+                                              warehouseAvailable:
+                                                si.item.quantity.available,
+                                            });
+                                            const allocated = allocateRentalQuantities({
+                                              quantity: si.quantity,
+                                              partnerEnabled: checked,
+                                              partnerQuantity: si.partnerQuantity,
+                                              maxOwn,
+                                              changed: "partnerToggle",
+                                            });
+                                            if (allocated.didCapToStock) {
+                                              toast.warn(
+                                                `Sem parceiro, a quantidade de "${si.item.name}" fica limitada ao estoque próprio (${maxOwn}).`,
+                                              );
+                                            }
+                                            return {
+                                              ...si,
+                                              usePartnerSupply: checked,
+                                              quantity: allocated.quantity,
+                                              partnerQuantity:
+                                                allocated.partnerQuantity,
+                                              partnerId: checked
+                                                ? si.partnerId
+                                                : undefined,
+                                            };
+                                          }),
                                         );
                                       }}
                                       className="mt-0.5 rounded border-gray-300"
@@ -2242,9 +2305,22 @@ const CreateRentalPage: React.FC = () => {
                                   {selectedItem.usePartnerSupply && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                       <div>
-                                        <label className="text-xs text-gray-500 mb-1 block">
-                                          Parceiro
-                                        </label>
+                                        <div className="flex items-center justify-between mb-1">
+                                          <label className="text-xs text-gray-500">
+                                            Parceiro
+                                          </label>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setPartnerModalItemId(
+                                                selectedItem.itemId,
+                                              )
+                                            }
+                                            className="text-xs font-medium text-gray-700 dark:text-gray-200 hover:underline"
+                                          >
+                                            + Novo parceiro
+                                          </button>
+                                        </div>
                                         <select
                                           value={selectedItem.partnerId || ""}
                                           onChange={(e) =>
@@ -2271,6 +2347,22 @@ const CreateRentalPage: React.FC = () => {
                                             </option>
                                           ))}
                                         </select>
+                                        {partners.length === 0 && (
+                                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                            Nenhum parceiro cadastrado.{" "}
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setPartnerModalItemId(
+                                                  selectedItem.itemId,
+                                                )
+                                              }
+                                              className="font-medium text-gray-800 dark:text-gray-200 underline"
+                                            >
+                                              Cadastrar agora
+                                            </button>
+                                          </p>
+                                        )}
                                       </div>
                                       <div>
                                         <label className="text-xs text-gray-500 mb-1 block">
@@ -2279,25 +2371,74 @@ const CreateRentalPage: React.FC = () => {
                                         <input
                                           type="number"
                                           min={1}
-                                          max={selectedItem.quantity}
+                                          inputMode="numeric"
                                           value={
                                             selectedItem.partnerQuantity ?? ""
                                           }
+                                          onFocus={(e) => {
+                                            partnerQtySnapshotRef.current[
+                                              selectedItem.itemId
+                                            ] = selectedItem.partnerQuantity || 0;
+                                            selectInputText(e);
+                                          }}
+                                          onClick={selectInputText}
                                           onChange={(e) => {
-                                            const v = Math.max(
-                                              1,
-                                              Math.min(
-                                                selectedItem.quantity,
-                                                Number(e.target.value) || 1,
-                                              ),
-                                            );
+                                            const raw = e.target.value;
+                                            const parsed =
+                                              raw === ""
+                                                ? undefined
+                                                : parseInt(raw, 10);
                                             setSelectedItems(
                                               selectedItems.map((si) =>
                                                 si.itemId ===
                                                 selectedItem.itemId
-                                                  ? { ...si, partnerQuantity: v }
+                                                  ? {
+                                                      ...si,
+                                                      partnerQuantity:
+                                                        parsed === undefined ||
+                                                        Number.isNaN(parsed)
+                                                          ? undefined
+                                                          : parsed,
+                                                    }
                                                   : si,
                                               ),
+                                            );
+                                          }}
+                                          onBlur={() => {
+                                            setSelectedItems((prev) =>
+                                              prev.map((si) => {
+                                                if (
+                                                  si.itemId !==
+                                                  selectedItem.itemId
+                                                ) {
+                                                  return si;
+                                                }
+                                                const allocated =
+                                                  allocateRentalQuantities({
+                                                    quantity: si.quantity,
+                                                    partnerEnabled: true,
+                                                    partnerQuantity:
+                                                      si.partnerQuantity,
+                                                    previousPartnerQuantity:
+                                                      partnerQtySnapshotRef
+                                                        .current[
+                                                        selectedItem.itemId
+                                                      ] ?? 0,
+                                                    maxOwn:
+                                                      maxOwnStockForRentalLine({
+                                                        warehouseAvailable:
+                                                          si.item.quantity
+                                                            .available,
+                                                      }),
+                                                    changed: "partnerQuantity",
+                                                  });
+                                                return {
+                                                  ...si,
+                                                  quantity: allocated.quantity,
+                                                  partnerQuantity:
+                                                    allocated.partnerQuantity,
+                                                };
+                                              }),
                                             );
                                           }}
                                           className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600"
@@ -2337,22 +2478,18 @@ const CreateRentalPage: React.FC = () => {
                                         />
                                       </div>
                                       <div className="md:col-span-2 text-2xs text-gray-500">
-                                        Disponível próprio:{" "}
+                                        Total alugado: {selectedItem.quantity}{" "}
+                                        (próprio{" "}
+                                        {ownQuantityFromLine(
+                                          selectedItem.quantity,
+                                          selectedItem.partnerQuantity,
+                                        )}{" "}
+                                        + terceiros{" "}
+                                        {selectedItem.partnerQuantity || 0}).
+                                        Estoque próprio disponível:{" "}
                                         {selectedItem.item.quantity
                                           ?.available ?? 0}
-                                        {" · "}Esta linha baixará{" "}
-                                        {Math.max(
-                                          0,
-                                          selectedItem.quantity -
-                                            Math.max(
-                                              0,
-                                              Number(
-                                                selectedItem.partnerQuantity ||
-                                                  0,
-                                              ),
-                                            ),
-                                        )}{" "}
-                                        do seu estoque.
+                                        .
                                       </div>
                                     </div>
                                   )}
@@ -2380,16 +2517,36 @@ const CreateRentalPage: React.FC = () => {
                                   <input
                                     type="number"
                                     min="1"
-                                    max={selectedItem.item.quantity.available}
-                                    value={selectedItem.quantity}
+                                    inputMode="numeric"
+                                    value={
+                                      selectedItem.quantity
+                                        ? selectedItem.quantity
+                                        : ""
+                                    }
                                     onFocus={selectInputText}
                                     onClick={selectInputText}
-                                    onChange={(e) =>
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      if (raw === "") {
+                                        handleQuantityChange(
+                                          selectedItem.itemId,
+                                          0,
+                                        );
+                                        return;
+                                      }
                                       handleQuantityChange(
                                         selectedItem.itemId,
-                                        parseInt(e.target.value) || 1,
-                                      )
-                                    }
+                                        parseInt(raw, 10),
+                                      );
+                                    }}
+                                    onBlur={() => {
+                                      if (selectedItem.quantity < 1) {
+                                        handleQuantityChange(
+                                          selectedItem.itemId,
+                                          1,
+                                        );
+                                      }
+                                    }}
                                     className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                                   />
                                 </div>
@@ -3037,6 +3194,11 @@ const CreateRentalPage: React.FC = () => {
           </div>
         </div>
       </div>
+      <CreatePartnerModal
+        open={!!partnerModalItemId}
+        onClose={() => setPartnerModalItemId(null)}
+        onCreated={handlePartnerCreated}
+      />
       {showNewCustomerModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-md">

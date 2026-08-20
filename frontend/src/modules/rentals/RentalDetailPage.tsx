@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
@@ -42,9 +42,15 @@ import {
   registeredPeriodRateFromInventory,
   type RentalTypePricing,
 } from "../../utils/rental-pricing.util";
+import {
+  allocateRentalQuantities,
+  maxOwnStockForRentalLine,
+  ownQuantityFromLine,
+} from "../../utils/rental-partner-qty.util";
 import { canManageFinancial } from "../../utils/financialAccess";
 import { partnerService } from "../partners/partner.service";
 import { Partner } from "../../types/partner.types";
+import CreatePartnerModal from "../partners/CreatePartnerModal";
 import { features } from "../../config/features";
 import SortableTh from "../../components/SortableTh";
 import {
@@ -119,6 +125,21 @@ function buildRentalLineKeyFromItem(item: RentalItem): string {
     return `${base}|${item.lineId.trim()}`;
   }
   return base;
+}
+
+function getSavedPartnerQuantity(line?: RentalItem): number {
+  return Math.max(0, Number(line?.partnerSupply?.quantity ?? 0));
+}
+
+function maxOwnForDetailLine(
+  inventoryItem?: Item,
+  savedLine?: RentalItem,
+): number {
+  return maxOwnStockForRentalLine({
+    warehouseAvailable: inventoryItem?.quantity?.available,
+    savedLineQuantity: savedLine?.quantity,
+    savedPartnerQuantity: getSavedPartnerQuantity(savedLine),
+  });
 }
 
 function getRentalLineForEditRow(
@@ -531,6 +552,10 @@ const RentalDetailPage: React.FC = () => {
   const [selectedWorkAddressId, setSelectedWorkAddressId] =
     useState<string>("");
   const [showAddResponsibleModal, setShowAddResponsibleModal] = useState(false);
+  const [partnerModalTarget, setPartnerModalTarget] = useState<
+    { kind: "edit"; index: number } | { kind: "new" } | null
+  >(null);
+  const partnerQtySnapshotRef = useRef<Record<string, number>>({});
   const [newResponsibleForm, setNewResponsibleForm] = useState<{
     name: string;
     phone: string;
@@ -1291,6 +1316,30 @@ const RentalDetailPage: React.FC = () => {
       },
     });
   };
+
+  const handlePartnerCreated = (partner: Partner) => {
+    if (!partnerModalTarget) return;
+    if (partnerModalTarget.kind === "new") {
+      setNewItemForm((prev) => ({
+        ...prev,
+        partnerId: partner._id,
+        usePartnerSupply: true,
+      }));
+      return;
+    }
+    const { index } = partnerModalTarget;
+    setEditForm((prev) => {
+      const updated = [...prev.items];
+      if (!updated[index]) return prev;
+      updated[index] = {
+        ...updated[index],
+        partnerId: partner._id,
+        usePartnerSupply: true,
+      };
+      return { ...prev, items: updated };
+    });
+  };
+
   const fulfillmentMethodLabel =
     rental.fulfillmentMethod === "delivery_service"
       ? "Serviço de entrega"
@@ -1582,21 +1631,75 @@ const RentalDetailPage: React.FC = () => {
                                   <input
                                     type="number"
                                     min={1}
+                                    inputMode="numeric"
                                     disabled={isReturned}
                                     title={
                                       isReturned ? "Item já devolvido" : undefined
                                     }
-                                    value={item.quantity}
+                                    value={item.quantity ? item.quantity : ""}
                                     onFocus={selectInputText}
                                     onClick={selectInputText}
                                     onChange={(e) => {
+                                      const raw = e.target.value;
+                                      const updated = [...editForm.items];
+                                      if (raw === "") {
+                                        updated[index] = {
+                                          ...updated[index],
+                                          quantity: 0,
+                                        };
+                                        setEditForm({
+                                          ...editForm,
+                                          items: updated,
+                                        });
+                                        return;
+                                      }
+                                      const nextQty = parseInt(raw, 10);
+                                      if (!Number.isFinite(nextQty)) return;
+                                      const savedLine = getRentalLineForEditRow(
+                                        rental.items,
+                                        item,
+                                      );
+                                      const inventoryItem =
+                                        inventoryItems.find(
+                                          (inv) => inv._id === item.itemId,
+                                        ) || itemData;
+                                      if (item.usePartnerSupply) {
+                                        const allocated = allocateRentalQuantities({
+                                          quantity: nextQty,
+                                          partnerEnabled: true,
+                                          partnerQuantity: item.partnerQuantity,
+                                          maxOwn: maxOwnForDetailLine(
+                                            inventoryItem,
+                                            savedLine,
+                                          ),
+                                          changed: "quantity",
+                                        });
+                                        updated[index] = {
+                                          ...updated[index],
+                                          quantity: allocated.quantity,
+                                          partnerQuantity:
+                                            allocated.partnerQuantity,
+                                        };
+                                      } else {
+                                        updated[index] = {
+                                          ...updated[index],
+                                          quantity: nextQty,
+                                        };
+                                      }
+                                      setEditForm({
+                                        ...editForm,
+                                        items: updated,
+                                      });
+                                    }}
+                                    onBlur={() => {
+                                      const current = editForm.items[index];
+                                      if (!current || current.quantity >= 1) {
+                                        return;
+                                      }
                                       const updated = [...editForm.items];
                                       updated[index] = {
                                         ...updated[index],
-                                        quantity: Math.max(
-                                          1,
-                                          Number(e.target.value) || 1,
-                                        ),
+                                        quantity: 1,
                                       };
                                       setEditForm({
                                         ...editForm,
@@ -1710,16 +1813,38 @@ const RentalDetailPage: React.FC = () => {
                                     type="checkbox"
                                     checked={item.usePartnerSupply === true}
                                     onChange={(e) => {
+                                      const checked = e.target.checked;
+                                      const savedLine = getRentalLineForEditRow(
+                                        rental.items,
+                                        item,
+                                      );
+                                      const inventoryItem =
+                                        inventoryItems.find(
+                                          (inv) => inv._id === item.itemId,
+                                        ) || itemData;
+                                      const allocated = allocateRentalQuantities({
+                                        quantity: item.quantity,
+                                        partnerEnabled: checked,
+                                        partnerQuantity: item.partnerQuantity,
+                                        maxOwn: maxOwnForDetailLine(
+                                          inventoryItem,
+                                          savedLine,
+                                        ),
+                                        changed: "partnerToggle",
+                                      });
+                                      if (allocated.didCapToStock) {
+                                        toast.warn(
+                                          `Sem parceiro, a quantidade fica limitada ao estoque próprio (${allocated.quantity}).`,
+                                        );
+                                      }
                                       const updated = [...editForm.items];
                                       updated[index] = {
                                         ...updated[index],
-                                        usePartnerSupply: e.target.checked,
-                                        partnerQuantity: e.target.checked
-                                          ? updated[index].partnerQuantity ||
-                                            Math.min(
-                                              updated[index].quantity,
-                                              Math.max(1, 1),
-                                            )
+                                        usePartnerSupply: checked,
+                                        quantity: allocated.quantity,
+                                        partnerQuantity: allocated.partnerQuantity,
+                                        partnerId: checked
+                                          ? updated[index].partnerId
                                           : undefined,
                                       };
                                       setEditForm({
@@ -1732,48 +1857,134 @@ const RentalDetailPage: React.FC = () => {
                                 </label>
                                 {item.usePartnerSupply ? (
                                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                                    <select
-                                      value={item.partnerId || ""}
+                                    <div>
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="text-2xs text-gray-500">
+                                          Parceiro
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setPartnerModalTarget({
+                                              kind: "edit",
+                                              index,
+                                            })
+                                          }
+                                          className="text-2xs font-medium text-gray-700 dark:text-gray-200 hover:underline"
+                                        >
+                                          + Novo
+                                        </button>
+                                      </div>
+                                      <select
+                                        value={item.partnerId || ""}
+                                        onChange={(e) => {
+                                          const updated = [...editForm.items];
+                                          updated[index] = {
+                                            ...updated[index],
+                                            partnerId: e.target.value || undefined,
+                                          };
+                                          setEditForm({
+                                            ...editForm,
+                                            items: updated,
+                                          });
+                                        }}
+                                        className="w-full px-2 py-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600"
+                                      >
+                                        <option value="">Selecione</option>
+                                        {partnersList.map((p) => (
+                                          <option key={p._id} value={p._id}>
+                                            {p.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      {partnersList.length === 0 && (
+                                        <p className="mt-1 text-2xs text-gray-500">
+                                          Nenhum parceiro.{" "}
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setPartnerModalTarget({
+                                                kind: "edit",
+                                                index,
+                                              })
+                                            }
+                                            className="font-medium underline"
+                                          >
+                                            Cadastrar
+                                          </button>
+                                        </p>
+                                      )}
+                                    </div>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      inputMode="numeric"
+                                      value={item.partnerQuantity ?? ""}
+                                      onFocus={(e) => {
+                                        partnerQtySnapshotRef.current[
+                                          `edit-${index}`
+                                        ] = item.partnerQuantity || 0;
+                                        selectInputText(e);
+                                      }}
+                                      onClick={selectInputText}
                                       onChange={(e) => {
+                                        const raw = e.target.value;
+                                        const parsed =
+                                          raw === ""
+                                            ? undefined
+                                            : parseInt(raw, 10);
                                         const updated = [...editForm.items];
                                         updated[index] = {
                                           ...updated[index],
-                                          partnerId: e.target.value || undefined,
+                                          partnerQuantity:
+                                            parsed === undefined ||
+                                            Number.isNaN(parsed)
+                                              ? undefined
+                                              : parsed,
                                         };
                                         setEditForm({
                                           ...editForm,
                                           items: updated,
                                         });
                                       }}
-                                      className="px-2 py-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600"
-                                    >
-                                      <option value="">Parceiro</option>
-                                      {partnersList.map((p) => (
-                                        <option key={p._id} value={p._id}>
-                                          {p.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      max={item.quantity}
-                                      value={item.partnerQuantity ?? ""}
-                                      onChange={(e) => {
-                                        const updated = [...editForm.items];
-                                        updated[index] = {
-                                          ...updated[index],
-                                          partnerQuantity: Math.max(
-                                            1,
-                                            Math.min(
-                                              item.quantity,
-                                              Number(e.target.value) || 1,
-                                            ),
-                                          ),
-                                        };
-                                        setEditForm({
-                                          ...editForm,
-                                          items: updated,
+                                      onBlur={() => {
+                                        setEditForm((prev) => {
+                                          const current = prev.items[index];
+                                          if (!current) return prev;
+                                          const savedLine =
+                                            getRentalLineForEditRow(
+                                              rental.items,
+                                              current,
+                                            );
+                                          const inventoryItem =
+                                            inventoryItems.find(
+                                              (inv) =>
+                                                inv._id === current.itemId,
+                                            );
+                                          const allocated =
+                                            allocateRentalQuantities({
+                                              quantity: current.quantity,
+                                              partnerEnabled: true,
+                                              partnerQuantity:
+                                                current.partnerQuantity,
+                                              previousPartnerQuantity:
+                                                partnerQtySnapshotRef.current[
+                                                  `edit-${index}`
+                                                ] ?? 0,
+                                              maxOwn: maxOwnForDetailLine(
+                                                inventoryItem,
+                                                savedLine,
+                                              ),
+                                              changed: "partnerQuantity",
+                                            });
+                                          const updated = [...prev.items];
+                                          updated[index] = {
+                                            ...updated[index],
+                                            partnerQuantity:
+                                              allocated.partnerQuantity,
+                                            quantity: allocated.quantity,
+                                          };
+                                          return { ...prev, items: updated };
                                         });
                                       }}
                                       placeholder="Qtd. terceiros"
@@ -2528,6 +2739,32 @@ const RentalDetailPage: React.FC = () => {
                           }
                         }
 
+                        if (itemData?.trackingType !== "unit") {
+                          const savedLine = getRentalLineForEditRow(
+                            rental.items,
+                            item,
+                          );
+                          const inventoryItem =
+                            inventoryItems.find((inv) => inv._id === item.itemId) ||
+                            itemData;
+                          const maxOwn = maxOwnForDetailLine(
+                            inventoryItem,
+                            savedLine,
+                          );
+                          const ownQty = ownQuantityFromLine(
+                            item.quantity,
+                            item.usePartnerSupply ? item.partnerQuantity : 0,
+                          );
+                          if (ownQty > maxOwn) {
+                            toast.error(
+                              item.usePartnerSupply
+                                ? `Estoque próprio insuficiente no item ${index + 1}. Disponível: ${maxOwn}, necessário: ${ownQty}.`
+                                : `Estoque próprio insuficiente no item ${index + 1} (disponível: ${maxOwn}, solicitado: ${ownQty}). Marque equipamento de parceiro para cobrir o restante.`,
+                            );
+                            return;
+                          }
+                        }
+
                         const row: {
                           itemId: string;
                           unitId?: string;
@@ -2878,12 +3115,37 @@ const RentalDetailPage: React.FC = () => {
                         value={newItemForm.quantity}
                         onFocus={selectInputText}
                         onClick={selectInputText}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === "") {
+                            setNewItemForm({ ...newItemForm, quantity: 0 });
+                            return;
+                          }
+                          const nextQty = parseInt(raw, 10);
+                          if (!Number.isFinite(nextQty)) return;
+                          if (
+                            newItemForm.usePartnerSupply &&
+                            selectedInventoryItem?.trackingType !== "unit"
+                          ) {
+                            const allocated = allocateRentalQuantities({
+                              quantity: nextQty,
+                              partnerEnabled: true,
+                              partnerQuantity: newItemForm.partnerQuantity,
+                              maxOwn: maxOwnForDetailLine(selectedInventoryItem),
+                              changed: "quantity",
+                            });
+                            setNewItemForm({
+                              ...newItemForm,
+                              quantity: allocated.quantity,
+                              partnerQuantity: allocated.partnerQuantity,
+                            });
+                            return;
+                          }
                           setNewItemForm({
                             ...newItemForm,
-                            quantity: Number(e.target.value) || 1,
-                          })
-                        }
+                            quantity: nextQty,
+                          });
+                        }}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       />
                     ) : null}
@@ -2963,57 +3225,121 @@ const RentalDetailPage: React.FC = () => {
                         <input
                           type="checkbox"
                           checked={newItemForm.usePartnerSupply === true}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            const allocated = allocateRentalQuantities({
+                              quantity: Math.max(1, newItemForm.quantity),
+                              partnerEnabled: checked,
+                              partnerQuantity: newItemForm.partnerQuantity,
+                              maxOwn: maxOwnForDetailLine(selectedInventoryItem),
+                              changed: "partnerToggle",
+                            });
+                            if (allocated.didCapToStock) {
+                              toast.warn(
+                                `Sem parceiro, a quantidade fica limitada ao estoque próprio (${allocated.quantity}).`,
+                              );
+                            }
                             setNewItemForm({
                               ...newItemForm,
-                              usePartnerSupply: e.target.checked,
-                              partnerQuantity: e.target.checked
-                                ? Math.min(
-                                    newItemForm.quantity,
-                                    Math.max(1, newItemForm.partnerQuantity || 1),
-                                  )
-                                : undefined,
-                            })
-                          }
+                              usePartnerSupply: checked,
+                              quantity: allocated.quantity,
+                              partnerQuantity: allocated.partnerQuantity,
+                            });
+                          }}
                         />
                         Inclui equipamento de parceiro (interno)
                       </label>
                       {newItemForm.usePartnerSupply ? (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                          <select
-                            value={newItemForm.partnerId || ""}
-                            onChange={(e) =>
-                              setNewItemForm({
-                                ...newItemForm,
-                                partnerId: e.target.value || undefined,
-                              })
-                            }
-                            className="px-2 py-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600"
-                          >
-                            <option value="">Parceiro</option>
-                            {partnersList.map((p: Partner) => (
-                              <option key={p._id} value={p._id}>
-                                {p.name}
-                              </option>
-                            ))}
-                          </select>
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-2xs text-gray-500">
+                                Parceiro
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPartnerModalTarget({ kind: "new" })
+                                }
+                                className="text-2xs font-medium text-gray-700 dark:text-gray-200 hover:underline"
+                              >
+                                + Novo
+                              </button>
+                            </div>
+                            <select
+                              value={newItemForm.partnerId || ""}
+                              onChange={(e) =>
+                                setNewItemForm({
+                                  ...newItemForm,
+                                  partnerId: e.target.value || undefined,
+                                })
+                              }
+                              className="w-full px-2 py-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600"
+                            >
+                              <option value="">Selecione</option>
+                              {partnersList.map((p: Partner) => (
+                                <option key={p._id} value={p._id}>
+                                  {p.name}
+                                </option>
+                              ))}
+                            </select>
+                            {partnersList.length === 0 && (
+                              <p className="mt-1 text-2xs text-gray-500">
+                                Nenhum parceiro.{" "}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPartnerModalTarget({ kind: "new" })
+                                  }
+                                  className="font-medium underline"
+                                >
+                                  Cadastrar
+                                </button>
+                              </p>
+                            )}
+                          </div>
                           <input
                             type="number"
                             min={1}
-                            max={newItemForm.quantity}
+                            inputMode="numeric"
                             value={newItemForm.partnerQuantity ?? ""}
-                            onChange={(e) =>
+                            onFocus={(e) => {
+                              partnerQtySnapshotRef.current.new = newItemForm.partnerQuantity || 0;
+                              selectInputText(e);
+                            }}
+                            onClick={selectInputText}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              const parsed =
+                                raw === "" ? undefined : parseInt(raw, 10);
                               setNewItemForm({
                                 ...newItemForm,
-                                partnerQuantity: Math.max(
-                                  1,
-                                  Math.min(
-                                    newItemForm.quantity,
-                                    Number(e.target.value) || 1,
+                                partnerQuantity:
+                                  parsed === undefined || Number.isNaN(parsed)
+                                    ? undefined
+                                    : parsed,
+                              });
+                            }}
+                            onBlur={() => {
+                              setNewItemForm((prev) => {
+                                const allocated = allocateRentalQuantities({
+                                  quantity: prev.quantity,
+                                  partnerEnabled: true,
+                                  partnerQuantity: prev.partnerQuantity,
+                                  previousPartnerQuantity:
+                                    partnerQtySnapshotRef.current.new ?? 0,
+                                  maxOwn: maxOwnForDetailLine(
+                                    selectedInventoryItem,
                                   ),
-                                ),
-                              })
-                            }
+                                  changed: "partnerQuantity",
+                                });
+                                return {
+                                  ...prev,
+                                  partnerQuantity: allocated.partnerQuantity,
+                                  quantity: allocated.quantity,
+                                };
+                              });
+                            }}
                             placeholder="Qtd. terceiros"
                             className="px-2 py-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600"
                           />
@@ -3082,7 +3408,22 @@ const RentalDetailPage: React.FC = () => {
                         const qty =
                           selectedInventoryItem?.trackingType === "unit"
                             ? 1
-                            : newItemForm.quantity;
+                            : Math.max(1, newItemForm.quantity);
+                        const usePartner =
+                          newItemForm.usePartnerSupply &&
+                          selectedInventoryItem?.trackingType !== "unit";
+                        const allocated = usePartner
+                          ? allocateRentalQuantities({
+                              quantity: qty,
+                              partnerEnabled: true,
+                              partnerQuantity: newItemForm.partnerQuantity,
+                              maxOwn: maxOwnForDetailLine(selectedInventoryItem),
+                              changed: "quantity",
+                            })
+                          : {
+                              quantity: qty,
+                              partnerQuantity: undefined,
+                            };
                         setEditForm({
                           ...editForm,
                           items: [
@@ -3090,25 +3431,18 @@ const RentalDetailPage: React.FC = () => {
                             {
                               itemId: newItemForm.itemId,
                               unitId: newItemForm.unitId,
-                              quantity: qty,
+                              quantity: allocated.quantity,
                               rentalType: newItemForm.rentalType,
                               pickupDate: newItemForm.pickupDate,
                               pickupTime: newItemForm.pickupTime,
                               returnDate: newItemForm.returnDate,
                               isLoan: newItemForm.isLoan ? true : undefined,
-                              usePartnerSupply:
-                                newItemForm.usePartnerSupply &&
-                                selectedInventoryItem?.trackingType !== "unit"
-                                  ? true
-                                  : undefined,
-                              partnerId: newItemForm.usePartnerSupply
+                              usePartnerSupply: usePartner ? true : undefined,
+                              partnerId: usePartner
                                 ? newItemForm.partnerId
                                 : undefined,
-                              partnerQuantity: newItemForm.usePartnerSupply
-                                ? Math.min(
-                                    qty,
-                                    Math.max(1, Number(newItemForm.partnerQuantity || 1)),
-                                  )
+                              partnerQuantity: usePartner
+                                ? allocated.partnerQuantity
                                 : undefined,
                               partnerAgreedCostInput: newItemForm.usePartnerSupply
                                 ? newItemForm.partnerAgreedCostInput
@@ -6012,12 +6346,19 @@ const RentalDetailPage: React.FC = () => {
                       value={newItemForm.quantity}
                       onFocus={selectInputText}
                       onClick={selectInputText}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === "") {
+                          setNewItemForm({ ...newItemForm, quantity: 0 });
+                          return;
+                        }
+                        const nextQty = parseInt(raw, 10);
+                        if (!Number.isFinite(nextQty)) return;
                         setNewItemForm({
                           ...newItemForm,
-                          quantity: Number(e.target.value) || 1,
-                        })
-                      }
+                          quantity: nextQty,
+                        });
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     />
                   ) : null}
@@ -6142,6 +6483,11 @@ const RentalDetailPage: React.FC = () => {
             </div>,
             document.body,
           )}
+      <CreatePartnerModal
+        open={!!partnerModalTarget}
+        onClose={() => setPartnerModalTarget(null)}
+        onCreated={handlePartnerCreated}
+      />
       </div>
     </Layout>
   );
