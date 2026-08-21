@@ -46,6 +46,7 @@ import billingService, {
   calculateRentalLineAmount,
   effectivePricingPeriods,
   periodRateFromInventory,
+  registeredPeriodRateFromInventory,
   resolveBillingTotal,
 } from "../billings/billing.service";
 import {
@@ -2265,6 +2266,16 @@ class RentalService {
     const types: RentalType[] = ["daily", "weekly", "biweekly", "monthly"];
 
     for (const rt of types) {
+      const isCurrentType = rt === params.currentBillingType;
+      const hasRegisteredRate =
+        registeredPeriodRateFromInventory(params.inventoryPricing, rt) > 0;
+      const overrideCoversType =
+        params.periodOverride > 0 && rt === params.contractRentalType;
+      // Não sugere tipo sem preço cadastrado (derivar da diária não conta).
+      if (!isCurrentType && !hasRegisteredRate && !overrideCoversType) {
+        continue;
+      }
+
       let periodStart: Date;
       let periodEnd: Date;
       try {
@@ -2299,11 +2310,16 @@ class RentalService {
         periodStart: calc.periodStart,
         periodEnd: calc.periodEnd,
         returnAtForCalc: params.returnAt,
-        kind: rt === params.currentBillingType ? "type" : "type",
+        kind: "type",
       });
 
-      // Ajuste de data: só se a devolução passou exatamente 1 dia do ciclo
-      // (evita sugerir datas bem anteriores e divergir do caixa do aluguel).
+      // Ajuste de data só no tipo atual e na mesma devolução real.
+      // Trocar de tipo (ex.: quinzena → diária) compara na data informada;
+      // não recua a data para “ganhar” 1 diária a menos.
+      if (rt !== params.currentBillingType) {
+        continue;
+      }
+
       if (rt !== "daily") {
         const pc = calculateBillingPeriod(periodStart, periodEnd, rt);
         if (pc.extraDays === 1 && pc.periodsCompleted >= 1) {
@@ -2340,8 +2356,7 @@ class RentalService {
                 periodStart: adj.periodStart,
                 periodEnd: adj.periodEnd,
                 returnAtForCalc: adjustedEnd,
-                kind:
-                  rt === params.currentBillingType ? "date" : "type_and_date",
+                kind: "date",
               });
             }
           }
@@ -2351,7 +2366,6 @@ class RentalService {
         const units = Math.max(1, pc.periodsCompleted);
         if (units >= 2) {
           const HOUR_MS = 1000 * 60 * 60;
-          const DAY_MS = 24 * HOUR_MS;
           const prevUnits = units - 1;
           const maxMsForPrev =
             prevUnits <= 1
@@ -2369,8 +2383,8 @@ class RentalService {
             adjustedEnd = new Date(periodStart.getTime() + maxMsForPrev);
           }
           const spillMs = periodEnd.getTime() - adjustedEnd.getTime();
-          // Só sugere se o “estouro” for de no máximo 1 dia (24h).
-          if (spillMs > 0 && spillMs <= DAY_MS + 60_000) {
+          // Só se o estouro for a tolerância da diária (~2h), não um dia cheio.
+          if (spillMs > 0 && spillMs <= 2 * HOUR_MS + 60_000) {
             const adj = this.tryCloseAmountForSuggestion(
               params.inventoryPricing,
               "daily",
@@ -2389,10 +2403,7 @@ class RentalService {
                 periodStart: adj.periodStart,
                 periodEnd: adj.periodEnd,
                 returnAtForCalc: adjustedEnd,
-                kind:
-                  params.currentBillingType === "daily"
-                    ? "date"
-                    : "type_and_date",
+                kind: "date",
               });
             }
           }
@@ -4184,6 +4195,35 @@ class RentalService {
     return { created };
   }
 
+  private async saveRentalAfterBillingSideEffects(
+    rental: IRental,
+  ): Promise<void> {
+    if (!rental.isModified()) {
+      return;
+    }
+    try {
+      await rental.save();
+    } catch (err) {
+      const name =
+        err && typeof err === "object" && "name" in err
+          ? String((err as { name: string }).name)
+          : "";
+      if (name !== "VersionError") {
+        throw err;
+      }
+      const fresh = await Rental.findById(rental._id);
+      if (!fresh) {
+        return;
+      }
+      for (const path of rental.modifiedPaths()) {
+        fresh.set(path, rental.get(path));
+      }
+      if (fresh.isModified()) {
+        await fresh.save();
+      }
+    }
+  }
+
   /**
    * Cria fechamentos em falta e atualiza valores dos fechamentos em aberto conforme o aluguel atual.
    */
@@ -4220,11 +4260,13 @@ class RentalService {
       const r = await this.processDueBillings(companyId, rentalId, userId);
       created += r.created;
       draftsCreated += r.draftsCreated;
-      await this.createFinalBillingIfNeeded(rental, userId);
-      await rental.save();
+      const latest =
+        (await Rental.findOne({ _id: rentalId, companyId })) || rental;
+      await this.createFinalBillingIfNeeded(latest, userId);
+      await this.saveRentalAfterBillingSideEffects(latest);
     } else if (rental.status === "ready_to_close") {
       await this.createFinalBillingIfNeeded(rental, userId);
-      await rental.save();
+      await this.saveRentalAfterBillingSideEffects(rental);
     }
 
     let refreshed = 0;
@@ -4596,7 +4638,7 @@ class RentalService {
       }
     }
 
-    await rental.save();
+    await this.saveRentalAfterBillingSideEffects(rental);
 
     const refreshableBillings = await Billing.find({
       companyId,
@@ -7131,7 +7173,20 @@ class RentalService {
     await rental.save();
 
     if (shouldSyncBillings) {
-      await this.syncBillingsAfterRentalChange(companyId, rentalId, userId);
+      try {
+        await this.syncBillingsAfterRentalChange(companyId, rentalId, userId);
+      } catch (err) {
+        const name =
+          err && typeof err === "object" && "name" in err
+            ? String((err as { name: string }).name)
+            : "";
+        if (name !== "VersionError") {
+          throw err;
+        }
+        console.warn(
+          `[updateRental] Fechamentos não sincronizados após edição do aluguel ${rentalId}: conflito de versão.`,
+        );
+      }
     }
 
     const finalRental =

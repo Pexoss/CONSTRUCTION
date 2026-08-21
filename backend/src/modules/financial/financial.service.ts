@@ -175,12 +175,12 @@ class FinancialService {
 
     const [billings, charges, invoices] = await Promise.all([
       Billing.find(billingQuery)
-        .populate("customerId", "name responsibles")
+        .populate("customerId", "name phone responsibles")
         .populate("items.itemId", "name")
         .populate("rentalId", "workAddress rentalNumber")
         .sort({ billingDate: -1 }),
       Charge.find({ companyId })
-        .populate("customerId", "name responsibles")
+        .populate("customerId", "name phone responsibles")
         .populate({
           path: "billingIds",
           populate: [
@@ -194,7 +194,7 @@ class FinancialService {
         })
         .sort({ createdAt: -1 }),
       Invoice.find(invoiceQuery)
-        .populate("customerId", "name responsibles")
+        .populate("customerId", "name phone responsibles")
         .populate({
           path: "billingIds",
           populate: [

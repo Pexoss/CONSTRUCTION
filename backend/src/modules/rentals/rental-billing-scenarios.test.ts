@@ -3,6 +3,7 @@ import {
   calculateBillingPeriod,
   calculateRentalLineAmount,
   periodRateFromInventory,
+  registeredPeriodRateFromInventory,
 } from "../billings/billing.service";
 import {
   simulateNonDailyPeriodicClosures,
@@ -21,6 +22,14 @@ describe("rental billing — cálculo único (billing.service)", () => {
         "biweekly",
       ).rate,
     ).toBe(13);
+  });
+
+  it("registeredPeriodRateFromInventory: semanal sem cadastro não usa derivação da diária", () => {
+    const pricing = { dailyRate: 10, monthlyRate: 200 };
+    expect(registeredPeriodRateFromInventory(pricing, "weekly")).toBe(0);
+    expect(periodRateFromInventory(pricing, "weekly").rate).toBe(70);
+    expect(registeredPeriodRateFromInventory(pricing, "daily")).toBe(10);
+    expect(registeredPeriodRateFromInventory(pricing, "monthly")).toBe(200);
   });
 
   it("calculateRentalLineAmount quinzenal: tarifa cadastrada (13) vence derivação a partir do mensal", () => {

@@ -1,7 +1,7 @@
-export type RentalQtyAllocation = {
+export type RentalQtyFields = {
   quantity: number;
-  partnerQuantity?: number;
-  didCapToStock: boolean;
+  ownQuantity: number;
+  partnerQuantity: number;
 };
 
 export function ownQuantityFromLine(
@@ -32,60 +32,55 @@ export function maxOwnStockForRentalLine(params: {
   return warehouse + savedOwn;
 }
 
-/**
- * Total alugado = estoque próprio + terceiros.
- * O próprio não passa do disponível; o restante vai para o parceiro.
- */
-export function allocateRentalQuantities(input: {
-  quantity: number;
-  partnerEnabled: boolean;
-  partnerQuantity?: number;
-  previousPartnerQuantity?: number;
-  maxOwn: number;
-  changed: "quantity" | "partnerQuantity" | "partnerToggle";
-}): RentalQtyAllocation {
-  const maxOwn = Math.max(0, Math.floor(Number(input.maxOwn) || 0));
-  let quantity = Math.max(1, Math.floor(Number(input.quantity) || 1));
-
-  if (!input.partnerEnabled) {
-    const didCapToStock = maxOwn > 0 && quantity > maxOwn;
-    return {
-      quantity: didCapToStock ? maxOwn : quantity,
-      partnerQuantity: undefined,
-      didCapToStock,
-    };
-  }
-
-  if (input.changed === "partnerQuantity") {
-    const partner = Math.max(
-      1,
-      Math.floor(Number(input.partnerQuantity) || 1),
-    );
-    const prevPartner = Math.max(
-      0,
-      Math.floor(Number(input.previousPartnerQuantity) || 0),
-    );
-    const previousOwn = Math.min(maxOwn, Math.max(0, quantity - prevPartner));
-    return {
-      quantity: previousOwn + partner,
-      partnerQuantity: partner,
-      didCapToStock: false,
-    };
-  }
-
-  const minPartner = Math.max(0, quantity - maxOwn);
-  let partner = Math.max(
-    minPartner,
-    Math.floor(Number(input.partnerQuantity) || 0),
-    1,
+export function rentalLineDeliveryShortfall(
+  ownQuantity: number,
+  maxOwn: number,
+): number {
+  return Math.max(
+    0,
+    Math.floor(Number(ownQuantity) || 0) -
+      Math.max(0, Math.floor(Number(maxOwn) || 0)),
   );
-  if (partner > quantity) {
-    partner = quantity;
+}
+
+/**
+ * Total = estoque próprio + terceiros.
+ * - Alterar total: mantém terceiros e recalcula o próprio.
+ * - Alterar terceiros: mantém o total e recalcula o próprio.
+ * - Alterar próprio: soma no total (próprio + terceiros).
+ */
+export function syncRentalLineQuantities(input: {
+  quantity: number;
+  ownQuantity: number;
+  partnerQuantity: number;
+  changed: "quantity" | "ownQuantity" | "partnerQuantity";
+}): RentalQtyFields {
+  let quantity = Math.max(0, Math.floor(Number(input.quantity) || 0));
+  let ownQuantity = Math.max(0, Math.floor(Number(input.ownQuantity) || 0));
+  let partnerQuantity = Math.max(
+    0,
+    Math.floor(Number(input.partnerQuantity) || 0),
+  );
+
+  if (input.changed === "quantity") {
+    if (partnerQuantity > quantity) {
+      partnerQuantity = quantity;
+      ownQuantity = 0;
+    } else {
+      ownQuantity = quantity - partnerQuantity;
+    }
+  } else if (input.changed === "partnerQuantity") {
+    if (quantity <= 0) {
+      quantity = ownQuantity + partnerQuantity;
+    } else if (partnerQuantity > quantity) {
+      quantity = partnerQuantity;
+      ownQuantity = 0;
+    } else {
+      ownQuantity = quantity - partnerQuantity;
+    }
+  } else {
+    quantity = ownQuantity + partnerQuantity;
   }
 
-  return {
-    quantity,
-    partnerQuantity: partner,
-    didCapToStock: false,
-  };
+  return { quantity, ownQuantity, partnerQuantity };
 }

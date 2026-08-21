@@ -35,6 +35,7 @@ import {
   formatCurrencyBr,
   formatMoneyInputBrLive,
   formatMoneyInputBr,
+  formatPhoneForDisplay,
   getBillingOutstandingAmount,
   parseMoneyBr,
   toDateInputValue,
@@ -143,29 +144,52 @@ const getChargeWorkNamesLabel = (charge: any): string => {
   return names.join(", ");
 };
 
-const getChargeFinancialResponsibleLabel = (charge: any): string => {
+type ChargeContactInfo = {
+  name?: string;
+  phone?: string;
+  fromFinancialResponsible: boolean;
+};
+
+const getChargeContactInfo = (charge: any): ChargeContactInfo => {
   for (const bill of charge?.billingIds || []) {
     const fromRental = bill?.rentalId?.financialResponsibleContact;
     if (fromRental?.name) {
-      return fromRental.phone
-        ? `${fromRental.name} (${fromRental.phone})`
-        : String(fromRental.name);
+      const phone = String(fromRental.phone || "").trim();
+      return {
+        name: String(fromRental.name).trim(),
+        phone: phone || undefined,
+        fromFinancialResponsible: true,
+      };
     }
   }
 
   const customerResponsibles = charge?.customerId?.responsibles;
   if (Array.isArray(customerResponsibles)) {
     const financial = customerResponsibles.find(
-      (resp: any) => resp?.role === "financial",
+      (resp: any) => resp?.role === "financial" && resp?.name,
     );
     if (financial?.name) {
-      return financial.phone
-        ? `${financial.name} (${financial.phone})`
-        : String(financial.name);
+      const phone = String(financial.phone || "").trim();
+      return {
+        name: String(financial.name).trim(),
+        phone: phone || undefined,
+        fromFinancialResponsible: true,
+      };
     }
   }
 
-  return "";
+  const customerPhone = String(charge?.customerId?.phone || "").trim();
+  return {
+    phone: customerPhone || undefined,
+    fromFinancialResponsible: false,
+  };
+};
+
+const getChargeFinancialResponsibleLabel = (charge: any): string => {
+  const info = getChargeContactInfo(charge);
+  if (!info.fromFinancialResponsible || !info.name) return "";
+  const phone = info.phone ? formatPhoneForDisplay(info.phone) : "";
+  return phone ? `${info.name} (${phone})` : info.name;
 };
 
 const billingPeriodRangeKey = (billing: {
@@ -1099,6 +1123,18 @@ const FinancialCenterPage: React.FC = () => {
     }
     return names.join(", ");
   }, [chargeModalLinkedBillings]);
+
+  const chargeModalContact = useMemo(() => {
+    if (!chargeModal) return null;
+    const info = getChargeContactInfo({
+      ...chargeModal,
+      billingIds: chargeModalLinkedBillings.length
+        ? chargeModalLinkedBillings
+        : chargeModal.billingIds,
+    });
+    if (!info.name && !info.phone) return null;
+    return info;
+  }, [chargeModal, chargeModalLinkedBillings]);
 
   const chargeModalExistingInvoice = useMemo(
     () =>
@@ -2118,13 +2154,33 @@ const FinancialCenterPage: React.FC = () => {
                     </p>
                   ) : null}
               </div>
-              <button
-                type="button"
-                className="shrink-0 px-4 py-2.5 rounded-lg border-2 border-gray-900 dark:border-gray-100 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm font-bold shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-                onClick={() => setChargeModal(null)}
-              >
-                Fechar
-              </button>
+              <div className="flex items-start gap-3 shrink-0">
+                {chargeModalContact ? (
+                  <div className="min-w-0 max-w-[16rem] text-left sm:text-right">
+                    {chargeModalContact.fromFinancialResponsible &&
+                    chargeModalContact.name ? (
+                      <p
+                        className="text-sm font-medium text-gray-900 dark:text-white truncate"
+                        title={chargeModalContact.name}
+                      >
+                        {chargeModalContact.name}
+                      </p>
+                    ) : null}
+                    {chargeModalContact.phone ? (
+                      <p className="text-sm text-gray-600 dark:text-gray-400 truncate">
+                        {formatPhoneForDisplay(chargeModalContact.phone)}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="shrink-0 px-4 py-2.5 rounded-lg border-2 border-gray-900 dark:border-gray-100 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm font-bold shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+                  onClick={() => setChargeModal(null)}
+                >
+                  Fechar
+                </button>
+              </div>
             </div>
             <div className="px-5 py-5 space-y-6">
               {chargeModalViewOnly ? (

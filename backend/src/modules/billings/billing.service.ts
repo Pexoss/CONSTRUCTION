@@ -78,6 +78,32 @@ export function effectivePricingPeriods(pricing?: {
   return { dailyRate, weeklyRate, biweeklyRate, monthlyRate };
 }
 
+export function registeredPeriodRateFromInventory(
+  pricing:
+    | {
+        dailyRate?: number;
+        weeklyRate?: number;
+        biweeklyRate?: number;
+        monthlyRate?: number;
+      }
+    | undefined,
+  rentalType: RentalType,
+): number {
+  if (!pricing) return 0;
+  switch (rentalType) {
+    case "daily":
+      return Math.max(0, Number(pricing.dailyRate ?? 0));
+    case "weekly":
+      return Math.max(0, Number(pricing.weeklyRate ?? 0));
+    case "biweekly":
+      return Math.max(0, Number(pricing.biweeklyRate ?? 0));
+    case "monthly":
+      return Math.max(0, Number(pricing.monthlyRate ?? 0));
+    default:
+      return 0;
+  }
+}
+
 export function periodRateFromInventory(
   pricing:
     | {
