@@ -520,10 +520,12 @@ const CreateItemPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        setUnits([
-                          ...units,
-                          { unitId: "", status: "available" },
-                        ]);
+                        window.setTimeout(() => {
+                          setUnits((prev) => [
+                            ...prev,
+                            { unitId: "", status: "available" },
+                          ]);
+                        }, 0);
                       }}
                       className="inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                     >

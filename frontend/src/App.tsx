@@ -400,7 +400,8 @@ function App() {
               />
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Routes>
-            <ToastContainer
+          </Suspense>
+          <ToastContainer
               position="top-right"
               autoClose={3000}
               hideProgressBar={false}
@@ -412,7 +413,6 @@ function App() {
               pauseOnHover
               theme="colored"
             />
-          </Suspense>
         </Router>
       </QueryClientProvider>
     </ThemeProvider>

@@ -3172,11 +3172,7 @@ const RentalDetailPage: React.FC = () => {
                         const usePartner =
                           partnerQty > 0 &&
                           selectedInventoryItem?.trackingType !== "unit";
-                        setEditForm({
-                          ...editForm,
-                          items: [
-                            ...editForm.items,
-                            {
+                        const nextRow = {
                               itemId: newItemForm.itemId,
                               unitId: newItemForm.unitId,
                               quantity: qty,
@@ -3196,10 +3192,14 @@ const RentalDetailPage: React.FC = () => {
                               partnerAgreedCostInput: usePartner
                                 ? newItemForm.partnerAgreedCostInput
                                 : undefined,
-                            },
-                          ],
-                        });
-                        setNewItemForm({
+                            };
+                        setShowAddItemModal(false);
+                        window.setTimeout(() => {
+                          setEditForm((prev) => ({
+                            ...prev,
+                            items: [...prev.items, nextRow],
+                          }));
+                          setNewItemForm({
                           itemId: "",
                           unitId: "",
                           quantity: 1,
@@ -3214,7 +3214,7 @@ const RentalDetailPage: React.FC = () => {
                           partnerId: undefined,
                           partnerAgreedCostInput: undefined,
                         });
-                        setShowAddItemModal(false);
+                        }, 0);
                       }}
                       className="px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-md text-sm font-medium"
                     >
@@ -6250,11 +6250,7 @@ const RentalDetailPage: React.FC = () => {
                         0,
                         Number(newItemForm.partnerQuantity || 0),
                       );
-                      setEditForm({
-                        ...editForm,
-                        items: [
-                          ...editForm.items,
-                          {
+                      const nextRow = {
                             itemId: newItemForm.itemId,
                             unitId: newItemForm.unitId,
                             quantity:
@@ -6278,10 +6274,14 @@ const RentalDetailPage: React.FC = () => {
                             pickupTime: newItemForm.pickupTime,
                             returnDate: newItemForm.returnDate,
                             isLoan: newItemForm.isLoan ? true : undefined,
-                          },
-                        ],
-                      });
-                      setNewItemForm({
+                          };
+                      setShowAddItemModal(false);
+                      window.setTimeout(() => {
+                        setEditForm((prev) => ({
+                          ...prev,
+                          items: [...prev.items, nextRow],
+                        }));
+                        setNewItemForm({
                         itemId: "",
                         unitId: "",
                         quantity: 1,
@@ -6293,7 +6293,7 @@ const RentalDetailPage: React.FC = () => {
                         returnDate: "",
                         isLoan: false,
                       });
-                      setShowAddItemModal(false);
+                      }, 0);
                     }}
                     className="px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white rounded-md text-sm font-medium"
                   >

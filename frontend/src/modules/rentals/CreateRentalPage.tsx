@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
@@ -730,32 +731,29 @@ const CreateRentalPage: React.FC = () => {
     const defaultPickupDate = pickupDate || selectedItems[0]?.pickupDate || "";
     const defaultPickupTime = pickupTime || selectedItems[0]?.pickupTime || "";
 
-    const existingIndex = selectedItems.findIndex(
-      (si) => si.itemId === item._id,
-    );
-
-    if (existingIndex >= 0) {
-      const updated = [...selectedItems];
-      if (item.trackingType !== "unit") {
-        const current = updated[existingIndex];
-        const nextQty = current.quantity + 1;
-        const synced = syncRentalLineQuantities({
-          quantity: nextQty,
-          ownQuantity: resolvedOwnQuantity(current),
-          partnerQuantity: current.partnerQuantity || 0,
-          changed: "quantity",
-        });
-        updated[existingIndex] = applySelectedItemQty(current, synced);
+    setSelectedItems((prev) => {
+      const existingIndex = prev.findIndex((si) => si.itemId === item._id);
+      if (existingIndex >= 0) {
+        const updated = [...prev];
+        if (item.trackingType !== "unit") {
+          const current = updated[existingIndex];
+          const synced = syncRentalLineQuantities({
+            quantity: current.quantity + 1,
+            ownQuantity: resolvedOwnQuantity(current),
+            partnerQuantity: current.partnerQuantity || 0,
+            changed: "quantity",
+          });
+          updated[existingIndex] = applySelectedItemQty(current, synced);
+        }
+        return updated;
       }
-      setSelectedItems(updated);
-    } else {
-      //já calcula a devolução mínima
+
       const calculatedReturn = defaultPickupDate
         ? calculateReturnDate(defaultPickupDate, rentalType)
         : "";
 
-      setSelectedItems([
-        ...selectedItems,
+      return [
+        ...prev,
         {
           itemId: item._id,
           quantity: 1,
@@ -768,8 +766,8 @@ const CreateRentalPage: React.FC = () => {
           rentalType,
           periodRateInput: buildPeriodRateInput(item, rentalType),
         },
-      ]);
-    }
+      ];
+    });
   };
 
   const handleRemoveItem = (itemId: string) => {
@@ -1462,31 +1460,35 @@ const CreateRentalPage: React.FC = () => {
     }
   }, [customerAddresses, applyCustomerAddressAtIndex]);
 
-  const filteredItems = items.filter((item) => {
-    if (item.trackingType === "unit") {
-      const hasAvailableUnit = item.units?.some(
-        (unit: ItemUnit) => unit.status === "available",
-      );
-      if (!hasAvailableUnit && (item.quantity.available || 0) <= 0) {
-        return false;
-      }
-    }
+  const filteredItems = useMemo(
+    () =>
+      items.filter((item) => {
+        if (item.trackingType === "unit") {
+          const hasAvailableUnit = item.units?.some(
+            (unit: ItemUnit) => unit.status === "available",
+          );
+          if (!hasAvailableUnit && (item.quantity.available || 0) <= 0) {
+            return false;
+          }
+        }
 
-    if (search) {
-      const term = search.toLowerCase();
+        if (search) {
+          const term = search.toLowerCase();
 
-      const matches =
-        item.name.toLowerCase().includes(term) ||
-        item.description?.toLowerCase().includes(term) ||
-        item.sku?.toLowerCase().includes(term) ||
-        item.barcode?.toLowerCase().includes(term) ||
-        item.customId?.toLowerCase().includes(term);
+          const matches =
+            item.name.toLowerCase().includes(term) ||
+            item.description?.toLowerCase().includes(term) ||
+            item.sku?.toLowerCase().includes(term) ||
+            item.barcode?.toLowerCase().includes(term) ||
+            item.customId?.toLowerCase().includes(term);
 
-      if (!matches) return false;
-    }
+          if (!matches) return false;
+        }
 
-    return true;
-  });
+        return true;
+      }),
+    [items, search],
+  );
 
   const sortedItems = useMemo(() => {
     const list = [...filteredItems];
@@ -2296,7 +2298,7 @@ const CreateRentalPage: React.FC = () => {
                                           ))}
                                         </select>
                                         {partners.length === 0 && (
-                                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                                             Nenhum parceiro cadastrado.{" "}
                                             <button
                                               type="button"
@@ -2309,7 +2311,7 @@ const CreateRentalPage: React.FC = () => {
                                             >
                                               Cadastrar agora
                                             </button>
-                                          </p>
+                                          </div>
                                         )}
                                       </div>
                                       <div>
@@ -3254,8 +3256,9 @@ const CreateRentalPage: React.FC = () => {
           </div>
         </div>
       )}
-      {showItemsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
+      {showItemsModal &&
+        createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-4xl max-h-[85vh] overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -3309,7 +3312,10 @@ const CreateRentalPage: React.FC = () => {
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleAddItem(item)}
+                      onClick={() => {
+                        const itemToAdd = item;
+                        window.setTimeout(() => handleAddItem(itemToAdd), 0);
+                      }}
                       className="ml-4 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white px-3 py-2 rounded-md text-sm font-medium"
                     >
                       + Adicionar
@@ -3319,7 +3325,8 @@ const CreateRentalPage: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </Layout>
   );
