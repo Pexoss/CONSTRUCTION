@@ -547,7 +547,10 @@ const EditItemPage: React.FC = () => {
                     {errors.units && (
                       <p className="text-sm text-red-600">{errors.units}</p>
                     )}
-                    <div className="space-y-3">
+                    <div
+                      key={`units-${units.length}`}
+                      className="space-y-3"
+                    >
                       {units.map((unit, index) => (
                         <div
                           key={index}

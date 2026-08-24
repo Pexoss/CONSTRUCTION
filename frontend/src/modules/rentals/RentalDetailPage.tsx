@@ -17,6 +17,7 @@ import { EMPTY_ITEMS, Item, ItemUnit } from "../../types/inventory.types";
 import { customerService } from "../customers/customer.service";
 import { CustomerResponsible } from "../../types/customer.types";
 import Layout from "../../components/Layout";
+import ErrorBoundary from "../../components/ErrorBoundary";
 import { SuccessToast } from "../../components/SuccessToast";
 import { useAuth } from "hooks/useAuth";
 import { toast } from "react-toastify";
@@ -1548,7 +1549,16 @@ const RentalDetailPage: React.FC = () => {
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Itens do aluguel
                   </h3>
-                  <div className="space-y-3">
+                  <ErrorBoundary>
+                  <div
+                    key={editForm.items
+                      .map(
+                        (item) =>
+                          `${item.itemId}-${item.lineId || ""}-${item.unitId || ""}`,
+                      )
+                      .join("|")}
+                    className="space-y-3"
+                  >
                     {editForm.items.map((item, index) => {
                       const itemInfo =
                         getRentalLineForEditRow(rental.items, item) ??
@@ -1816,7 +1826,7 @@ const RentalDetailPage: React.FC = () => {
                                         ))}
                                       </select>
                                       {partnersList.length === 0 && (
-                                        <p className="mt-1 text-2xs text-gray-500">
+                                        <div className="mt-1 text-2xs text-gray-500">
                                           Nenhum parceiro.{" "}
                                           <button
                                             type="button"
@@ -1830,7 +1840,7 @@ const RentalDetailPage: React.FC = () => {
                                           >
                                             Cadastrar
                                           </button>
-                                        </p>
+                                        </div>
                                       )}
                                     </div>
                                     <input
@@ -1972,6 +1982,7 @@ const RentalDetailPage: React.FC = () => {
                       + Adicionar item
                     </button>
                   </div>
+                  </ErrorBoundary>
                 </div>
                 <div>
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -4418,7 +4429,15 @@ const RentalDetailPage: React.FC = () => {
                   <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Itens do aluguel
                   </h3>
-                  <div className="space-y-3">
+                  <div
+                    key={editForm.items
+                      .map(
+                        (item) =>
+                          `${item.itemId}-${item.lineId || ""}-${item.unitId || ""}`,
+                      )
+                      .join("|")}
+                    className="space-y-3"
+                  >
                     {editForm.items.map((item, index) => {
                       const itemInfo = rental.items[index];
                       const itemName =

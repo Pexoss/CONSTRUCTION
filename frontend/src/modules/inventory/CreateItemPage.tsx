@@ -554,7 +554,10 @@ const CreateItemPage: React.FC = () => {
                     </div>
                   )}
 
-                  <div className="space-y-4">
+                  <div
+                    key={`units-${units.length}`}
+                    className="space-y-4"
+                  >
                     {units.map((unit, index) => (
                       <div
                         key={index}

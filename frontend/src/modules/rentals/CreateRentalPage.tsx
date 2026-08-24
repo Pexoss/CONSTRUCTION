@@ -23,6 +23,7 @@ import {
   EMPTY_CUSTOMERS,
 } from "../../types/customer.types";
 import Layout from "../../components/Layout";
+import ErrorBoundary from "../../components/ErrorBoundary";
 import {
   formatDocumentForDisplay,
   formatDocumentInputBr,
@@ -1881,6 +1882,7 @@ const CreateRentalPage: React.FC = () => {
                   </button>
                 </div>
 
+                <ErrorBoundary>
                 {selectedItems.length === 0 ? (
                   <div className="text-center py-8 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg">
                     <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -1888,14 +1890,17 @@ const CreateRentalPage: React.FC = () => {
                     </p>
                   </div>
                 ) : (
-                  <div className="mt-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+                  <div
+                    key={selectedItems.map((item) => item.itemId).join("|")}
+                    className="mt-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6"
+                  >
                     <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
                       {selectedItems.length} item{selectedItems.length !== 1 ? "s" : ""} selecionado{selectedItems.length !== 1 ? "s" : ""}
                     </div>
                     <div className="space-y-4">
                       {selectedItems.map((selectedItem, selectedIndex) => (
                         <div
-                          key={selectedItem.itemId}
+                          key={`editor-${selectedItem.itemId}`}
                           className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900/50"
                         >
                           <div className="flex items-start justify-between">
@@ -1944,6 +1949,7 @@ const CreateRentalPage: React.FC = () => {
                                     Unidade *
                                   </label>
                                   <select
+                                    key={`${selectedItem.itemId}-unit`}
                                     value={selectedItem.unitId || ""}
                                     onChange={(e) => {
                                       const updated = selectedItems.map((si) =>
@@ -1982,6 +1988,7 @@ const CreateRentalPage: React.FC = () => {
                                     </label>
 
                                     <select
+                                      key={`${selectedItem.itemId}-rentalType`}
                                       value={
                                         selectedItem.rentalType ?? rentalType
                                       }
@@ -2272,6 +2279,7 @@ const CreateRentalPage: React.FC = () => {
                                           </button>
                                         </div>
                                         <select
+                                          key={`${selectedItem.itemId}-partner`}
                                           value={selectedItem.partnerId || ""}
                                           onChange={(e) =>
                                             setSelectedItems(
@@ -2404,6 +2412,7 @@ const CreateRentalPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+                </ErrorBoundary>
 
                 {/* Serviços Adicionais */}
                 <div className="mt-8 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm p-6">

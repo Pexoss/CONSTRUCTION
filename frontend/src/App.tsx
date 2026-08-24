@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastContainer } from "react-toastify";
+import { createPortal } from "react-dom";
 import "react-toastify/dist/ReactToastify.css";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import LoginPage from "./modules/auth/LoginPage";
@@ -401,7 +402,8 @@ function App() {
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </Suspense>
-          <ToastContainer
+          {createPortal(
+            <ToastContainer
               position="top-right"
               autoClose={3000}
               hideProgressBar={false}
@@ -412,7 +414,9 @@ function App() {
               draggable
               pauseOnHover
               theme="colored"
-            />
+            />,
+            document.getElementById("toast-root") || document.body,
+          )}
         </Router>
       </QueryClientProvider>
     </ThemeProvider>
