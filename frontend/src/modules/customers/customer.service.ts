@@ -57,10 +57,12 @@ export const customerService = {
   },
 
   updateCustomer: async (id: string, data: Partial<CreateCustomerData>) => {
-    const response = await api.put<{ success: boolean; message: string; data: Customer }>(
-      `/customers/${id}`,
-      data
-    );
+    const response = await api.put<{
+      success: boolean;
+      message: string;
+      data: Customer;
+      warnings?: string[];
+    }>(`/customers/${id}`, data);
     return response.data;
   },
 

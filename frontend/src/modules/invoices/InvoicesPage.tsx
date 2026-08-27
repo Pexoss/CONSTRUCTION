@@ -22,6 +22,7 @@ import {
 import { invoiceStatusLabel } from "../../utils/statusLabels";
 import SortableTh from "../../components/SortableTh";
 import { formatDocumentForDisplay, formatCurrencyBr } from "../../utils/formatters";
+import { matchesAccentInsensitive } from "../../utils/accentInsensitive";
 import {
   companyService,
   EMPTY_COMPANY_INVOICE_ISSUERS,
@@ -153,12 +154,15 @@ const InvoicesPage: React.FC = () => {
   const totals = calculateTotals(invoices);
 
   const filteredInvoices = useMemo(() => {
-    const searchLower = searchTerm.toLowerCase();
+    const search = searchTerm.trim();
     return invoices.filter((invoice) => {
+      const customerName =
+        typeof invoice.customerId === "object"
+          ? invoice.customerId?.name
+          : undefined;
       return (
-        invoice.invoiceNumber?.toLowerCase().includes(searchLower) ||
-        (typeof invoice.customerId === "object" &&
-          invoice.customerId?.name?.toLowerCase().includes(searchLower))
+        matchesAccentInsensitive(invoice.invoiceNumber, search) ||
+        matchesAccentInsensitive(customerName, search)
       );
     });
   }, [invoices, searchTerm]);

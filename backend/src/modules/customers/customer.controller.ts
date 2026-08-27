@@ -169,7 +169,7 @@ export class CustomerController {
       const companyId = req.companyId!;
       const customerId = req.params.id;
       const validatedData = updateCustomerSchema.parse(req.body);
-      const customer = await customerService.updateCustomer(
+      const { customer, warnings } = await customerService.updateCustomer(
         companyId,
         customerId,
         validatedData,
@@ -187,6 +187,7 @@ export class CustomerController {
         success: true,
         message: "Customer updated successfully",
         data: customer,
+        warnings,
       });
     } catch (error) {
       next(error);

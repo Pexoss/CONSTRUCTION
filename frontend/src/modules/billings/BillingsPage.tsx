@@ -12,6 +12,7 @@ import {
   formatDateNoTimezoneShift,
   formatDocumentForDisplay,
 } from "../../utils/formatters";
+import { foldAccents } from "../../utils/accentInsensitive";
 import SortableTh from "../../components/SortableTh";
 import {
   ColumnSort,
@@ -137,13 +138,13 @@ const BillingsPage: React.FC = () => {
   }, [customerId, customerPickerOptions]);
 
   const filteredBillingCustomers = useMemo(() => {
-    const raw = billingCustomerSearch.trim().toLowerCase();
+    const raw = billingCustomerSearch.trim();
     const qDigits = raw.replace(/\D/g, "");
     if (!raw && qDigits.length === 0) return [];
+    const folded = foldAccents(raw);
     return customerPickerOptions.filter((c) => {
-      const name = c.name.toLowerCase();
+      const matchesName = foldAccents(c.name).includes(folded);
       const docDigits = String(c.cpfCnpj || "").replace(/\D/g, "");
-      const matchesName = name.includes(raw);
       const matchesDoc = qDigits.length > 0 && docDigits.includes(qDigits);
       return matchesName || matchesDoc;
     });

@@ -38,6 +38,7 @@ import {
   todayDateInputValue,
 } from "../../utils/formatters";
 import { selectInputText } from "../../utils/selectInputText";
+import { matchesAnyAccentInsensitive } from "../../utils/accentInsensitive";
 import {
   periodRateFromInventory,
   registeredPeriodRateFromInventory,
@@ -590,11 +591,9 @@ const RentalDetailPage: React.FC = () => {
   );
   const filteredInventoryItems = inventoryItems.filter((item) => {
     if (!addItemSearch.trim()) return true;
-    const term = addItemSearch.toLowerCase().trim();
-    return (
-      item.name?.toLowerCase().includes(term) ||
-      item.description?.toLowerCase().includes(term) ||
-      item.sku?.toLowerCase().includes(term)
+    return matchesAnyAccentInsensitive(
+      [item.name, item.description, item.sku],
+      addItemSearch.trim(),
     );
   });
 
@@ -2457,6 +2456,7 @@ const RentalDetailPage: React.FC = () => {
                       const missing = [];
                       if (!work.workName.trim()) missing.push("nome da obra");
                       if (!work.street.trim()) missing.push("rua");
+                      if (!work.neighborhood?.trim()) missing.push("bairro");
                       if (!work.city.trim()) missing.push("cidade");
                       if (!work.state.trim()) missing.push("estado");
                       if (!work.zipCode.trim()) missing.push("CEP");
@@ -4842,6 +4842,7 @@ const RentalDetailPage: React.FC = () => {
                       const missing = [];
                       if (!work.workName.trim()) missing.push("nome da obra");
                       if (!work.street.trim()) missing.push("rua");
+                      if (!work.neighborhood?.trim()) missing.push("bairro");
                       if (!work.city.trim()) missing.push("cidade");
                       if (!work.state.trim()) missing.push("estado");
                       if (!work.zipCode.trim()) missing.push("CEP");

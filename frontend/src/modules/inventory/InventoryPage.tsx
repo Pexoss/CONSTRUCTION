@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useItems, useLowStockItems } from "../../hooks/useInventory";
 import { EMPTY_ITEMS, Item, ItemFilters } from "../../types/inventory.types";
@@ -81,7 +81,12 @@ const InventoryPage: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [searchTerm]);
 
-  const items: Item[] = itemsData?.data ?? EMPTY_ITEMS;
+  const items: Item[] = useMemo(() => {
+    const list = itemsData?.data ?? EMPTY_ITEMS;
+    return [...list].sort((a, b) =>
+      a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" }),
+    );
+  }, [itemsData?.data]);
   const pagination = itemsData?.pagination;
 
   return (

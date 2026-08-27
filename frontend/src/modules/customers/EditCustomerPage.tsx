@@ -7,7 +7,9 @@ import Layout from "../../components/Layout";
 import {
   formatDocumentInputBr,
   formatPhoneInputBr,
+  isValidCpfCnpj,
 } from "../../utils/formatters";
+import { toast } from "react-toastify";
 
 const EditCustomerPage: React.FC = () => {
   const navigate = useNavigate();
@@ -47,9 +49,12 @@ const EditCustomerPage: React.FC = () => {
   const updateMutation = useMutation({
     mutationFn: (data: Partial<CreateCustomerData>) =>
       customerService.updateCustomer(id!, data),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["customer", id] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
+      if (response.warnings?.length) {
+        response.warnings.forEach((warning) => toast.warning(warning));
+      }
       navigate("/customers");
     },
   });
@@ -229,18 +234,24 @@ const EditCustomerPage: React.FC = () => {
                     htmlFor="cpfCnpj"
                     className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                   >
-                    CPF/CNPJ *
+                    CPF/CNPJ
                   </label>
                   <input
                     type="text"
                     id="cpfCnpj"
                     name="cpfCnpj"
-                    required
                     value={formData.cpfCnpj}
                     onChange={handleChange}
                     placeholder="000.000.000-00"
                     className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm font-mono"
                   />
+                  {(formData.cpfCnpj || "").replace(/\D/g, "") &&
+                    !isValidCpfCnpj(formData.cpfCnpj) && (
+                      <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                        CPF/CNPJ inválido. Você pode salvar mesmo assim e
+                        corrigir depois.
+                      </p>
+                    )}
                 </div>
 
                 {/* Email e Telefone */}

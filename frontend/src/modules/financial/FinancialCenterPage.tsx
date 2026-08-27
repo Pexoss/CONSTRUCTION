@@ -40,6 +40,7 @@ import {
   parseMoneyBr,
   toDateInputValue,
 } from "../../utils/formatters";
+import { foldAccents } from "../../utils/accentInsensitive";
 import { selectInputText } from "../../utils/selectInputText";
 import SortableTh from "../../components/SortableTh";
 import {
@@ -545,15 +546,15 @@ const FinancialCenterPage: React.FC = () => {
   }, [customerFilter, customerPickerOptions]);
 
   const filteredBoardCustomers = useMemo(() => {
-    const raw = boardCustomerSearch.trim().toLowerCase();
+    const raw = boardCustomerSearch.trim();
     const qDigits = raw.replace(/\D/g, "");
-    if (!raw.trim() && qDigits.length === 0) {
+    if (!raw && qDigits.length === 0) {
       return [];
     }
+    const folded = foldAccents(raw);
     return customerPickerOptions.filter((c) => {
-      const name = c.name.toLowerCase();
+      const matchesName = foldAccents(c.name).includes(folded);
       const docDigits = String(c.cpfCnpj || "").replace(/\D/g, "");
-      const matchesName = name.includes(raw);
       const matchesDoc = qDigits.length > 0 && docDigits.includes(qDigits);
       return matchesName || matchesDoc;
     });

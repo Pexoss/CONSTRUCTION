@@ -3,6 +3,7 @@ import { Partner } from "./partner.model";
 import { PartnerLoan } from "./partner-loan.model";
 import { IPartner, IPartnerLoan, PartnerLoanStatus } from "./partner.types";
 import { badRequest, notFound } from "../../shared/utils/http-error.util";
+import { accentInsensitiveRegexFilter } from "../../shared/utils/accent-insensitive.util";
 
 class PartnerService {
   async createPartner(companyId: string, data: any): Promise<IPartner> {
@@ -35,11 +36,11 @@ class PartnerService {
       query.isActive = filters.isActive;
     }
     if (filters.search?.trim()) {
-      const term = filters.search.trim();
+      const search = accentInsensitiveRegexFilter(filters.search.trim());
       query.$or = [
-        { name: { $regex: term, $options: "i" } },
-        { document: { $regex: term, $options: "i" } },
-        { phone: { $regex: term, $options: "i" } },
+        { name: search },
+        { document: search },
+        { phone: search },
       ];
     }
 

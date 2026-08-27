@@ -6,6 +6,7 @@ import { IItem, IItemMovement } from './item.types';
 import mongoose from 'mongoose';
 import { Rental } from '../rentals/rental.model';
 import { Maintenance } from '../maintenance/maintenance.model';
+import { accentInsensitiveRegexFilter } from '../../shared/utils/accent-insensitive.util';
 
 class ItemService {
   /**
@@ -148,12 +149,13 @@ class ItemService {
     }
 
     if (filters.search) {
+      const search = accentInsensitiveRegexFilter(filters.search);
       query.$or = [
-        { name: { $regex: filters.search, $options: 'i' } },
-        { sku: { $regex: filters.search, $options: 'i' } },
-        { barcode: { $regex: filters.search, $options: 'i' } },
-        { customId: { $regex: filters.search, $options: 'i' } },
-        { description: { $regex: filters.search, $options: 'i' } },
+        { name: search },
+        { sku: search },
+        { barcode: search },
+        { customId: search },
+        { description: search },
       ];
     }
 
@@ -162,7 +164,11 @@ class ItemService {
     const skip = (page - 1) * limit;
 
     const [items, total] = await Promise.all([
-      Item.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      Item.find(query)
+        .collation({ locale: "pt", strength: 1 })
+        .sort({ name: 1 })
+        .skip(skip)
+        .limit(limit),
       Item.countDocuments(query),
     ]);
 
@@ -173,7 +179,10 @@ class ItemService {
    * Get item by ID
    */
   async getItemById(companyId: string, itemId: string): Promise<IItem | null> {
-    return Item.findOne({ _id: itemId, companyId });
+    const item = await Item.findOne({ _id: itemId, companyId });
+    if (!item) return null;
+    await this.attachUnitRenters(companyId, item);
+    return item;
   }
 
   /**
@@ -575,6 +584,48 @@ class ItemService {
     subcategory.isActive = false;
     await subcategory.save();
     return true;
+  }
+
+  private async attachUnitRenters(companyId: string, item: IItem): Promise<void> {
+    if (item.trackingType !== "unit" || !item.units?.length) return;
+
+    await item.populate({ path: "units.currentCustomer", select: "name" });
+
+    const rentedUnits = item.units.filter((unit) => unit.status === "rented");
+    if (rentedUnits.length === 0) return;
+
+    const missingRenter = rentedUnits.some((unit) => {
+      const customer = unit.currentCustomer as { name?: string } | undefined;
+      return !customer || !customer.name;
+    });
+    if (!missingRenter) return;
+
+    const rentals = await Rental.find({
+      companyId,
+      status: { $in: ["reserved", "active", "overdue", "ready_to_close"] },
+      "items.itemId": item._id,
+    })
+      .select("items.itemId items.unitId items.returnActual customerId")
+      .populate("customerId", "name");
+
+    for (const unit of item.units) {
+      if (unit.status !== "rented") continue;
+      const customer = unit.currentCustomer as { name?: string } | undefined;
+      if (customer?.name) continue;
+
+      const rental = rentals.find((row) =>
+        (row.items || []).some(
+          (line) =>
+            String(line.itemId) === String(item._id) &&
+            String(line.unitId || "").trim() === String(unit.unitId).trim() &&
+            !line.returnActual,
+        ),
+      );
+      if (rental?.customerId) {
+        (unit as { currentCustomer?: unknown }).currentCustomer = rental.customerId;
+        unit.currentRental = rental._id;
+      }
+    }
   }
 
   async getItemOperationalStatus(companyId: string, itemId: string) {

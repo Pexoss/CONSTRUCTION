@@ -2,7 +2,7 @@ export interface ItemUnit {
   unitId: string;
   status: "available" | "reserved" | "rented" | "maintenance" | "damaged";
   currentRental?: string;
-  currentCustomer?: string;
+  currentCustomer?: string | { _id?: string; name?: string };
   maintenanceDetails?: {
     expectedReturnDate?: string;
     cost?: number;

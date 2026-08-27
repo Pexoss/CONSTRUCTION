@@ -10,6 +10,7 @@ import { canDeleteCompany } from '../../helpers/UserPermission';
 import mongoose from 'mongoose';
 import { User } from '../users/user.model';
 import { RoleType } from '@/shared/constants/roles';
+import { accentInsensitiveRegexFilter } from '../../shared/utils/accent-insensitive.util';
 
 class SubscriptionService {
   /**
@@ -134,10 +135,11 @@ class SubscriptionService {
     }
 
     if (filters.search) {
+      const search = accentInsensitiveRegexFilter(filters.search);
       query.$or = [
-        { name: { $regex: filters.search, $options: 'i' } },
-        { cnpj: { $regex: filters.search, $options: 'i' } },
-        { email: { $regex: filters.search, $options: 'i' } },
+        { name: search },
+        { cnpj: search },
+        { email: search },
       ];
     }
 

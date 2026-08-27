@@ -9,6 +9,7 @@ import {
   isValidCpfCnpj,
   normalizeDocument,
 } from "../../shared/utils/document.utils";
+import { accentInsensitiveRegexFilter } from "../../shared/utils/accent-insensitive.util";
 import { ensureCustomerIndexes } from "./customer.index.util";
 
 class CustomerService {
@@ -21,9 +22,7 @@ class CustomerService {
     // 1. Limpar o CPF/CNPJ para garantir que não venha lixo
     const cleanCpfCnpj = normalizeDocument(customerData.cpfCnpj);
 
-    if (cleanCpfCnpj && !isValidCpfCnpj(cleanCpfCnpj)) {
-      throw new Error("CPF/CNPJ inválido");
-    }
+    // Documento incompleto/inválido não bloqueia o cadastro (ex.: importação)
 
     // 2. SÓ checa duplicidade se o CPF/CNPJ foi preenchido
     if (cleanCpfCnpj) {
@@ -37,8 +36,8 @@ class CustomerService {
       }
     }
 
-    // 3. SÓ valida se o usuário pediu E se tem um documento para validar
-    if (validateDocument && cleanCpfCnpj) {
+    // 3. SÓ valida se o usuário pediu E se tem um documento válido
+    if (validateDocument && cleanCpfCnpj && isValidCpfCnpj(cleanCpfCnpj)) {
       const company = await Company.findById(companyId).select(
         "cpfCnpjToken cpfCnpjCpfPackageId cpfCnpjCnpjPackageId",
       );
@@ -133,11 +132,12 @@ class CustomerService {
     }
 
     if (filters.search) {
+      const search = accentInsensitiveRegexFilter(filters.search);
       query.$or = [
-        { name: { $regex: filters.search, $options: "i" } },
-        { cpfCnpj: { $regex: filters.search, $options: "i" } },
-        { email: { $regex: filters.search, $options: "i" } },
-        { phone: { $regex: filters.search, $options: "i" } },
+        { name: search },
+        { cpfCnpj: search },
+        { email: search },
+        { phone: search },
       ];
     }
 
@@ -170,21 +170,27 @@ class CustomerService {
     companyId: string,
     customerId: string,
     data: any,
-  ): Promise<ICustomer | null> {
+  ): Promise<{ customer: ICustomer | null; warnings: string[] }> {
     const customer = await Customer.findOne({ _id: customerId, companyId });
 
     if (!customer) {
       throw new Error("Customer not found");
     }
 
+    const warnings: string[] = [];
     const normalizedCpfCnpj =
       data.cpfCnpj !== undefined ? normalizeDocument(data.cpfCnpj) : undefined;
+    const hasInvalidDocument =
+      data.cpfCnpj !== undefined &&
+      !!normalizedCpfCnpj &&
+      !isValidCpfCnpj(normalizedCpfCnpj);
 
-    if (data.cpfCnpj !== undefined && normalizedCpfCnpj && !isValidCpfCnpj(normalizedCpfCnpj)) {
-      throw new Error("CPF/CNPJ inválido");
+    if (hasInvalidDocument) {
+      warnings.push(
+        "CPF/CNPJ inválido. As demais alterações foram salvas; corrija o documento quando possível.",
+      );
     }
 
-    // If CPF/CNPJ is being updated, check for duplicates by normalized digits
     if (normalizedCpfCnpj && normalizedCpfCnpj !== customer.cpfCnpj) {
       const existingCustomer = await Customer.findOne({
         companyId,
@@ -196,15 +202,20 @@ class CustomerService {
         throw new Error("Customer with this CPF/CNPJ already exists");
       }
     }
+
     if (data.cpfCnpj !== undefined) {
       if (normalizedCpfCnpj) data.cpfCnpj = normalizedCpfCnpj;
       else data.cpfCnpj = undefined;
     }
 
+    if (data.email === "") {
+      data.email = undefined;
+    }
+
     Object.assign(customer, data);
     await customer.save();
 
-    return customer;
+    return { customer, warnings };
   }
 
   /**

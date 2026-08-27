@@ -12,6 +12,7 @@ import {
   formatRentalTypeLabel,
   formatCurrencyBr,
 } from "../../utils/formatters";
+import { foldAccents } from "../../utils/accentInsensitive";
 
 const formatRequestLabel = (type: string) => {
   const map: Record<string, string> = {
@@ -196,23 +197,24 @@ const RentalApprovalsPage: React.FC = () => {
   );
 
   const filteredApprovals = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
+    const needle = foldAccents(search.trim());
 
     return approvals.filter(({ rental, approval }) => {
       if (typeFilter !== "all" && approval.requestType !== typeFilter)
         return false;
-      if (!normalizedSearch) return true;
+      if (!needle) return true;
 
       const customer =
         typeof rental.customerId === "object"
           ? rental.customerId.name
           : rental.customerId;
-      const haystack = [rental.rentalNumber, customer, approval.requestType]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+      const haystack = foldAccents(
+        [rental.rentalNumber, customer, approval.requestType]
+          .filter(Boolean)
+          .join(" "),
+      );
 
-      return haystack.includes(normalizedSearch);
+      return haystack.includes(needle);
     });
   }, [approvals, search, typeFilter]);
 

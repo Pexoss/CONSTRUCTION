@@ -71,14 +71,14 @@ export const createRentalSchema = z.object({
     .optional(),
   workAddress: z
     .object({
-      street: z.string(),
-      number: z.string(),
+      street: z.string().trim().min(1, "rua da obra"),
+      number: z.string().optional(),
       complement: z.string().optional(),
-      neighborhood: z.string(),
-      city: z.string(),
-      state: z.string(),
-      zipCode: z.string(),
-      workName: z.string(),
+      neighborhood: z.string().trim().min(1, "bairro da obra"),
+      city: z.string().trim().min(1, "cidade da obra"),
+      state: z.string().trim().min(1, "estado da obra"),
+      zipCode: z.string().trim().min(1, "CEP da obra"),
+      workName: z.string().trim().min(1, "nome da obra"),
       workId: z.string().optional(),
     })
     .optional(),
@@ -128,14 +128,14 @@ export const updateRentalSchema = z.object({
     .optional(),
   workAddress: z
     .object({
-      street: z.string(),
+      street: z.string().trim().min(1, "rua da obra"),
       number: z.string().optional(),
       complement: z.string().optional(),
-      neighborhood: z.string().optional(),
-      city: z.string(),
-      state: z.string(),
-      zipCode: z.string(),
-      workName: z.string(),
+      neighborhood: z.string().trim().min(1, "bairro da obra"),
+      city: z.string().trim().min(1, "cidade da obra"),
+      state: z.string().trim().min(1, "estado da obra"),
+      zipCode: z.string().trim().min(1, "CEP da obra"),
+      workName: z.string().trim().min(1, "nome da obra"),
       workId: z.string().optional(),
     })
     .optional(),

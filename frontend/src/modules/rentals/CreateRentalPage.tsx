@@ -37,6 +37,10 @@ import {
 } from "../../utils/formatters";
 import { selectInputText } from "../../utils/selectInputText";
 import {
+  matchesAccentInsensitive,
+  matchesAnyAccentInsensitive,
+} from "../../utils/accentInsensitive";
+import {
   formatBrazilZipCodeDigits,
   lookupBrazilZipViaCep,
   normalizeBrazilZipDigits,
@@ -330,13 +334,14 @@ const CreateRentalPage: React.FC = () => {
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return [];
-    const search = customerSearch.toLowerCase().trim();
+    const search = customerSearch.trim();
     return allCustomers.filter((customer) => {
-      const matchesName = customer.name.toLowerCase().includes(search);
+      const matchesName = matchesAccentInsensitive(customer.name, search);
       const searchDigits = normalizeDocument(search);
       const matchesCnpj =
-        customer.cpfCnpj?.toLowerCase().includes(search) ||
-        (!!searchDigits && normalizeDocument(customer.cpfCnpj || "").includes(searchDigits));
+        matchesAccentInsensitive(customer.cpfCnpj, search) ||
+        (!!searchDigits &&
+          normalizeDocument(customer.cpfCnpj || "").includes(searchDigits));
       return matchesName || matchesCnpj;
     });
   }, [allCustomers, customerSearch]);
@@ -1051,6 +1056,7 @@ const CreateRentalPage: React.FC = () => {
     if (workAddress) {
       if (!workAddress.workName?.trim()) missingFields.push("nome da obra");
       if (!workAddress.street?.trim()) missingFields.push("rua da obra");
+      if (!workAddress.neighborhood?.trim()) missingFields.push("bairro da obra");
       if (!workAddress.city?.trim()) missingFields.push("cidade da obra");
       if (!workAddress.state?.trim()) missingFields.push("estado da obra");
       if (!workAddress.zipCode?.trim()) missingFields.push("CEP da obra");
@@ -1474,14 +1480,16 @@ const CreateRentalPage: React.FC = () => {
         }
 
         if (search) {
-          const term = search.toLowerCase();
-
-          const matches =
-            item.name.toLowerCase().includes(term) ||
-            item.description?.toLowerCase().includes(term) ||
-            item.sku?.toLowerCase().includes(term) ||
-            item.barcode?.toLowerCase().includes(term) ||
-            item.customId?.toLowerCase().includes(term);
+          const matches = matchesAnyAccentInsensitive(
+            [
+              item.name,
+              item.description,
+              item.sku,
+              item.barcode,
+              item.customId,
+            ],
+            search,
+          );
 
           if (!matches) return false;
         }
@@ -2671,7 +2679,7 @@ const CreateRentalPage: React.FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Nome da Obra
+                            Nome da Obra *
                           </label>
                           <input
                             type="text"
@@ -2683,7 +2691,7 @@ const CreateRentalPage: React.FC = () => {
                         </div>
                         <div className="md:col-span-1">
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            CEP
+                            CEP *
                           </label>
                           <div className="flex flex-col sm:flex-row gap-2">
                             <input
@@ -2729,7 +2737,7 @@ const CreateRentalPage: React.FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Rua
+                            Rua *
                           </label>
                           <input
                             type="text"
@@ -2754,7 +2762,7 @@ const CreateRentalPage: React.FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Bairro
+                            Bairro *
                           </label>
                           <input
                             type="text"
@@ -2765,7 +2773,7 @@ const CreateRentalPage: React.FC = () => {
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Cidade
+                            Cidade *
                           </label>
                           <input
                             type="text"
@@ -2776,7 +2784,7 @@ const CreateRentalPage: React.FC = () => {
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            Estado
+                            Estado *
                           </label>
                           <input
                             type="text"

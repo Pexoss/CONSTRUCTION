@@ -19,7 +19,7 @@ import {
 } from "../../utils/tableSort";
 import { EMPTY_ITEM_UNITS, Item, ItemUnit } from "../../types/inventory.types";
 
-type UnitRowSortKey = "unitId" | "status" | "location";
+type UnitRowSortKey = "unitId" | "status" | "location" | "renter";
 
 const unitStatusLabels: Record<string, string> = {
   available: "Disponível",
@@ -27,6 +27,15 @@ const unitStatusLabels: Record<string, string> = {
   rented: "Alugado",
   maintenance: "Manutenção",
   damaged: "Danificado",
+};
+
+const unitRenterName = (unit: ItemUnit): string => {
+  if (unit.status !== "rented" && unit.status !== "reserved") return "";
+  const customer = unit.currentCustomer;
+  if (customer && typeof customer === "object") {
+    return customer.name?.trim() || "";
+  }
+  return "";
 };
 
 const ItemDetailPage: React.FC = () => {
@@ -66,6 +75,7 @@ const ItemDetailPage: React.FC = () => {
       status: (u: ItemUnit) =>
         String(unitStatusLabels[u.status] || u.status || "").toLowerCase(),
       location: (u: ItemUnit) => String(u.location || "").toLowerCase(),
+      renter: (u: ItemUnit) => unitRenterName(u).toLowerCase(),
     });
   }, [item?.units, unitSort]);
 
@@ -426,6 +436,13 @@ const ItemDetailPage: React.FC = () => {
                               onSort={handleUnitSort}
                               thClassName="py-2 pr-4"
                             />
+                            <SortableTh<UnitRowSortKey>
+                              columnKey="renter"
+                              label="Alugado para"
+                              sort={unitSort}
+                              onSort={handleUnitSort}
+                              thClassName="py-2 pr-4"
+                            />
                           </tr>
                         </thead>
                         <tbody>
@@ -440,6 +457,12 @@ const ItemDetailPage: React.FC = () => {
                               </td>
                               <td className="py-2 pr-4">
                                 {u.location || "—"}
+                              </td>
+                              <td className="py-2 pr-4">
+                                {unitRenterName(u) ||
+                                  (u.status === "rented" || u.status === "reserved"
+                                    ? "Cliente não identificado"
+                                    : "—")}
                               </td>
                             </tr>
                           ))}

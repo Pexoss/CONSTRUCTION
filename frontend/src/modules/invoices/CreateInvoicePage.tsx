@@ -27,6 +27,7 @@ import {
 } from "../../utils/formatters";
 import { billingStatusLabel } from "../../utils/statusLabels";
 import { selectInputText } from "../../utils/selectInputText";
+import { matchesAccentInsensitive } from "../../utils/accentInsensitive";
 import SortableTh from "../../components/SortableTh";
 import {
   ColumnSort,
@@ -114,10 +115,10 @@ const CreateInvoicePage: React.FC = () => {
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return [];
-    const search = customerSearch.toLowerCase().trim();
+    const search = customerSearch.trim();
     return allCustomers.filter((customer) => {
-      const matchesName = customer.name.toLowerCase().includes(search);
-      const matchesCnpj = customer.cpfCnpj?.toLowerCase().includes(search);
+      const matchesName = matchesAccentInsensitive(customer.name, search);
+      const matchesCnpj = matchesAccentInsensitive(customer.cpfCnpj, search);
       return matchesName || matchesCnpj;
     });
   }, [allCustomers, customerSearch]);

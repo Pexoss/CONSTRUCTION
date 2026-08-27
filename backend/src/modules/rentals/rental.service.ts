@@ -68,6 +68,7 @@ import {
   isLocalMidnight,
 } from "../../shared/utils/rental-period.util";
 import { formatCurrencyBr } from "../../shared/utils/money-display.util";
+import { accentInsensitiveRegexFilter } from "../../shared/utils/accent-insensitive.util";
 class RentalService {
   private getPeriodLengthDays(rentalType: RentalType): number {
     return getPeriodLengthDaysFromUtil(rentalType);
@@ -4708,9 +4709,10 @@ class RentalService {
     }
 
     if (filters.search) {
+      const search = accentInsensitiveRegexFilter(filters.search);
       query.$or = [
-        { rentalNumber: { $regex: filters.search, $options: "i" } },
-        { notes: { $regex: filters.search, $options: "i" } },
+        { rentalNumber: search },
+        { notes: search },
       ];
     }
 
