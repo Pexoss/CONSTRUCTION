@@ -170,33 +170,38 @@ class RentalService {
       patch.unitId != null && String(patch.unitId).trim() !== ""
         ? String(patch.unitId).trim()
         : undefined;
-
-    const candidates = (rental.items || []).filter((i) => {
-      const iid =
-        typeof i.itemId === "object" && (i.itemId as any)?._id
-          ? String((i.itemId as any)._id)
-          : String(i.itemId);
-      if (iid !== id) return false;
-      if (unit !== undefined) return String(i.unitId || "").trim() === unit;
-      return !i.unitId;
-    });
-
     const want =
       typeof patch.lineId === "string" && patch.lineId.trim().length > 0
         ? patch.lineId.trim()
         : undefined;
+
+    const sameItem = (rental.items || []).filter(
+      (i) => asIdString(i.itemId) === id,
+    );
+
     if (want) {
-      return candidates.find(
+      const byLine = sameItem.find(
         (i) =>
-          typeof i.lineId === "string" &&
-          String(i.lineId).trim() === want,
+          typeof i.lineId === "string" && String(i.lineId).trim() === want,
       );
+      if (byLine) return byLine;
     }
+
+    const candidates = sameItem.filter((i) => {
+      if (unit !== undefined) return String(i.unitId || "").trim() === unit;
+      return !i.unitId;
+    });
     const sansLine = candidates.filter(
       (i) => !(typeof i.lineId === "string" && i.lineId.trim().length > 0),
     );
     if (sansLine.length === 1) return sansLine[0];
-    return candidates.length === 1 ? candidates[0] : undefined;
+    if (candidates.length === 1) return candidates[0];
+
+    if (unit !== undefined) {
+      const openSameItem = sameItem.filter((i) => !i.returnActual);
+      if (openSameItem.length === 1) return openSameItem[0];
+    }
+    return undefined;
   }
 
   private isLoanLine(item: { isLoan?: boolean } | null | undefined): boolean {
@@ -224,8 +229,16 @@ class RentalService {
       recalculateScheduledReturn?: boolean;
       historicalDelivery?: boolean;
       isLoan?: boolean;
+      unitId?: string;
     },
   ): boolean {
+    if (itemUpdate.unitId !== undefined) {
+      const nextUnit = String(itemUpdate.unitId || "").trim();
+      const prevUnit = String(existingItem.unitId || "").trim();
+      if (nextUnit !== prevUnit) {
+        return true;
+      }
+    }
     if (itemUpdate.quantity !== undefined) {
       const nextQty = Math.max(1, Math.floor(Number(itemUpdate.quantity)));
       if (nextQty !== Number(existingItem.quantity || 1)) {
@@ -290,6 +303,62 @@ class RentalService {
       if (unit !== undefined) return String(i.unitId || "").trim() === unit;
       return !i.unitId;
     }).length;
+  }
+
+  /** Atualiza unitId/rentalLineKey nos fechamentos da linha após correção de unidade. */
+  private async relinkBillingUnitIdsForRentalLine(
+    companyId: string,
+    rentalId: mongoose.Types.ObjectId,
+    params: {
+      itemId: string;
+      oldUnitId: string;
+      newUnitId: string;
+      oldRentalLineKey: string;
+      newRentalLineKey: string;
+      lineId?: string;
+    },
+  ): Promise<void> {
+    const billings = await Billing.find({
+      companyId,
+      rentalId,
+      status: { $ne: "cancelled" },
+    });
+    const lineSuffix =
+      params.lineId && params.lineId.trim()
+        ? `|${params.lineId.trim()}`
+        : "";
+
+    for (const billing of billings) {
+      let changed = false;
+      for (const bi of billing.items || []) {
+        const bid = asIdString(bi.itemId);
+        if (bid !== params.itemId) continue;
+        const rk = String(bi.rentalLineKey || "").trim();
+        const sameKey =
+          rk.length > 0 && rk === params.oldRentalLineKey;
+        const sameLine = Boolean(lineSuffix && rk.endsWith(lineSuffix));
+        const legacySameUnit =
+          !lineSuffix &&
+          String(bi.unitId || "").trim() === params.oldUnitId;
+        if (!sameKey && !sameLine && !legacySameUnit) continue;
+
+        bi.unitId = params.newUnitId;
+        if (rk) {
+          const parts = rk.split("|");
+          if (parts.length >= 2) {
+            parts[1] = params.newUnitId;
+            bi.rentalLineKey = parts.join("|");
+          } else {
+            bi.rentalLineKey = params.newRentalLineKey;
+          }
+        }
+        changed = true;
+      }
+      if (changed) {
+        billing.markModified("items");
+        await billing.save();
+      }
+    }
   }
 
   /**
@@ -4743,7 +4812,10 @@ class RentalService {
   ): Promise<IRental | null> {
     const rental = await Rental.findOne({ _id: rentalId, companyId })
       .populate("customerId", "name cpfCnpj email phone addresses")
-      .populate("items.itemId", "name sku pricing photos trackingType")
+      .populate(
+        "items.itemId",
+        "name sku pricing photos trackingType units",
+      )
       .populate("items.partnerSupply.partnerId", "name")
       .populate("createdBy", "name email")
       .populate("checklistPickup.completedBy", "name email")
@@ -6410,6 +6482,7 @@ class RentalService {
         itemChanges.push({
           itemId: itemUpdate.itemId,
           unitId: itemUpdate.unitId,
+          previousUnitId: existingItem?.unitId,
           lineId: itemUpdate.lineId,
           isNew: !existingItem,
           previousRentalType: existingItem?.rentalType,
@@ -6682,12 +6755,35 @@ class RentalService {
         }
 
         if (existingItem) {
+          const nextUnitId =
+            itemUpdate.unitId != null && String(itemUpdate.unitId).trim() !== ""
+              ? String(itemUpdate.unitId).trim()
+              : "";
+          const prevUnitId = String(existingItem.unitId || "").trim();
+          const unitChanged =
+            isUnit &&
+            nextUnitId.length > 0 &&
+            prevUnitId.length > 0 &&
+            nextUnitId !== prevUnitId;
+
+          const oldSnapKey = buildRentalLineKey(existingItem as any);
+          if (unitChanged) {
+            await this.applyRentalLineUnitSwap(
+              companyId,
+              rental,
+              existingItem,
+              nextUnitId,
+              userId,
+            );
+          }
+
           const snapKey = buildRentalLineKey(existingItem as any);
           const rateOnlyPatch =
+            !unitChanged &&
             itemUpdate.periodRateOverride !== undefined &&
             !this.hasItemScheduleOrQtyChanges(existingItem, itemUpdate);
           if (!rateOnlyPatch) {
-            keysToInvalidate.add(snapKey);
+            keysToInvalidate.add(oldSnapKey);
           }
           touchedSnapshots.push({ item: existingItem, snapKey });
 
@@ -7319,6 +7415,102 @@ class RentalService {
         totalActive: activeCount,
       },
     };
+  }
+
+  /** Troca a unidade de uma linha já existente (libera a antiga e reserva/ativa a nova). */
+  private async applyRentalLineUnitSwap(
+    companyId: string,
+    rental: IRental,
+    existingItem: IRentalItem,
+    nextUnitId: string,
+    userId: string,
+  ): Promise<void> {
+    const prevUnitId = String(existingItem.unitId || "").trim();
+    const newUnitId = String(nextUnitId || "").trim();
+    if (!newUnitId || newUnitId === prevUnitId) return;
+
+    if (existingItem.returnActual) {
+      throw badRequest(
+        "Não é possível trocar a unidade de um item já devolvido.",
+      );
+    }
+
+    const itemIdStr = asIdString(existingItem.itemId);
+    const takenByOtherLine = (rental.items || []).some((line) => {
+      if (line === existingItem) return false;
+      return (
+        asIdString(line.itemId) === itemIdStr &&
+        String(line.unitId || "").trim() === newUnitId
+      );
+    });
+    if (takenByOtherLine) {
+      throw badRequest(`A unidade ${newUnitId} já está neste aluguel.`);
+    }
+
+    const itemOid =
+      typeof existingItem.itemId === "object" && (existingItem.itemId as any)?._id
+        ? ((existingItem.itemId as any)._id as mongoose.Types.ObjectId)
+        : (existingItem.itemId as mongoose.Types.ObjectId);
+
+    const fresh = await Item.findOne({ _id: itemOid, companyId });
+    const newUnit = fresh?.units?.find((u) => u.unitId === newUnitId);
+    if (!newUnit || newUnit.status !== "available") {
+      throw badRequest(
+        `Unidade ${newUnitId} não está disponível para aluguel.`,
+      );
+    }
+
+    const oldKey = buildRentalLineKey(existingItem as any);
+
+    await this.releaseRentalLineInventory(
+      companyId,
+      rental,
+      existingItem,
+      userId,
+    );
+
+    existingItem.unitId = newUnitId;
+
+    const onField =
+      rental.status === "active" ||
+      rental.status === "overdue" ||
+      rental.status === "ready_to_close";
+    const customerIdStr = rental.customerId.toString();
+
+    await this.updateItemQuantityForRental(
+      companyId,
+      itemOid,
+      1,
+      "reserve",
+      userId,
+      rental._id,
+      newUnitId,
+      customerIdStr,
+    );
+    if (onField) {
+      await this.updateItemQuantityForRental(
+        companyId,
+        itemOid,
+        1,
+        "activate",
+        userId,
+        rental._id,
+        newUnitId,
+        customerIdStr,
+      );
+    }
+
+    await this.relinkBillingUnitIdsForRentalLine(companyId, rental._id, {
+      itemId: itemIdStr,
+      oldUnitId: prevUnitId,
+      newUnitId,
+      oldRentalLineKey: oldKey,
+      newRentalLineKey: buildRentalLineKey(existingItem as any),
+      lineId:
+        typeof existingItem.lineId === "string"
+          ? existingItem.lineId
+          : undefined,
+    });
   }
 
   /** Libera estoque de uma linha removida do aluguel (reserva cancelada ou devolução em campo). */

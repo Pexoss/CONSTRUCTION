@@ -131,22 +131,36 @@ class CustomerService {
       query.isBlocked = filters.isBlocked;
     }
 
-    if (filters.search) {
-      const search = accentInsensitiveRegexFilter(filters.search);
+    const searchTerm =
+      typeof filters.search === "string" ? filters.search.trim() : "";
+    if (searchTerm) {
+      const search = accentInsensitiveRegexFilter(searchTerm);
+      const searchDigits = searchTerm.replace(/\D/g, "");
       query.$or = [
         { name: search },
         { cpfCnpj: search },
         { email: search },
         { phone: search },
       ];
+      if (searchDigits.length >= 3) {
+        query.$or.push({
+          cpfCnpj: { $regex: searchDigits, $options: "i" },
+        });
+      }
     }
 
     const page = filters.page || 1;
     const limit = filters.limit || 20;
     const skip = (page - 1) * limit;
 
+    const findQuery = searchTerm
+      ? Customer.find(query)
+          .collation({ locale: "pt", strength: 1 })
+          .sort({ name: 1 })
+      : Customer.find(query).sort({ createdAt: -1 });
+
     const [customers, total] = await Promise.all([
-      Customer.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit),
+      findQuery.skip(skip).limit(limit),
       Customer.countDocuments(query),
     ]);
 

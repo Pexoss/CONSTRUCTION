@@ -1,7 +1,12 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, Link } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
 import { customerService } from "../customers/customer.service";
 import { useItems } from "../../hooks/useInventory";
@@ -36,10 +41,7 @@ import {
   parseMoneyBr,
 } from "../../utils/formatters";
 import { selectInputText } from "../../utils/selectInputText";
-import {
-  matchesAccentInsensitive,
-  matchesAnyAccentInsensitive,
-} from "../../utils/accentInsensitive";
+import { matchesAnyAccentInsensitive } from "../../utils/accentInsensitive";
 import {
   formatBrazilZipCodeDigits,
   lookupBrazilZipViaCep,
@@ -64,6 +66,9 @@ import RentalLineQtyFields from "./RentalLineQtyFields";
 
 type CustomersListResult = Awaited<
   ReturnType<typeof customerService.getCustomers>
+>;
+type CustomerByIdResult = Awaited<
+  ReturnType<typeof customerService.getCustomerById>
 >;
 
 export const rentalTypeMapper: Record<RentalTypeUI, RentalTypeAPI> = {
@@ -287,10 +292,7 @@ const CreateRentalPage: React.FC = () => {
     null,
   );
 
-  const { data: customersData } = useQuery<CustomersListResult>({
-    queryKey: ["customers"],
-    queryFn: () => customerService.getCustomers({ limit: 100 }),
-  });
+  const [debouncedCustomerSearch, setDebouncedCustomerSearch] = useState("");
 
   const { data: itemsData, refetch: refetchItems } = useItems({
     isActive: true,
@@ -327,29 +329,58 @@ const CreateRentalPage: React.FC = () => {
     return () => window.removeEventListener("focus", refreshInventoryOnFocus);
   }, [refetchItems]);
 
-  const allCustomers: Customer[] = useMemo(() => {
-    const list = customersData?.data ?? EMPTY_CUSTOMERS;
-    return [...list].sort((a, b) => a.name.localeCompare(b.name));
-  }, [customersData]);
+  useEffect(() => {
+    const trimmed = customerSearch.trim();
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedCustomerSearch(trimmed);
+    }, 300);
+    return () => window.clearTimeout(timeoutId);
+  }, [customerSearch]);
+
+  const { data: customersData, isFetching: isCustomerSearchFetching } =
+    useQuery<CustomersListResult>({
+      queryKey: ["customers", "rental-create-search", debouncedCustomerSearch],
+      queryFn: () =>
+        customerService.getCustomers({
+          search: debouncedCustomerSearch,
+          limit: 100,
+        }),
+      enabled: !selectedCustomer && debouncedCustomerSearch.length > 0,
+      placeholderData: keepPreviousData,
+    });
+
+  const { data: selectedCustomerRes } = useQuery<CustomerByIdResult>({
+    queryKey: ["customer", selectedCustomer],
+    queryFn: () => customerService.getCustomerById(selectedCustomer),
+    enabled: Boolean(selectedCustomer),
+  });
 
   const filteredCustomers = useMemo(() => {
-    if (!customerSearch.trim()) return [];
-    const search = customerSearch.trim();
-    return allCustomers.filter((customer) => {
-      const matchesName = matchesAccentInsensitive(customer.name, search);
-      const searchDigits = normalizeDocument(search);
-      const matchesCnpj =
-        matchesAccentInsensitive(customer.cpfCnpj, search) ||
-        (!!searchDigits &&
-          normalizeDocument(customer.cpfCnpj || "").includes(searchDigits));
-      return matchesName || matchesCnpj;
-    });
-  }, [allCustomers, customerSearch]);
+    const term = customerSearch.trim();
+    if (!term) return [];
+    const list = customersData?.data ?? EMPTY_CUSTOMERS;
+    const digits = term.replace(/\D/g, "");
+    return list
+      .filter((customer) => {
+        if (
+          matchesAnyAccentInsensitive(
+            [customer.name, customer.email, customer.phone, customer.cpfCnpj],
+            term,
+          )
+        ) {
+          return true;
+        }
+        if (digits.length >= 3) {
+          return (customer.cpfCnpj || "").replace(/\D/g, "").includes(digits);
+        }
+        return false;
+      })
+      .sort((a, b) =>
+        a.name.localeCompare(b.name, "pt", { sensitivity: "base" }),
+      );
+  }, [customersData, customerSearch]);
 
-  const selectedCustomerData = useMemo(
-    () => allCustomers.find((c) => c._id === selectedCustomer) ?? null,
-    [allCustomers, selectedCustomer],
-  );
+  const selectedCustomerData = selectedCustomerRes?.data ?? null;
   const selectedCustomerResponsibles = useMemo(
     () => selectedCustomerData?.responsibles ?? [],
     [selectedCustomerData?.responsibles],
@@ -468,19 +499,10 @@ const CreateRentalPage: React.FC = () => {
     mutationFn: (data: CreateCustomerData) =>
       customerService.createCustomer(data),
     onSuccess: (customer) => {
-      queryClient.setQueryData<CustomersListResult | undefined>(
-        ["customers"],
-        (old: CustomersListResult | undefined) => {
-        if (!old?.data) return old;
-        return {
-          ...old,
-          data: [
-            customer,
-            ...old.data.filter((c: Customer) => c._id !== customer._id),
-          ],
-        };
-      },
-      );
+      queryClient.setQueryData<CustomerByIdResult>(["customer", customer._id], {
+        success: true,
+        data: customer,
+      });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       setSelectedCustomer(customer._id);
       setCustomerCpf(formatDocumentInput(customer.cpfCnpj || ""));
@@ -532,18 +554,11 @@ const CreateRentalPage: React.FC = () => {
       return { customer: response.data, newResponsible: responsible };
     },
     onSuccess: ({ customer, newResponsible }) => {
-      queryClient.setQueryData<CustomersListResult | undefined>(
-        ["customers"],
-        (old: CustomersListResult | undefined) => {
-          if (!old?.data) return old;
-          return {
-            ...old,
-            data: old.data.map((c: Customer) =>
-              c._id === customer._id ? customer : c,
-            ),
-          };
-        },
-      );
+      queryClient.setQueryData<CustomerByIdResult>(["customer", customer._id], {
+        success: true,
+        data: customer,
+      });
+      queryClient.invalidateQueries({ queryKey: ["customer", customer._id] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
 
       const added =
@@ -840,8 +855,8 @@ const CreateRentalPage: React.FC = () => {
     setServices(services.filter((_, i) => i !== index));
   };
 
-  const handleCustomerChange = (newCustomerId: string) => {
-    setSelectedCustomer(newCustomerId);
+  const handleCustomerChange = (customer: Customer) => {
+    setSelectedCustomer(customer._id);
     setShowCustomerDropdown(false);
     setCustomerSearch("");
     setSelectedWorkAddressIndex("");
@@ -849,8 +864,11 @@ const CreateRentalPage: React.FC = () => {
     setSelectedFinancialResponsibleId("");
     setSelectedWorkResponsibleId("");
     resetCpfBypassState();
-    const customer = allCustomers.find((c) => c._id === newCustomerId);
-    setCustomerCpf(formatDocumentInput(customer?.cpfCnpj || ""));
+    setCustomerCpf(formatDocumentInput(customer.cpfCnpj || ""));
+    queryClient.setQueryData<CustomerByIdResult>(["customer", customer._id], {
+      success: true,
+      data: customer,
+    });
   };
 
   const resolveResponsiblePayload = (
@@ -1407,6 +1425,7 @@ const CreateRentalPage: React.FC = () => {
       country: "Brasil",
       isDefault: false,
     });
+    await queryClient.invalidateQueries({ queryKey: ["customer", selectedCustomer] });
     await queryClient.invalidateQueries({ queryKey: ["customers"] });
     return true;
   }, [selectedCustomer, workAddress, customerAddresses, queryClient]);
@@ -1609,46 +1628,55 @@ const CreateRentalPage: React.FC = () => {
                       </button>
                     )}
 
-                    {showCustomerDropdown && !selectedCustomer && filteredCustomers.length > 0 && (
+                    {showCustomerDropdown && !selectedCustomer && customerSearch.trim() && (
                       <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-10 max-h-64 overflow-y-auto">
-                        {filteredCustomers.slice(0, 20).map((customer) => (
+                        {filteredCustomers.map((customer) => (
                           <button
                             key={customer._id}
                             type="button"
-                            onClick={() => handleCustomerChange(customer._id)}
+                            onClick={() => handleCustomerChange(customer)}
                             className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 border-b border-gray-100 dark:border-gray-600 last:border-b-0 transition-colors"
                           >
                             <div className="text-sm font-medium text-gray-900 dark:text-white">
                               {customer.name}
                             </div>
-                            {customer.cpfCnpj && (
+                            {customer.cpfCnpj ? (
                               <div className="text-xs text-gray-500 dark:text-gray-400">
                                 {formatDocumentForDisplay(customer.cpfCnpj)}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-amber-600 dark:text-amber-400">
+                                Sem CPF/CNPJ
                               </div>
                             )}
                           </button>
                         ))}
+                        {(isCustomerSearchFetching ||
+                          customerSearch.trim() !== debouncedCustomerSearch) &&
+                          filteredCustomers.length === 0 && (
+                            <p className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                              Buscando clientes...
+                            </p>
+                          )}
+                        {!isCustomerSearchFetching &&
+                          customerSearch.trim() === debouncedCustomerSearch &&
+                          filteredCustomers.length === 0 && (
+                            <div className="p-4">
+                              <p className="text-sm text-gray-500 dark:text-gray-400">
+                                Nenhum cliente encontrado
+                              </p>
+                              <button
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={openNewCustomerModal}
+                                className="mt-3 w-full text-sm font-medium text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-600 hover:bg-gray-200 dark:hover:bg-gray-500 rounded-md px-3 py-2 transition-colors"
+                              >
+                                Cadastrar novo cliente
+                              </button>
+                            </div>
+                          )}
                       </div>
                     )}
-
-                    {showCustomerDropdown &&
-                      !selectedCustomer &&
-                      customerSearch.trim() &&
-                      filteredCustomers.length === 0 && (
-                        <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-10 p-4">
-                          <p className="text-sm text-gray-500 dark:text-gray-400">
-                            Nenhum cliente encontrado
-                          </p>
-                          <button
-                            type="button"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={openNewCustomerModal}
-                            className="mt-3 w-full text-sm font-medium text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-600 hover:bg-gray-200 dark:hover:bg-gray-500 rounded-md px-3 py-2 transition-colors"
-                          >
-                            Cadastrar novo cliente
-                          </button>
-                        </div>
-                      )}
                   </div>
                 </div>
                 {selectedCustomer && selectedCustomerData && (

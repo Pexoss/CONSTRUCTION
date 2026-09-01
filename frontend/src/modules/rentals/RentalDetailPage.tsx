@@ -153,6 +153,16 @@ function getRentalLineForEditRow(
   const targetUnitId = row.unitId ? String(row.unitId) : "";
   const targetLineId = row.lineId?.trim() || "";
 
+  if (targetLineId) {
+    const byLine = rentalItems.find((rentalItem) => {
+      const rentalItemId = getRentalEntityId(rentalItem.itemId);
+      const rentalLineId =
+        typeof rentalItem.lineId === "string" ? rentalItem.lineId.trim() : "";
+      return rentalItemId === targetItemId && rentalLineId === targetLineId;
+    });
+    if (byLine) return byLine;
+  }
+
   return rentalItems.find((rentalItem) => {
     const rentalItemId = getRentalEntityId(rentalItem.itemId);
     if (rentalItemId !== targetItemId) return false;
@@ -168,6 +178,24 @@ function getRentalLineForEditRow(
 
     return true;
   });
+}
+
+function unitsSelectableForEditLine(
+  catalog: Item | undefined,
+  currentUnitId: string | undefined,
+  takenUnitIds: Set<string>,
+): ItemUnit[] {
+  const current = currentUnitId?.trim() || "";
+  const units = catalog?.units || [];
+  const fromCatalog = units.filter((unit) => {
+    if (unit.unitId === current) return true;
+    if (takenUnitIds.has(unit.unitId)) return false;
+    return unit.status === "available";
+  });
+  if (current && !fromCatalog.some((unit) => unit.unitId === current)) {
+    return [{ unitId: current, status: "rented" }, ...fromCatalog];
+  }
+  return fromCatalog;
 }
 
 function findClosureBillingForReturnedItem(
@@ -816,6 +844,7 @@ const RentalDetailPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["rentals"] });
       queryClient.invalidateQueries({ queryKey: ["rental-billings", id] });
       queryClient.invalidateQueries({ queryKey: ["billings"] });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
     },
     onError: (err: unknown) => {
       const data = (
@@ -1552,8 +1581,8 @@ const RentalDetailPage: React.FC = () => {
                   <div
                     key={editForm.items
                       .map(
-                        (item) =>
-                          `${item.itemId}-${item.lineId || ""}-${item.unitId || ""}`,
+                        (item, itemIndex) =>
+                          `${item.itemId}-${item.lineId || itemIndex}`,
                       )
                       .join("|")}
                     className="space-y-3"
@@ -1566,6 +1595,9 @@ const RentalDetailPage: React.FC = () => {
                         itemInfo && typeof itemInfo.itemId === "object"
                           ? (itemInfo.itemId as Item)
                           : inventoryItems.find((inv) => inv._id === item.itemId);
+                      const catalogItem =
+                        inventoryItems.find((inv) => inv._id === item.itemId) ||
+                        itemData;
                       const itemName =
                         itemData?.name ||
                         (itemInfo && typeof itemInfo.itemId === "object"
@@ -1573,9 +1605,24 @@ const RentalDetailPage: React.FC = () => {
                           : "Item");
                       const isUnitLine = rentalLineIsUnitTracked(itemInfo, item.unitId);
                       const isReturned = !!itemInfo?.returnActual;
+                      const takenUnitIds = new Set(
+                        editForm.items
+                          .filter(
+                            (row, rowIndex) =>
+                              rowIndex !== index &&
+                              row.itemId === item.itemId &&
+                              Boolean(row.unitId?.trim()),
+                          )
+                          .map((row) => String(row.unitId).trim()),
+                      );
+                      const unitOptions = unitsSelectableForEditLine(
+                        catalogItem,
+                        item.unitId,
+                        takenUnitIds,
+                      );
                       return (
                         <div
-                          key={`${item.itemId}-${item.lineId || ""}-${item.unitId || index}`}
+                          key={`${item.itemId}-${item.lineId || index}`}
                           className="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
                         >
                           <div className="flex items-center justify-between">
@@ -1626,14 +1673,31 @@ const RentalDetailPage: React.FC = () => {
                                   <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
                                     Unidade
                                   </label>
-                                  <div
-                                    className="w-full px-2 py-2 border border-gray-200 dark:border-gray-700 rounded-md text-sm bg-gray-100 dark:bg-gray-900/60 text-gray-700 dark:text-gray-300 truncate"
+                                  <select
+                                    value={item.unitId || ""}
+                                    disabled={isReturned}
+                                    onChange={(e) => {
+                                      const updated = [...editForm.items];
+                                      updated[index] = {
+                                        ...updated[index],
+                                        unitId: e.target.value,
+                                      };
+                                      setEditForm({ ...editForm, items: updated });
+                                    }}
+                                    className="w-full px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:bg-gray-100 dark:disabled:bg-gray-900/60 disabled:text-gray-500"
                                     title={item.unitId || "Equipamento por unidade"}
                                   >
-                                    {item.unitId?.trim() || "Por unidade"}
-                                  </div>
+                                    <option value="">Selecione a unidade</option>
+                                    {unitOptions.map((unit) => (
+                                      <option key={unit.unitId} value={unit.unitId}>
+                                        Unidade: {unit.unitId}
+                                      </option>
+                                    ))}
+                                  </select>
                                   <p className="mt-0.5 text-3xs text-gray-500 dark:text-gray-400">
-                                    Controle por unidade (não usa quantidade)
+                                    {isReturned
+                                      ? "Item devolvido — unidade não pode ser alterada"
+                                      : "Troque se a unidade foi informada errada"}
                                   </p>
                                 </>
                               ) : (
@@ -2569,6 +2633,16 @@ const RentalDetailPage: React.FC = () => {
                           rentalLine && typeof rentalLine.itemId === "object"
                             ? (rentalLine.itemId as Item)
                             : inventoryItems.find((inv) => inv._id === item.itemId);
+
+                        if (
+                          rentalLineIsUnitTracked(rentalLine, item.unitId) &&
+                          !item.unitId?.trim()
+                        ) {
+                          toast.error(
+                            `Selecione a unidade no item ${index + 1}.`,
+                          );
+                          return;
+                        }
 
                         if (itemData?.trackingType !== "unit") {
                           const partnerQty = Math.max(
