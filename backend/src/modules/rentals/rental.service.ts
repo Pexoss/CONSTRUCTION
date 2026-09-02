@@ -4730,6 +4730,111 @@ class RentalService {
     return { created: createdCount, draftsCreated };
   }
 
+  private parseRentalListSearchMoney(term: string): number | null {
+    const trimmed = term.trim();
+    if (!/^R?\$?\s*[\d.,]+$/i.test(trimmed)) return null;
+    let normalized = trimmed.replace(/\s/g, "").replace(/^R\$/i, "");
+    if (normalized.includes(",")) {
+      normalized = normalized.replace(/\./g, "").replace(",", ".");
+    } else if ((normalized.match(/\./g) || []).length > 1) {
+      normalized = normalized.replace(/\./g, "");
+    }
+    const num = Number(normalized);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  private parseRentalListSearchDateUtcRange(
+    term: string,
+  ): { start: Date; end: Date } | null {
+    const t = term.trim();
+    const br = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const iso = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    let day = 0;
+    let month = 0;
+    let year = 0;
+    if (br) {
+      day = Number(br[1]);
+      month = Number(br[2]) - 1;
+      year = Number(br[3]);
+    } else if (iso) {
+      year = Number(iso[1]);
+      month = Number(iso[2]) - 1;
+      day = Number(iso[3]);
+    } else {
+      return null;
+    }
+    const start = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+    if (
+      start.getUTCFullYear() !== year ||
+      start.getUTCMonth() !== month ||
+      start.getUTCDate() !== day
+    ) {
+      return null;
+    }
+    return {
+      start,
+      end: new Date(Date.UTC(year, month, day, 23, 59, 59, 999)),
+    };
+  }
+
+  private async buildRentalListSearchOr(
+    companyId: string,
+    term: string,
+  ): Promise<Record<string, unknown>[]> {
+    const search = accentInsensitiveRegexFilter(term);
+    const matchingCustomers = await Customer.find({
+      companyId,
+      name: search,
+    })
+      .select("_id")
+      .limit(200)
+      .lean();
+
+    const or: Record<string, unknown>[] = [
+      { rentalNumber: search },
+      { notes: search },
+      { "workAddress.workName": search },
+      { "workAddress.street": search },
+      { "workAddress.city": search },
+    ];
+
+    if (matchingCustomers.length > 0) {
+      or.push({
+        customerId: { $in: matchingCustomers.map((row) => row._id) },
+      });
+    }
+
+    const money = this.parseRentalListSearchMoney(term);
+    if (money != null) {
+      or.push({
+        "pricing.total": { $gte: money - 0.009, $lte: money + 0.009 },
+      });
+    }
+
+    const dateRange = this.parseRentalListSearchDateUtcRange(term);
+    if (dateRange) {
+      or.push(
+        {
+          "dates.pickupScheduled": {
+            $gte: dateRange.start,
+            $lte: dateRange.end,
+          },
+        },
+        {
+          "dates.returnScheduled": {
+            $gte: dateRange.start,
+            $lte: dateRange.end,
+          },
+        },
+        {
+          createdAt: { $gte: dateRange.start, $lte: dateRange.end },
+        },
+      );
+    }
+
+    return or;
+  }
+
   /**
    * Get all rentals with filters
    */
@@ -4760,8 +4865,10 @@ class RentalService {
       query.customerId = filters.customerId;
     }
 
+    const orGroups: Record<string, unknown>[][] = [];
+
     if (filters.startDate || filters.endDate) {
-      query.$or = [
+      orGroups.push([
         {
           "dates.pickupScheduled": {
             $gte: filters.startDate || new Date(0),
@@ -4774,15 +4881,19 @@ class RentalService {
             $lte: filters.endDate || new Date(),
           },
         },
-      ];
+      ]);
     }
 
-    if (filters.search) {
-      const search = accentInsensitiveRegexFilter(filters.search);
-      query.$or = [
-        { rentalNumber: search },
-        { notes: search },
-      ];
+    const searchTerm =
+      typeof filters.search === "string" ? filters.search.trim() : "";
+    if (searchTerm) {
+      orGroups.push(await this.buildRentalListSearchOr(companyId, searchTerm));
+    }
+
+    if (orGroups.length === 1) {
+      query.$or = orGroups[0];
+    } else if (orGroups.length > 1) {
+      query.$and = orGroups.map((group) => ({ $or: group }));
     }
 
     const page = filters.page || 1;

@@ -355,13 +355,13 @@ const CreateRentalPage: React.FC = () => {
     enabled: Boolean(selectedCustomer),
   });
 
-  const filteredCustomers = useMemo(() => {
+  const filteredCustomers = useMemo((): Customer[] => {
     const term = customerSearch.trim();
     if (!term) return [];
-    const list = customersData?.data ?? EMPTY_CUSTOMERS;
+    const list: Customer[] = customersData?.data ?? EMPTY_CUSTOMERS;
     const digits = term.replace(/\D/g, "");
     return list
-      .filter((customer) => {
+      .filter((customer: Customer) => {
         if (
           matchesAnyAccentInsensitive(
             [customer.name, customer.email, customer.phone, customer.cpfCnpj],
@@ -375,14 +375,15 @@ const CreateRentalPage: React.FC = () => {
         }
         return false;
       })
-      .sort((a, b) =>
+      .sort((a: Customer, b: Customer) =>
         a.name.localeCompare(b.name, "pt", { sensitivity: "base" }),
       );
   }, [customersData, customerSearch]);
 
-  const selectedCustomerData = selectedCustomerRes?.data ?? null;
+  const selectedCustomerData: Customer | null =
+    selectedCustomerRes?.data ?? null;
   const selectedCustomerResponsibles = useMemo(
-    () => selectedCustomerData?.responsibles ?? [],
+    (): CustomerResponsible[] => selectedCustomerData?.responsibles ?? [],
     [selectedCustomerData?.responsibles],
   );
   const financialResponsibles = useMemo(
@@ -1393,7 +1394,7 @@ const CreateRentalPage: React.FC = () => {
   const items: Item[] = itemsData?.data ?? EMPTY_ITEMS;
 
   const customerAddresses = useMemo(
-    () => selectedCustomerData?.addresses ?? [],
+    (): CustomerAddress[] => selectedCustomerData?.addresses ?? [],
     [selectedCustomerData?.addresses],
   );
 

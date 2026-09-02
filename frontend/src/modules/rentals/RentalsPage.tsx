@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
 import { Rental, RentalFilters, RentalStatus } from "../../types/rental.types";
 import Layout from "../../components/Layout";
@@ -31,6 +36,7 @@ const RentalsPage: React.FC = () => {
     page: 1,
     limit: 20,
   });
+  const [searchTerm, setSearchTerm] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showModal, setShowModal] = useState(false);
@@ -53,7 +59,20 @@ const RentalsPage: React.FC = () => {
   const { data, isLoading, error } = useQuery<RentalsListResult>({
     queryKey: ["rentals", filters],
     queryFn: () => rentalService.getRentals(filters),
+    placeholderData: keepPreviousData,
   });
+
+  useEffect(() => {
+    const trimmed = searchTerm.trim();
+    const timeoutId = window.setTimeout(() => {
+      const nextSearch = trimmed || undefined;
+      setFilters((prev) => {
+        if (prev.search === nextSearch) return prev;
+        return { ...prev, search: nextSearch, page: 1 };
+      });
+    }, 350);
+    return () => window.clearTimeout(timeoutId);
+  }, [searchTerm]);
 
   const handleFilterChange = (key: keyof RentalFilters, value: any) => {
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
@@ -335,6 +354,13 @@ const RentalsPage: React.FC = () => {
                 Calendário
               </button>
             </div>
+            <input
+              type="search"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Cliente, obra, valor ou data"
+              className="w-full sm:flex-1 sm:min-w-[220px] sm:max-w-md border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 dark:bg-gray-700 dark:text-white dark:focus:ring-gray-500 dark:focus:border-gray-500"
+            />
             <select
               value={filters.status || ""}
               onChange={(e) =>
