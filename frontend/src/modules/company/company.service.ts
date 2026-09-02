@@ -11,6 +11,10 @@ export interface CompanyInvoiceIssuerRow {
 /** Fallback tipado para useQuery quando `data` ainda é undefined (evita `= []` como any[]). */
 export const EMPTY_COMPANY_INVOICE_ISSUERS: CompanyInvoiceIssuerRow[] = [];
 
+export interface CompanyContractNumbering {
+  initialContractNumber: number;
+}
+
 export interface CompanyCpfCnpjSettings {
   tokenConfigured: boolean;
   cpfPackageId: string;
@@ -52,6 +56,22 @@ export const companyService = {
       data: CompanyInvoiceIssuerRow[];
       message: string;
     }>('/company/invoice-issuers', payload);
+    return response.data;
+  },
+
+  getContractNumbering: async (): Promise<CompanyContractNumbering> => {
+    const response = await api.get<{ success: boolean; data: CompanyContractNumbering }>(
+      '/company/settings/contracts',
+    );
+    return response.data.data;
+  },
+
+  updateContractNumbering: async (payload: CompanyContractNumbering) => {
+    const response = await api.patch<{
+      success: boolean;
+      data: CompanyContractNumbering;
+      message: string;
+    }>('/company/settings/contracts', payload);
     return response.data;
   },
 };

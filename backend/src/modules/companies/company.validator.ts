@@ -11,6 +11,10 @@ export const updateCompanyInvoiceIssuersSchema = z.object({
   issuers: z.array(invoiceIssuerPutItemSchema),
 });
 
+export const updateCompanyContractNumberingSchema = z.object({
+  initialContractNumber: z.coerce.number().int().min(1).max(999_999_999),
+});
+
 export const updateCompanyCpfCnpjSettingsSchema = z.object({
   token: z.string().optional(),
   cpfPackageId: z

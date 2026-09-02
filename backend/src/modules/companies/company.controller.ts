@@ -5,6 +5,7 @@ import { env } from '../../config/env';
 import {
   updateCompanyCpfCnpjSettingsSchema,
   updateCompanyInvoiceIssuersSchema,
+  updateCompanyContractNumberingSchema,
 } from './company.validator';
 import { isValidCnpj, normalizeDocument } from '../../shared/utils/document.utils';
 
@@ -235,6 +236,70 @@ export class CompanyController {
         success: true,
         message: 'Emissores de fatura atualizados.',
         data: list,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Número inicial da série de contratos online.
+   * GET /api/company/settings/contracts
+   */
+  async getContractNumbering(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const company = await Company.findById(companyId).select('initialContractNumber');
+      if (!company) {
+        res.status(404).json({ success: false, message: 'Company not found' });
+        return;
+      }
+
+      const raw = company.initialContractNumber;
+      const initialContractNumber =
+        typeof raw === 'number' && Number.isFinite(raw)
+          ? Math.max(1, Math.floor(raw))
+          : 1;
+
+      res.json({
+        success: true,
+        data: { initialContractNumber },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /api/company/settings/contracts
+   */
+  async updateContractNumbering(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const { initialContractNumber } = updateCompanyContractNumberingSchema.parse(req.body);
+      const nextNumber = Math.max(1, Math.floor(initialContractNumber));
+
+      const company = await Company.findByIdAndUpdate(
+        companyId,
+        { $set: { initialContractNumber: nextNumber } },
+        { new: true },
+      ).select('initialContractNumber');
+
+      if (!company) {
+        res.status(404).json({ success: false, message: 'Company not found' });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: 'Numeração de contratos atualizada.',
+        data: {
+          initialContractNumber:
+            typeof company.initialContractNumber === 'number' &&
+            Number.isFinite(company.initialContractNumber)
+              ? Math.max(1, Math.floor(company.initialContractNumber))
+              : nextNumber,
+        },
       });
     } catch (error) {
       next(error);

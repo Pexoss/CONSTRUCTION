@@ -57,6 +57,8 @@ import { Billing } from "../billings/billing.model";
 import { Charge } from "../charges/charge.model";
 import { Invoice } from "../invoices/invoice.model";
 import { asIdString, buildRentalLineKey } from "../../shared/utils/rental-line-key.util";
+import { Company } from "../companies/company.model";
+import { allocateNextRentalSequenceNumber } from "./rental.sequence.util";
 import fs from "fs";
 import path from "path";
 import PDFDocument from "pdfkit";
@@ -69,6 +71,24 @@ import {
 } from "../../shared/utils/rental-period.util";
 import { formatCurrencyBr } from "../../shared/utils/money-display.util";
 import { accentInsensitiveRegexFilter } from "../../shared/utils/accent-insensitive.util";
+
+function isRentalNumberDupKey(err: unknown): boolean {
+  const e = err as { code?: number; keyPattern?: Record<string, number> };
+  return Boolean(
+    e?.code === 11000 &&
+      e?.keyPattern &&
+      typeof e.keyPattern === "object" &&
+      "rentalNumber" in e.keyPattern,
+  );
+}
+
+function readInitialContractNumber(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.max(1, Math.floor(raw));
+  }
+  return 1;
+}
+
 class RentalService {
   private getPeriodLengthDays(rentalType: RentalType): number {
     return getPeriodLengthDaysFromUtil(rentalType);
@@ -1657,14 +1677,42 @@ class RentalService {
   }
 
   /**
-   *
-   * Create retalNumber
+   * Número sequencial do contrato (dígitos). Piso = initialContractNumber da empresa.
    */
   async generateRentalNumber(companyId: string): Promise<string> {
-    const RentalModel = mongoose.model<IRental>("Rental");
-    const count = await RentalModel.countDocuments({ companyId });
-    const rentalNumber = `ALGUEL-${companyId.toString().slice(-6)}-${String(count + 1).padStart(6, "0")}`; //pega os 6 ulimos dígitos do id da empresa - contador
-    return rentalNumber;
+    const company = await Company.findById(companyId).select(
+      "initialContractNumber",
+    );
+    return allocateNextRentalSequenceNumber(
+      companyId,
+      readInitialContractNumber(company?.initialContractNumber),
+    );
+  }
+
+  private async createRentalWithSequenceRetry(
+    fields: Record<string, unknown>,
+    sequenceStartMin: number,
+  ): Promise<IRental> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      try {
+        const rentalNumber = await allocateNextRentalSequenceNumber(
+          fields.companyId as mongoose.Types.ObjectId | string,
+          sequenceStartMin,
+        );
+        return (await Rental.create({
+          ...fields,
+          rentalNumber,
+        })) as IRental;
+      } catch (err: unknown) {
+        lastErr = err;
+        if (isRentalNumberDupKey(err)) continue;
+        throw err;
+      }
+    }
+    throw lastErr instanceof Error
+      ? lastErr
+      : new Error("Não foi possível gerar número único de contrato.");
   }
 
   //createRental revisado
@@ -1673,7 +1721,6 @@ class RentalService {
     data: any,
     userId: string,
   ): Promise<IRental> {
-    const rentalNumber = await this.generateRentalNumber(companyId);
     const user = await User.findById(userId);
     if (!user) throw notFound("Usuário não encontrado");
 
@@ -2001,11 +2048,18 @@ class RentalService {
       total: totalSubtotal - discount,
     };
 
+    const companyDoc = await Company.findById(companyId).select(
+      "initialContractNumber",
+    );
+    const sequenceStartMin = readInitialContractNumber(
+      companyDoc?.initialContractNumber,
+    );
+
     //Criar rental
-    const rental = await Rental.create({
+    const rental = await this.createRentalWithSequenceRetry(
+      {
       companyId,
       customerId: data.customerId,
-      rentalNumber,
       items: itemsWithPricing,
       services: services.length > 0 ? services : undefined,
       workAddress: data.workAddress
@@ -2043,7 +2097,9 @@ class RentalService {
       notes: data.notes,
       createdBy: userId,
       createdWithoutCustomerCpf,
-    });
+      },
+      sequenceStartMin,
+    );
 
     // Estoque: reserva e em seguida ativa (aluguel já ativo na criação) — só quantidade própria
     for (const item of itemsWithPricing) {

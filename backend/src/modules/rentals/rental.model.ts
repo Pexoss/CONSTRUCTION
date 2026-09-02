@@ -1,5 +1,6 @@
 import mongoose, { Schema, Model } from 'mongoose';
 import { IRental, IRentalItem, IRentalDates, IRentalPricing, IRentalChecklist, IRentalService, IRentalWorkAddress, IRentalChangeHistory, IRentalPendingApproval, IRentalResponsibleContact } from './rental.types';
+import { allocateNextRentalSequenceNumber } from './rental.sequence.util';
 
 const RentalItemSchema = new Schema<IRentalItem>(
   {
@@ -365,8 +366,7 @@ const RentalSchema = new Schema<IRental>(
     },
     rentalNumber: {
       type: String,
-      //required: [true, 'Rental number is required'], garado automaticamente pelo backend
-      unique: true,
+      // Gerado pelo backend (série numérica por empresa)
     },
     customerId: {
       type: Schema.Types.ObjectId,
@@ -467,18 +467,31 @@ RentalSchema.index({ companyId: 1, status: 1 });
 RentalSchema.index({ companyId: 1, customerId: 1 });
 RentalSchema.index({ companyId: 1, 'dates.pickupScheduled': 1 });
 RentalSchema.index({ companyId: 1, 'dates.returnScheduled': 1 });
-// rentalNumber index is automatically created by unique: true
+RentalSchema.index({ companyId: 1, rentalNumber: 1 }, { unique: true });
 
 // Pre-save hook to generate rental number if not provided
 RentalSchema.pre('save', async function (next) {
   if (!this.rentalNumber && this.companyId) {
     try {
-      // Use mongoose.model to get the model (works even if not yet exported)
-      const RentalModel = mongoose.model<IRental>('Rental');
-      const count = await RentalModel.countDocuments({ companyId: this.companyId });
-      this.rentalNumber = `RENT-${this.companyId.toString().slice(-6)}-${String(count + 1).padStart(6, '0')}`;
+      let floor = 1;
+      try {
+        const CompanyModel = mongoose.model('Company');
+        const company = await CompanyModel.findById(this.companyId)
+          .select('initialContractNumber')
+          .lean();
+        const raw = (company as { initialContractNumber?: number } | null)
+          ?.initialContractNumber;
+        if (typeof raw === 'number' && Number.isFinite(raw)) {
+          floor = Math.max(1, Math.floor(raw));
+        }
+      } catch {
+        floor = 1;
+      }
+      this.rentalNumber = await allocateNextRentalSequenceNumber(
+        this.companyId,
+        floor,
+      );
     } catch (error) {
-      // If model not found, use timestamp as fallback
       this.rentalNumber = `RENT-${Date.now()}`;
     }
   }

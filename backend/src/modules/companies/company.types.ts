@@ -33,6 +33,8 @@ export interface ICompany {
   settings?: Record<string, any>;
   /** Emitentes cadastrados para numeração e PDF das faturas (CNPJ da empresa locadora). */
   invoiceIssuers?: CompanyInvoiceIssuer[];
+  /** Início da numeração dos contratos online (ex.: 50000); próximo = max(configurado, maior já usado + 1). */
+  initialContractNumber?: number;
   createdAt?: Date;
   updatedAt?: Date;
 }

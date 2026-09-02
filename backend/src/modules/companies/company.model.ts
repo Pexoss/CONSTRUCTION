@@ -114,6 +114,12 @@ const CompanySchema = new Schema<ICompany>(
       type: [CompanyInvoiceIssuerSchema],
       default: [],
     },
+    /** Primeiro número da série numérica dos contratos (depois segue max existente + 1). */
+    initialContractNumber: {
+      type: Number,
+      default: 1,
+      min: 1,
+    },
   },
   {
     timestamps: true,

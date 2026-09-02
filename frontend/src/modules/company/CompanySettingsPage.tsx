@@ -44,6 +44,18 @@ const CompanySettingsPage: React.FC = () => {
     queryFn: () => companyService.getInvoiceIssuers(),
   });
 
+  const contractNumberingQuery = useQuery({
+    queryKey: ['company-contract-numbering'],
+    queryFn: () => companyService.getContractNumbering(),
+  });
+
+  const [initialContractNumber, setInitialContractNumber] = useState(1);
+  const [contractSaveFeedback, setContractSaveFeedback] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+  const contractSaveFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [issuerDraft, setIssuerDraft] = useState<
     Array<{ id?: string; label: string; cnpj: string; initialInvoiceNumber: number }>
   >([{ label: '', cnpj: '', initialInvoiceNumber: 1 }]);
@@ -57,8 +69,19 @@ const CompanySettingsPage: React.FC = () => {
   useEffect(() => {
     return () => {
       if (issuerSaveFeedbackTimeoutRef.current) clearTimeout(issuerSaveFeedbackTimeoutRef.current);
+      if (contractSaveFeedbackTimeoutRef.current) {
+        clearTimeout(contractSaveFeedbackTimeoutRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (!contractNumberingQuery.data) return;
+    const raw = contractNumberingQuery.data.initialContractNumber;
+    setInitialContractNumber(
+      typeof raw === 'number' && Number.isFinite(raw) ? Math.max(1, Math.floor(raw)) : 1,
+    );
+  }, [contractNumberingQuery.data]);
 
   useEffect(() => {
     if (issuerQuery.data && issuerQuery.data.length > 0) {
@@ -109,6 +132,38 @@ const CompanySettingsPage: React.FC = () => {
         (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
         'Não foi possível salvar os emissores.';
       setIssuerSaveFeedback({ type: 'error', text });
+    },
+  });
+
+  const saveContractNumberingMutation = useMutation({
+    mutationFn: () =>
+      companyService.updateContractNumbering({
+        initialContractNumber: Math.max(1, Math.floor(initialContractNumber || 1)),
+      }),
+    onMutate: () => {
+      if (contractSaveFeedbackTimeoutRef.current) {
+        clearTimeout(contractSaveFeedbackTimeoutRef.current);
+        contractSaveFeedbackTimeoutRef.current = null;
+      }
+      setContractSaveFeedback(null);
+    },
+    onSuccess: (res) => {
+      const text = res.message?.trim() || 'Numeração de contratos salva.';
+      setContractSaveFeedback({ type: 'success', text });
+      if (typeof res.data?.initialContractNumber === 'number') {
+        setInitialContractNumber(Math.max(1, Math.floor(res.data.initialContractNumber)));
+      }
+      contractNumberingQuery.refetch();
+      contractSaveFeedbackTimeoutRef.current = setTimeout(() => {
+        setContractSaveFeedback(null);
+        contractSaveFeedbackTimeoutRef.current = null;
+      }, 5000);
+    },
+    onError: (error) => {
+      const text =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Não foi possível salvar a numeração dos contratos.';
+      setContractSaveFeedback({ type: 'error', text });
     },
   });
 
@@ -218,6 +273,74 @@ const CompanySettingsPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          )}
+        </div>
+
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Numeração de contratos
+          </h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Defina o número inicial dos contratos online, no mesmo modelo da fatura. O próximo
+            contrato recebe o maior entre este valor e o último número já usado + 1. Contratos
+            existentes não são alterados.
+          </p>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
+          {contractNumberingQuery.isLoading ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">Carregando numeração...</p>
+          ) : (
+            <div className="space-y-4">
+              <div className="max-w-xs">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Nº inicial do contrato
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={initialContractNumber}
+                  onFocus={selectInputText}
+                  onClick={selectInputText}
+                  onChange={(e) => {
+                    const parsed = Number(e.target.value);
+                    setInitialContractNumber(
+                      Number.isFinite(parsed) ? Math.max(1, Math.floor(parsed)) : 1,
+                    );
+                  }}
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  placeholder="50000"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Exemplo: 50000 para o próximo contrato ser 50000, depois 50001, e assim por diante.
+                </p>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  disabled={saveContractNumberingMutation.isPending}
+                  onClick={() => saveContractNumberingMutation.mutate()}
+                  className="inline-flex items-center justify-center px-4 py-2.5 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                >
+                  {saveContractNumberingMutation.isPending
+                    ? 'Salvando...'
+                    : 'Salvar numeração'}
+                </button>
+              </div>
+              {contractSaveFeedback ? (
+                <p
+                  role="status"
+                  className={
+                    contractSaveFeedback.type === 'success'
+                      ? 'text-sm text-green-700 dark:text-green-400'
+                      : 'text-sm text-red-600 dark:text-red-400'
+                  }
+                >
+                  {contractSaveFeedback.text}
+                </p>
+              ) : null}
+            </div>
           )}
         </div>
 

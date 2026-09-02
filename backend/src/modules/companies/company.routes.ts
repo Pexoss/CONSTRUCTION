@@ -17,4 +17,7 @@ router.patch('/settings/cpfcnpj', companyController.updateCpfCnpjSettings.bind(c
 router.get('/invoice-issuers', companyController.getInvoiceIssuers.bind(companyController));
 router.put('/invoice-issuers', companyController.updateInvoiceIssuers.bind(companyController));
 
+router.get('/settings/contracts', companyController.getContractNumbering.bind(companyController));
+router.patch('/settings/contracts', companyController.updateContractNumbering.bind(companyController));
+
 export default router;

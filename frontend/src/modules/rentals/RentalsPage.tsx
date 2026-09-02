@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 import {
   keepPreviousData,
   useQuery,
@@ -7,7 +8,12 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
-import { Rental, RentalFilters, RentalStatus } from "../../types/rental.types";
+import {
+  Rental,
+  RentalFilters,
+  RentalItem,
+  RentalStatus,
+} from "../../types/rental.types";
 import Layout from "../../components/Layout";
 import { rentalStatusLabel } from "../../utils/statusLabels";
 import { formatDateNoTimezoneShift, formatCurrencyBr } from "../../utils/formatters";
@@ -29,6 +35,35 @@ type RentalSortKey =
 
 type RentalsListResult = Awaited<ReturnType<typeof rentalService.getRentals>>;
 
+function getRentalListItemName(item: RentalItem): string {
+  if (typeof item.itemId === "object" && item.itemId) {
+    if (item.itemId.name) return item.itemId.name;
+    if (item.itemId.sku) return item.itemId.sku;
+  }
+  return "Item";
+}
+
+function getRentalListItemSku(item: RentalItem): string | undefined {
+  if (typeof item.itemId === "object" && item.itemId?.sku) {
+    return item.itemId.sku;
+  }
+  return undefined;
+}
+
+function getRentalListItemMeta(item: RentalItem): string {
+  const parts: string[] = [];
+  const sku = getRentalListItemSku(item);
+  if (sku) parts.push(sku);
+  if (item.unitId?.trim()) {
+    parts.push(`un. ${item.unitId.trim()}`);
+  } else if (Number(item.quantity) > 1) {
+    parts.push(`${item.quantity} un.`);
+  }
+  if (item.isLoan) parts.push("empréstimo");
+  if (item.returnActual) parts.push("devolvido");
+  return parts.join(" · ");
+}
+
 const RentalsPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -37,6 +72,12 @@ const RentalsPage: React.FC = () => {
     limit: 20,
   });
   const [searchTerm, setSearchTerm] = useState("");
+  const [itemsPopover, setItemsPopover] = useState<{
+    rentalId: string;
+    top: number;
+    left: number;
+    placement: "above" | "below";
+  } | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showModal, setShowModal] = useState(false);
@@ -74,8 +115,66 @@ const RentalsPage: React.FC = () => {
     return () => window.clearTimeout(timeoutId);
   }, [searchTerm]);
 
+  useEffect(() => {
+    if (!itemsPopover) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setItemsPopover(null);
+    };
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest("[data-rental-items-trigger]") ||
+        target?.closest("[data-rental-items-popover]")
+      ) {
+        return;
+      }
+      setItemsPopover(null);
+    };
+    const onViewportChange = () => setItemsPopover(null);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("scroll", onViewportChange, true);
+    window.addEventListener("resize", onViewportChange);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("scroll", onViewportChange, true);
+      window.removeEventListener("resize", onViewportChange);
+    };
+  }, [itemsPopover]);
+
+  useEffect(() => {
+    setItemsPopover((current) => (current ? null : current));
+  }, [viewMode, filters.page, filters.status, filters.search]);
+
   const handleFilterChange = (key: keyof RentalFilters, value: any) => {
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
+  };
+
+  const toggleItemsPopover = (
+    event: React.SyntheticEvent<HTMLElement>,
+    rentalId: string,
+  ) => {
+    event.stopPropagation();
+    if (itemsPopover?.rentalId === rentalId) {
+      setItemsPopover(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = 320;
+    const estimatedHeight = 260;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openAbove = spaceBelow < estimatedHeight && rect.top > spaceBelow;
+    const left = Math.max(
+      8,
+      Math.min(rect.left, window.innerWidth - width - 8),
+    );
+    setItemsPopover({
+      rentalId,
+      top: openAbove ? rect.top - 6 : rect.bottom + 6,
+      left,
+      placement: openAbove ? "above" : "below",
+    });
   };
 
   const getStatusColor = (status: RentalStatus) => {
@@ -280,11 +379,26 @@ const RentalsPage: React.FC = () => {
                   {dayRentals.slice(0, 2).map((rental) => (
                     <div
                       key={rental._id}
+                      role="button"
+                      tabIndex={0}
+                      data-rental-items-trigger={rental._id}
                       className={`text-3xs sm:text-xs p-1 sm:p-1.5 rounded truncate cursor-pointer ${getStatusColor(rental.status)}`}
-                      title={`${rental.rentalNumber} — duplo clique para abrir`}
-                      onDoubleClick={() =>
-                        navigate(`/rentals/${rental._id}`)
+                      title={`${rental.rentalNumber} — ${(rental.items || [])
+                        .map((item) => getRentalListItemName(item))
+                        .join(", ") || "sem itens"}`}
+                      onClick={(event) =>
+                        toggleItemsPopover(event, rental._id)
                       }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          toggleItemsPopover(event, rental._id);
+                        }
+                      }}
+                      onDoubleClick={(event) => {
+                        event.stopPropagation();
+                        navigate(`/rentals/${rental._id}`);
+                      }}
                     >
                       {rental.rentalNumber}
                     </div>
@@ -304,6 +418,11 @@ const RentalsPage: React.FC = () => {
   };
 
   // Layout principal ajustado
+  const itemsPopoverRental = itemsPopover
+    ? rentals.find((rental) => rental._id === itemsPopover.rentalId)
+    : undefined;
+  const itemsPopoverLines = itemsPopoverRental?.items || [];
+
   return (
     <Layout title="Aluguéis e Reservas" backTo="/dashboard">
       {/* Header - Corrigido espaçamento */}
@@ -489,10 +608,54 @@ const RentalsPage: React.FC = () => {
                                 {rental.workAddress?.workName?.trim() || "—"}
                               </div>
                             </td>
-                            <td className="px-4 py-4">
-                              <div className="text-sm text-gray-500 dark:text-gray-300">
-                                {rental.items.length} item(ns)
-                              </div>
+                            <td className="px-4 py-4 max-w-[240px]">
+                              {(() => {
+                                const lines = rental.items || [];
+                                const preview = lines.slice(0, 2);
+                                const extra = lines.length - preview.length;
+                                const isOpen =
+                                  itemsPopover?.rentalId === rental._id;
+                                return (
+                                  <button
+                                    type="button"
+                                    data-rental-items-trigger={rental._id}
+                                    onClick={(event) =>
+                                      toggleItemsPopover(event, rental._id)
+                                    }
+                                    onDoubleClick={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    aria-expanded={isOpen}
+                                    aria-haspopup="dialog"
+                                    aria-label={`Ver itens do aluguel ${rental.rentalNumber}`}
+                                    className="w-full text-left rounded-md px-1 -mx-1 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-700/80 focus:outline-none focus:ring-2 focus:ring-gray-400"
+                                  >
+                                    {preview.length === 0 ? (
+                                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                                        Sem itens
+                                      </div>
+                                    ) : (
+                                      preview.map((item, index) => (
+                                        <div
+                                          key={`${rental._id}-preview-${index}`}
+                                          className="text-sm text-gray-900 dark:text-white truncate"
+                                        >
+                                          {getRentalListItemName(item)}
+                                          {Number(item.quantity) > 1 &&
+                                          !item.unitId
+                                            ? ` (${item.quantity})`
+                                            : ""}
+                                        </div>
+                                      ))
+                                    )}
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                                      {extra > 0
+                                        ? `+${extra} · ver todos (${lines.length})`
+                                        : `ver itens (${lines.length})`}
+                                    </div>
+                                  </button>
+                                );
+                              })()}
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
                               <div className="text-sm text-gray-600 dark:text-gray-300">
@@ -627,6 +790,88 @@ const RentalsPage: React.FC = () => {
           </div>
         )}
       </div>
+      {itemsPopover &&
+        createPortal(
+          <div
+            data-rental-items-popover
+            role="dialog"
+            aria-label={
+              itemsPopoverRental
+                ? `Itens do aluguel ${itemsPopoverRental.rentalNumber}`
+                : "Itens do aluguel"
+            }
+            className="fixed z-[10040] w-[min(20rem,calc(100vw-16px))] max-h-[min(22rem,70vh)] overflow-hidden rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 shadow-xl"
+            style={{
+              top: itemsPopover.top,
+              left: itemsPopover.left,
+              transform:
+                itemsPopover.placement === "above"
+                  ? "translateY(-100%)"
+                  : undefined,
+            }}
+          >
+            <div className="flex items-start justify-between gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                  {itemsPopoverRental?.rentalNumber || "Aluguel"}
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">
+                  {itemsPopoverLines.length}{" "}
+                  {itemsPopoverLines.length === 1 ? "item" : "itens"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setItemsPopover(null)}
+                className="text-gray-500 hover:text-gray-800 dark:hover:text-white text-sm leading-none px-1"
+                aria-label="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+            <ul className="max-h-[16rem] overflow-y-auto py-1">
+              {itemsPopoverLines.length === 0 ? (
+                <li className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                  Sem itens neste aluguel
+                </li>
+              ) : (
+                itemsPopoverLines.map((item, index) => {
+                  const meta = getRentalListItemMeta(item);
+                  return (
+                    <li
+                      key={
+                        item.lineId ||
+                        `${itemsPopover.rentalId}-${item.unitId || index}`
+                      }
+                      className="px-3 py-2 border-b border-gray-100 dark:border-gray-700 last:border-b-0"
+                    >
+                      <div className="text-sm text-gray-900 dark:text-white">
+                        {getRentalListItemName(item)}
+                      </div>
+                      {meta ? (
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {meta}
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })
+              )}
+            </ul>
+            {itemsPopoverRental && (
+              <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700">
+                <Link
+                  to={`/rentals/${itemsPopoverRental._id}`}
+                  className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                  onClick={() => setItemsPopover(null)}
+                >
+                  Abrir aluguel
+                </Link>
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md relative shadow-lg">

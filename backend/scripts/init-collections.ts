@@ -17,7 +17,7 @@ import {
   NotificationUserModel,
 } from "../src/modules/notification/notification.validator";
 import { RentalCpfBypassToken } from "../src/modules/rentals/rental-cpf-bypass.model";
-import { Rental } from "../src/modules/rentals/rental.model";
+import { ensureRentalIndexes } from "../src/modules/rentals/rental.index.util";
 import { SubscriptionPayment } from "../src/modules/subscriptions/subscriptionPayment.model";
 import { Transaction } from "../src/modules/transactions/transaction.model";
 import { User } from "../src/modules/users/user.model";
@@ -34,7 +34,7 @@ const syncTasks: Array<{ name: string; sync: () => Promise<void> }> = [
   { name: "Subcategory", sync: async () => { await Subcategory.syncIndexes(); } },
   { name: "Item", sync: async () => { await Item.syncIndexes(); } },
   { name: "ItemMovement", sync: async () => { await ItemMovement.syncIndexes(); } },
-  { name: "Rental", sync: async () => { await Rental.syncIndexes(); } },
+  { name: "Rental", sync: ensureRentalIndexes },
   {
     name: "RentalCpfBypassToken",
     sync: async () => { await RentalCpfBypassToken.syncIndexes(); },
