@@ -6014,6 +6014,8 @@ const RentalDetailPage: React.FC = () => {
                       queryClient.invalidateQueries({
                         queryKey: ["financial-board"],
                       });
+                      queryClient.invalidateQueries({ queryKey: ["items"] });
+                      queryClient.invalidateQueries({ queryKey: ["item"] });
                       toast.success(
                         "Devolução processada. O fechamento foi gerado e já pode ser vinculado a uma cobrança no Financeiro.",
                       );

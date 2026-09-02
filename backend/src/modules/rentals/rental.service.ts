@@ -2951,19 +2951,15 @@ class RentalService {
     targetItem.nextBillingDate = undefined;
     await this.removeObsoleteUnpaidBillingsForCurrentRental(companyId, rental);
 
-    // Validar estoque antes de qualquer efeito colateral (fechamento / inventário)
-    let inventoryReturnQty = 0;
     const ownQtyOnLine = ownStockQuantity(targetItem);
     const partnerQtyOnLine = partnerStockQuantity(targetItem);
-    if (inventoryItem.trackingType !== "unit") {
-      const resolved = await this.resolveInventoryReturnForRentalLine(
-        companyId,
-        inventoryItem,
-        ownQtyOnLine,
-        rental._id,
-      );
-      inventoryReturnQty = resolved.applyQuantity;
-    }
+    const inventoryRestore = await this.planRentalLineInventoryRestore(
+      companyId,
+      rental._id,
+      inventoryItem,
+      targetItem,
+      ownQtyOnLine,
+    );
 
     await partnerService.applyCustomerReturn(
       companyId,
@@ -3083,15 +3079,15 @@ class RentalService {
       targetItem.unitPrice = 0;
     }
 
-    if (inventoryReturnQty > 0) {
+    if (inventoryRestore) {
       await this.updateItemQuantityForRental(
         companyId,
         targetItem.itemId as any,
-        inventoryReturnQty,
-        "return",
+        inventoryRestore.quantity,
+        inventoryRestore.action,
         userId,
         rental._id,
-        targetItem.unitId,
+        inventoryRestore.unitId,
         rental.customerId.toString(),
       );
     }
@@ -3308,19 +3304,16 @@ class RentalService {
         );
       }
 
-      let inventoryReturnQty = 0;
       const ownQtyOnLine = ownStockQuantity(targetItem);
       const partnerQtyOnLine = partnerStockQuantity(targetItem);
-      if (invForLine.trackingType !== "unit") {
-        const ownReturnCap = Math.min(returnedQuantity, ownQtyOnLine);
-        const resolved = await this.resolveInventoryReturnForRentalLine(
-          companyId,
-          invForLine,
-          ownReturnCap,
-          rental._id,
-        );
-        inventoryReturnQty = resolved.applyQuantity;
-      }
+      const ownReturnCap = Math.min(returnedQuantity, ownQtyOnLine);
+      const inventoryRestore = await this.planRentalLineInventoryRestore(
+        companyId,
+        rental._id,
+        invForLine,
+        targetItem,
+        ownReturnCap,
+      );
 
       await partnerService.applyCustomerReturn(
         companyId,
@@ -3593,15 +3586,15 @@ class RentalService {
         }
       }
 
-      if (inventoryReturnQty > 0) {
+      if (inventoryRestore) {
         await this.updateItemQuantityForRental(
           companyId,
           targetItem.itemId as any,
-          inventoryReturnQty,
-          "return",
+          inventoryRestore.quantity,
+          inventoryRestore.action,
           userId,
           rental._id,
-          targetItem.unitId,
+          inventoryRestore.unitId,
           rental.customerId.toString(),
         );
       }
@@ -7772,6 +7765,76 @@ class RentalService {
   }
 
   /**
+   * Devolve o estoque próprio da linha (unidade ou quantidade).
+   * Item unitário era ignorado na devolução e ficava preso em alugado/reservado.
+   */
+  private async planRentalLineInventoryRestore(
+    companyId: string,
+    rentalId: mongoose.Types.ObjectId,
+    inventoryItem: {
+      _id: mongoose.Types.ObjectId | string;
+      name?: string;
+      trackingType?: string;
+      units?: Array<{ unitId: string; status: string }>;
+      quantity?: { rented?: number; reserved?: number; available?: number };
+    },
+    line: IRentalItem,
+    returnedOwnQty: number,
+  ): Promise<{
+    action: "return" | "cancel";
+    quantity: number;
+    unitId?: string;
+  } | null> {
+    if (inventoryItem.trackingType === "unit") {
+      const unitId = String(line.unitId || "").trim();
+      if (!unitId) {
+        console.warn("[AVISO] Devolução de item unitário sem unitId", {
+          itemId: inventoryItem._id,
+          rentalId,
+        });
+        return null;
+      }
+      const unit = inventoryItem.units?.find((u) => u.unitId === unitId);
+      if (!unit || unit.status === "available") return null;
+      if (unit.status === "reserved") {
+        return { action: "cancel", quantity: 1, unitId };
+      }
+      if (unit.status === "rented") {
+        return { action: "return", quantity: 1, unitId };
+      }
+      throw badRequest(
+        `Unidade ${unitId} não pode ser devolvida (status: ${unit.status}).`,
+      );
+    }
+
+    const ownQty = Math.max(0, Math.floor(Number(returnedOwnQty || 0)));
+    if (ownQty <= 0) return null;
+
+    const rented = Number(inventoryItem.quantity?.rented ?? 0);
+    const reserved = Number(inventoryItem.quantity?.reserved ?? 0);
+
+    if (rented > 0) {
+      const resolved = await this.resolveInventoryReturnForRentalLine(
+        companyId,
+        inventoryItem,
+        ownQty,
+        rentalId,
+      );
+      if (resolved.applyQuantity <= 0) return null;
+      return { action: "return", quantity: resolved.applyQuantity };
+    }
+
+    if (reserved > 0) {
+      return {
+        action: "cancel",
+        quantity: Math.min(ownQty, reserved),
+      };
+    }
+
+    return null;
+  }
+
+  /**
    * Quantas unidades ainda precisam sair de "alugadas" no estoque para esta devolução.
    * Considera devoluções anteriores (ex.: tentativa que atualizou estoque e falhou no fechamento).
    */
@@ -7788,14 +7851,14 @@ class RentalService {
     const rented = Number(inventoryItem.quantity?.rented ?? 0);
     const reserved = Number(inventoryItem.quantity?.reserved ?? 0);
 
+    if (rented >= quantity) {
+      return { applyQuantity: quantity };
+    }
+
     if (reserved >= quantity) {
       throw badRequest(
         `Item "${inventoryItem.name}" não foi ativado: ainda consta como reservado no estoque. Ative o aluguel antes de registrar a devolução.`,
       );
-    }
-
-    if (rented >= quantity) {
-      return { applyQuantity: quantity };
     }
 
     const priorReturned = await this.sumReturnMovementsForRental(
@@ -7877,14 +7940,13 @@ class RentalService {
           break;
 
         case "return":
-          //proteção forte
           if (unit.status === "available") return;
 
           if (unit.status === "reserved") {
-            console.warn(
-              `Tentativa de devolução em unidade ainda reservada: ${unit.unitId}`,
-            );
-            return;
+            unit.status = "available";
+            unit.currentRental = undefined;
+            unit.currentCustomer = undefined;
+            break;
           }
 
           if (unit.status !== "rented") {
