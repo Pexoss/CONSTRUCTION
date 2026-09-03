@@ -4475,6 +4475,307 @@ class RentalService {
     return { rentalsProcessed, created, draftsCreated, refreshed };
   }
 
+  private billingLineFilter(
+    companyId: string,
+    rentalId: unknown,
+    item: IRentalItem,
+    cycle: RentalType,
+  ): Record<string, unknown> {
+    const itemFilter: Record<string, unknown> = {
+      companyId,
+      rentalId,
+      "items.itemId": item.itemId,
+      rentalType: cycle,
+      "items.rentalLineKey": buildRentalLineKey(item as any),
+    };
+    if (item.unitId) {
+      itemFilter["items.unitId"] = item.unitId;
+    }
+    return itemFilter;
+  }
+
+  private async ensureApprovedPeriodBillingForItem(
+    companyId: string,
+    rental: IRental,
+    item: IRentalItem,
+    periodStart: Date,
+    periodEnd: Date,
+    userId: string,
+    itemFilter: Record<string, unknown>,
+    includeServices: boolean,
+    notes: string,
+  ): Promise<"created" | "promoted" | "exists"> {
+    const existing = await Billing.findOne({
+      ...itemFilter,
+      periodStart: this.normalizeDate(periodStart),
+      periodEnd: this.normalizeDate(periodEnd),
+      status: { $ne: "cancelled" },
+    });
+
+    if (existing) {
+      if (existing.status === "draft") {
+        existing.status = "approved";
+        const prevNotes = String(existing.notes || "").trim();
+        if (!prevNotes.includes("antecipado")) {
+          existing.notes = [prevNotes, notes].filter(Boolean).join("\n");
+        }
+        await existing.save();
+        await billingService.refreshBillingFromRental(
+          companyId,
+          String(existing._id),
+        );
+        return "promoted";
+      }
+      await billingService.refreshBillingFromRental(
+        companyId,
+        String(existing._id),
+      );
+      return "exists";
+    }
+
+    await billingService.createPeriodicBillingForItem(
+      companyId,
+      rental,
+      item,
+      this.normalizeDate(periodStart),
+      this.normalizeDate(periodEnd),
+      userId,
+      {
+        includeServices,
+        notes,
+        status: "approved",
+      },
+    );
+    return "created";
+  }
+
+  /**
+   * Gera fechamentos aprovados de ciclos futuros (antecipação) até a data informada.
+   * Não duplica período já existente. Depois do trecho antecipado, o automático
+   * volta a criar fechamentos a cada vencimento até a devolução.
+   */
+  async generateFutureBillings(
+    companyId: string,
+    rentalId: string,
+    userId: string,
+    untilDate: Date,
+  ): Promise<{
+    created: number;
+    promoted: number;
+    skipped: number;
+    draftsCreated: number;
+    skipReason?: "rental_not_active";
+  }> {
+    const due = await this.processDueBillings(companyId, rentalId, userId);
+    if (due.skipReason === "rental_not_active") {
+      return {
+        created: 0,
+        promoted: 0,
+        skipped: 0,
+        draftsCreated: 0,
+        skipReason: "rental_not_active",
+      };
+    }
+
+    const rental = await Rental.findOne({ _id: rentalId, companyId });
+    if (!rental) {
+      throw notFound("Aluguel não encontrado");
+    }
+
+    const now = this.normalizeDate(new Date());
+    let until = this.normalizeDate(untilDate);
+    if (until.getTime() < now.getTime()) {
+      until = now;
+    }
+
+    let created = 0;
+    let promoted = 0;
+    let skipped = 0;
+    let includeServicesAvailable =
+      (await Billing.countDocuments({
+        companyId,
+        rentalId: rental._id,
+      })) === 0;
+
+    for (const item of rental.items) {
+      if (!item.pickupScheduled && rental.dates.pickupScheduled) {
+        item.pickupScheduled = rental.dates.pickupScheduled;
+      }
+      if (!item.pickupScheduled || item.returnActual || this.isLoanLine(item)) {
+        continue;
+      }
+
+      const cycle: RentalType = item.rentalType || "daily";
+      const pickupBase = this.normalizeDate(item.pickupScheduled);
+      const itemFilter = this.billingLineFilter(
+        companyId,
+        rental._id,
+        item,
+        cycle,
+      );
+      const scheduledReturn = this.getScheduledReturnNorm(item, rental);
+      let itemUntil = until;
+      if (scheduledReturn && scheduledReturn.getTime() < itemUntil.getTime()) {
+        itemUntil = scheduledReturn;
+      }
+
+      const maxPeriods = cycle === "daily" ? 366 : 36;
+      const futureNote = "Fechamento futuro (antecipado)";
+
+      if (cycle === "daily") {
+        const pickupPure = new Date(item.pickupScheduled);
+        const pickupHasTime = !isLocalMidnight(pickupPure);
+        const todayEnd = pickupHasTime ? new Date() : now;
+        const existingOpen = await Billing.findOne({
+          ...itemFilter,
+          $or: [
+            { periodStart: pickupPure },
+            ...(pickupHasTime ? [{ periodStart: pickupBase }] : []),
+          ],
+          status: { $nin: ["paid", "cancelled"] },
+        });
+        if (
+          existingOpen &&
+          existingOpen.periodEnd.getTime() > todayEnd.getTime()
+        ) {
+          existingOpen.periodEnd = todayEnd;
+          await existingOpen.save();
+          await billingService.refreshBillingFromRental(
+            companyId,
+            String(existingOpen._id),
+          );
+        }
+
+        const coveredCandidates: Date[] = [now];
+        if (item.lastBillingDate) {
+          coveredCandidates.push(this.normalizeDate(item.lastBillingDate));
+        }
+        if (existingOpen?.periodEnd) {
+          coveredCandidates.push(this.normalizeDate(existingOpen.periodEnd));
+        }
+        let cursor = this.addDays(
+          new Date(Math.max(...coveredCandidates.map((d) => d.getTime()))),
+          1,
+        );
+        cursor = this.normalizeDate(cursor);
+
+        let generated = 0;
+        while (
+          cursor.getTime() <= itemUntil.getTime() &&
+          generated < maxPeriods
+        ) {
+          const periodEnd = this.getPeriodEnd(cursor, cycle);
+          const result = await this.ensureApprovedPeriodBillingForItem(
+            companyId,
+            rental,
+            item,
+            cursor,
+            periodEnd,
+            userId,
+            itemFilter,
+            includeServicesAvailable,
+            futureNote,
+          );
+          if (result === "created") {
+            created += 1;
+            includeServicesAvailable = false;
+          } else if (result === "promoted") {
+            promoted += 1;
+          } else {
+            skipped += 1;
+          }
+          item.lastBillingDate = this.normalizeDate(periodEnd);
+          generated += 1;
+          cursor = this.addDays(periodEnd, 1);
+        }
+        if (item.lastBillingDate) {
+          item.nextBillingDate = this.getPeriodEnd(
+            this.addDays(this.normalizeDate(item.lastBillingDate), 1),
+            cycle,
+          );
+        }
+        continue;
+      }
+
+      let lastBillingDate = item.lastBillingDate
+        ? this.normalizeDate(item.lastBillingDate)
+        : this.addDays(pickupBase, -1);
+      let periodStart = this.addDays(lastBillingDate, 1);
+      let expectedNextBillingDate = this.getPeriodEnd(periodStart, cycle);
+      let nextBillingDate = item.nextBillingDate
+        ? this.normalizeDate(item.nextBillingDate)
+        : expectedNextBillingDate;
+      if (
+        nextBillingDate < periodStart ||
+        nextBillingDate > expectedNextBillingDate
+      ) {
+        nextBillingDate = expectedNextBillingDate;
+      }
+
+      let generated = 0;
+      while (
+        periodStart.getTime() <= itemUntil.getTime() &&
+        generated < maxPeriods
+      ) {
+        if (scheduledReturn && periodStart.getTime() > scheduledReturn.getTime()) {
+          break;
+        }
+        let cycleEnd = this.normalizeDate(nextBillingDate);
+        if (
+          scheduledReturn &&
+          cycleEnd.getTime() > scheduledReturn.getTime()
+        ) {
+          cycleEnd = scheduledReturn;
+        }
+        if (cycleEnd.getTime() < periodStart.getTime()) {
+          break;
+        }
+        const result = await this.ensureApprovedPeriodBillingForItem(
+          companyId,
+          rental,
+          item,
+          periodStart,
+          cycleEnd,
+          userId,
+          itemFilter,
+          includeServicesAvailable,
+          futureNote,
+        );
+        if (result === "created") {
+          created += 1;
+          includeServicesAvailable = false;
+        } else if (result === "promoted") {
+          promoted += 1;
+        } else {
+          skipped += 1;
+        }
+        item.lastBillingDate = this.normalizeDate(cycleEnd);
+        periodStart = this.addDays(cycleEnd, 1);
+        expectedNextBillingDate = this.getPeriodEnd(periodStart, cycle);
+        nextBillingDate = expectedNextBillingDate;
+        item.nextBillingDate = expectedNextBillingDate;
+        generated += 1;
+        if (
+          scheduledReturn &&
+          this.normalizeDate(cycleEnd).getTime() >= scheduledReturn.getTime()
+        ) {
+          break;
+        }
+      }
+    }
+
+    await this.saveRentalAfterBillingSideEffects(rental);
+
+    const after = await this.processDueBillings(companyId, rentalId, userId);
+
+    return {
+      created,
+      promoted,
+      skipped,
+      draftsCreated: after.draftsCreated,
+    };
+  }
+
   /**
    * Processa fechamentos periódicos para um aluguel ativo
    */
@@ -4554,6 +4855,63 @@ class RentalService {
           status: { $nin: ["paid", "cancelled"] },
         });
 
+        const prepaidThrough = item.lastBillingDate
+          ? this.normalizeDate(item.lastBillingDate)
+          : null;
+        const prepaidCoversToday =
+          !!prepaidThrough &&
+          !item.returnActual &&
+          prepaidThrough.getTime() >= todayNorm.getTime();
+
+        if (prepaidCoversToday) {
+          continue;
+        }
+
+        if (
+          prepaidThrough &&
+          !item.returnActual &&
+          prepaidThrough.getTime() < todayNorm.getTime()
+        ) {
+          const resumeStart = this.addDays(prepaidThrough, 1);
+          if (dailyHorizonRaw.getTime() >= resumeStart.getTime()) {
+            const existingResume = await Billing.findOne({
+              ...itemFilter,
+              periodStart: this.normalizeDate(resumeStart),
+              status: { $nin: ["paid", "cancelled"] },
+            });
+            if (existingResume) {
+              if (
+                existingResume.periodEnd.getTime() !==
+                dailyHorizonRaw.getTime()
+              ) {
+                existingResume.periodEnd = dailyHorizonRaw;
+                await existingResume.save();
+              }
+              await billingService.refreshBillingFromRental(
+                companyId,
+                String(existingResume._id),
+              );
+            } else {
+              await billingService.createPeriodicBillingForItem(
+                companyId,
+                rental,
+                item,
+                this.normalizeDate(resumeStart),
+                dailyHorizonRaw,
+                userId,
+                {
+                  includeServices: includeServicesAvailable,
+                  notes: "Fechamento diário",
+                },
+              );
+              includeServicesAvailable = false;
+              createdCount += 1;
+            }
+          }
+          item.nextBillingDate = undefined;
+          continue;
+        }
+
         if (dailyHorizonRaw.getTime() > pickupPure.getTime()) {
           if (existingOpen) {
             if (
@@ -4629,6 +4987,12 @@ class RentalService {
           includeServicesAvailable = false;
           createdCount += 1;
         } else {
+          if (existing.status === "draft") {
+            await Billing.updateOne(
+              { _id: existing._id },
+              { $set: { status: "approved" } },
+            );
+          }
           await billingService.refreshBillingFromRental(
             companyId,
             String(existing._id),

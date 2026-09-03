@@ -42,6 +42,20 @@ export const billingService = {
     return response.data;
   },
 
+  generateFutureBillings: async (rentalId: string, untilDate: string) => {
+    const response = await api.post<{
+      success: boolean;
+      data: {
+        created: number;
+        promoted: number;
+        skipped: number;
+        draftsCreated: number;
+        skipReason?: "rental_not_active";
+      };
+    }>(`/rentals/${rentalId}/generate-future-billings`, { untilDate });
+    return response.data;
+  },
+
   generateBillingPDF: async (id: string) => {
     const response = await api.get(`/billings/${id}/pdf`, {
       responseType: "blob",

@@ -178,6 +178,10 @@ export const extendRentalSchema = z.object({
   newReturnDate: dateOnlyOrDateTime,
 });
 
+export const generateFutureBillingsSchema = z.object({
+  untilDate: dateOnlyOrDateTime,
+});
+
 export const updateChecklistSchema = z.object({
   photos: z.array(z.string().url()).optional(),
   conditions: z.record(z.any()).optional(),

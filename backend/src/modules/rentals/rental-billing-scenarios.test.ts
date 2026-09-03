@@ -7,6 +7,7 @@ import {
 } from "../billings/billing.service";
 import {
   simulateNonDailyPeriodicClosures,
+  simulateAdvancePeriodicClosures,
   formatYmdLocal,
 } from "./rental-billing-simulation";
 
@@ -361,5 +362,67 @@ describe("cenário exemplo — fechamentos periódicos (simulação = processDue
       const approved = rows.filter((r) => r.kind === "approved");
       expect(approved.length).toBeGreaterThanOrEqual(1);
     });
+  });
+});
+
+describe("antecipação de fechamentos futuros (simulação)", () => {
+  it("mensal: não duplica abril já devido; antecipa maio–julho cheios e deixa rascunho em agosto", () => {
+    const rows = simulateAdvancePeriodicClosures(
+      {
+        pickupScheduled: d(2026, 4, 1),
+        rentalType: "monthly",
+      },
+      d(2026, 5, 6),
+      d(2026, 7, 31),
+    );
+    const approved = rows.filter((r) => r.kind === "approved");
+    const draft = rows.filter((r) => r.kind === "draft");
+    expect(approved.map((r) => formatYmdLocal(r.periodEnd))).toEqual([
+      "2026-04-30",
+      "2026-05-30",
+      "2026-06-29",
+      "2026-07-29",
+      "2026-08-28",
+    ]);
+    expect(draft).toHaveLength(1);
+    expect(formatYmdLocal(draft[0].periodStart)).toBe("2026-08-29");
+    expect(formatYmdLocal(draft[0].periodEnd)).toBe("2026-09-27");
+  });
+
+  it("com lastBillingDate já no futuro, só continua depois do trecho antecipado", () => {
+    const rows = simulateAdvancePeriodicClosures(
+      {
+        pickupScheduled: d(2026, 4, 1),
+        rentalType: "monthly",
+        lastBillingDate: d(2026, 5, 30),
+        nextBillingDate: d(2026, 6, 30),
+      },
+      d(2026, 5, 6),
+      d(2026, 7, 31),
+    );
+    const approved = rows.filter((r) => r.kind === "approved");
+    expect(approved.map((r) => formatYmdLocal(r.periodEnd))).toEqual([
+      "2026-06-29",
+      "2026-07-29",
+      "2026-08-28",
+    ]);
+  });
+
+  it("não gera ciclo que começa depois da devolução real", () => {
+    const rows = simulateAdvancePeriodicClosures(
+      {
+        pickupScheduled: d(2026, 4, 1),
+        rentalType: "weekly",
+        returnActual: d(2026, 4, 14),
+      },
+      d(2026, 5, 6),
+      d(2026, 6, 30),
+    );
+    const approved = rows.filter((r) => r.kind === "approved");
+    expect(approved.map((r) => formatYmdLocal(r.periodEnd))).toEqual([
+      "2026-04-07",
+      "2026-04-14",
+    ]);
+    expect(rows.filter((r) => r.kind === "draft")).toHaveLength(0);
   });
 });

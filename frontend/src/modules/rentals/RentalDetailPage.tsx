@@ -629,9 +629,16 @@ const RentalDetailPage: React.FC = () => {
   const isAdminUser = ["admin", "superadmin"].includes(user?.role || "");
 
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [showFutureBillingsModal, setShowFutureBillingsModal] = useState(false);
+  const [futureUntilDate, setFutureUntilDate] = useState("");
 
   const processBillingMutation = useMutation({
     mutationFn: () => billingService.processRentalBilling(id!),
+  });
+
+  const generateFutureBillingsMutation = useMutation({
+    mutationFn: (untilDate: string) =>
+      billingService.generateFutureBillings(id!, untilDate),
   });
 
   const runProcessBillingFeedback = (
@@ -1281,6 +1288,66 @@ const RentalDetailPage: React.FC = () => {
   }
 
   const rental: Rental = data.data;
+
+  const openFutureBillingsModal = () => {
+    const today = todayDateInputValue();
+    const plus30 = (() => {
+      const t = new Date();
+      t.setDate(t.getDate() + 30);
+      const y = t.getFullYear();
+      const m = String(t.getMonth() + 1).padStart(2, "0");
+      const d = String(t.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    })();
+    const scheduled = toDateInput(rental.dates?.returnScheduled);
+    const initial =
+      scheduled && scheduled > today && scheduled > plus30 ? scheduled : plus30;
+    setFutureUntilDate(initial < today ? today : initial);
+    setShowFutureBillingsModal(true);
+  };
+
+  const handleGenerateFutureBillings = async () => {
+    if (!id || !futureUntilDate) {
+      toast.warning("Informe até que data os fechamentos devem ser gerados.");
+      return;
+    }
+    try {
+      const payload = await generateFutureBillingsMutation.mutateAsync(
+        futureUntilDate,
+      );
+      queryClient.invalidateQueries({ queryKey: ["rental-billings", id] });
+      queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["financial"] });
+      const d = payload?.data;
+      if (d?.skipReason === "rental_not_active") {
+        toast.warning(
+          "Só é possível gerar fechamentos futuros com o aluguel ativo ou em atraso.",
+        );
+        return;
+      }
+      const generated = (d?.created || 0) + (d?.promoted || 0);
+      if (generated > 0) {
+        toast.success(
+          `${generated} fechamento${generated === 1 ? "" : "s"} futuro${generated === 1 ? "" : "s"} disponível${generated === 1 ? "" : "eis"} para cobrança.`,
+        );
+      } else if ((d?.skipped || 0) > 0) {
+        toast.info(
+          "Esses períodos já tinham fechamento. Nada novo foi gerado.",
+        );
+      } else {
+        toast.info(
+          "Nenhum período futuro para gerar até a data informada.",
+        );
+      }
+      setShowFutureBillingsModal(false);
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message ?? "Não foi possível gerar os fechamentos futuros.";
+      toast.error(message);
+    }
+  };
+
   const customer =
     typeof rental.customerId === "object" ? rental.customerId : null;
   const customerResponsibles = customer?.responsibles ?? [];
@@ -4210,6 +4277,18 @@ const RentalDetailPage: React.FC = () => {
                       ? "Atualizando…"
                       : "Atualizar fechamentos"}
                   </button>
+                  <button
+                    type="button"
+                    disabled={
+                      generateFutureBillingsMutation.isPending ||
+                      rental.status === "completed" ||
+                      rental.status === "cancelled"
+                    }
+                    onClick={openFutureBillingsModal}
+                    className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Gerar fechamentos futuros
+                  </button>
                   {features.financialUnifiedModule && (
                     <button
                       type="button"
@@ -6115,6 +6194,69 @@ const RentalDetailPage: React.FC = () => {
             </div>
           </div>
         )}
+        {showFutureBillingsModal &&
+          createPortal(
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl w-full max-w-md">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Gerar fechamentos futuros
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowFutureBillingsModal(false)}
+                    className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Gera os ciclos completos (diário, semanal, quinzenal ou mensal)
+                    até a data informada, já aprovados para cobrança e pagamento.
+                    Períodos que já tiverem fechamento não são duplicados. Depois
+                    dessa data, o sistema volta a criar fechamentos automaticamente
+                    a cada vencimento, até a devolução.
+                  </p>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Gerar até
+                    </label>
+                    <input
+                      type="date"
+                      min={todayDateInputValue()}
+                      value={futureUntilDate}
+                      onChange={(e) => setFutureUntilDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowFutureBillingsModal(false)}
+                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        generateFutureBillingsMutation.isPending ||
+                        !futureUntilDate
+                      }
+                      onClick={() => void handleGenerateFutureBillings()}
+                      className="px-4 py-2 bg-gray-900 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                    >
+                      {generateFutureBillingsMutation.isPending
+                        ? "Gerando…"
+                        : "Gerar fechamentos"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )}
         {showAddItemModal &&
           createPortal(
             <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75 p-4">

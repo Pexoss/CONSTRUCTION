@@ -14,6 +14,7 @@ import {
   correctRentalItemReturnSchema,
   changeRentalTypeEventSchema,
   requestCpfBypassCodeSchema,
+  generateFutureBillingsSchema,
 } from "./rental.validator";
 import { Rental } from "./rental.model";
 import { Customer } from "../customers/customer.model";
@@ -558,6 +559,41 @@ export class RentalController {
         companyId,
         rentalId,
         userId,
+      );
+
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  async generateFutureBillings(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const rentalId = req.params.id;
+      const { untilDate } = generateFutureBillingsSchema.parse(req.body);
+      const until = parseCalendarDateBody(untilDate);
+      if (!until || Number.isNaN(until.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "Informe a data até a qual os fechamentos futuros devem ser gerados.",
+        });
+        return;
+      }
+
+      const result = await rentalService.generateFutureBillings(
+        companyId,
+        rentalId,
+        userId,
+        until,
       );
 
       res.json({

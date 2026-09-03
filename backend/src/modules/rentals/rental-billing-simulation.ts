@@ -157,6 +157,98 @@ export function simulateNonDailyPeriodicClosures(
   return out;
 }
 
+const MAX_ADVANCE_PERIODS = 36;
+
+/**
+ * Ciclos cheios até `until` (antecipação), depois dos períodos já devidos (fim <= hoje).
+ * Não gera fatia parcial até hoje — o ciclo corrente vira fechamento cheio se o início <= until.
+ */
+export function simulateAdvancePeriodicClosures(
+  item: SimRentalItem,
+  now: Date,
+  until: Date,
+): SimulatedPeriodicClosure[] {
+  const cycle = item.rentalType || "daily";
+  if (cycle === "daily") {
+    return [];
+  }
+
+  const pickupBase = normalizeDateForBilling(item.pickupScheduled);
+  const n = normalizeDateForBilling(now);
+  const untilN = normalizeDateForBilling(until);
+  const horizon = billingHorizonForItem(item, now);
+  const returnActual = item.returnActual
+    ? normalizeDateForBilling(item.returnActual)
+    : null;
+  const returnScheduled = item.returnScheduled
+    ? normalizeDateForBilling(item.returnScheduled)
+    : null;
+
+  let lastBillingDate = item.lastBillingDate
+    ? normalizeDateForBilling(item.lastBillingDate)
+    : addBillingDays(pickupBase, -1);
+  let periodStart = addBillingDays(lastBillingDate, 1);
+  let expectedNextBillingDate = getPeriodEndInclusive(periodStart, cycle);
+  let nextBillingDate = item.nextBillingDate
+    ? normalizeDateForBilling(item.nextBillingDate)
+    : expectedNextBillingDate;
+  if (
+    nextBillingDate.getTime() < periodStart.getTime() ||
+    nextBillingDate.getTime() > expectedNextBillingDate.getTime()
+  ) {
+    nextBillingDate = expectedNextBillingDate;
+  }
+
+  const out: SimulatedPeriodicClosure[] = [];
+
+  while (
+    nextBillingDate.getTime() <= n.getTime() &&
+    nextBillingDate.getTime() <= horizon.getTime()
+  ) {
+    out.push({
+      periodStart: normalizeDateForBilling(periodStart),
+      periodEnd: normalizeDateForBilling(nextBillingDate),
+      kind: "approved",
+    });
+    lastBillingDate = normalizeDateForBilling(nextBillingDate);
+    periodStart = addBillingDays(nextBillingDate, 1);
+    expectedNextBillingDate = getPeriodEndInclusive(periodStart, cycle);
+    nextBillingDate = expectedNextBillingDate;
+  }
+
+  let generated = 0;
+  while (
+    periodStart.getTime() <= untilN.getTime() &&
+    generated < MAX_ADVANCE_PERIODS
+  ) {
+    if (returnActual && periodStart.getTime() > returnActual.getTime()) {
+      break;
+    }
+    if (returnScheduled && periodStart.getTime() > returnScheduled.getTime()) {
+      break;
+    }
+    out.push({
+      periodStart: normalizeDateForBilling(periodStart),
+      periodEnd: normalizeDateForBilling(nextBillingDate),
+      kind: "approved",
+    });
+    generated += 1;
+    lastBillingDate = normalizeDateForBilling(nextBillingDate);
+    periodStart = addBillingDays(nextBillingDate, 1);
+    nextBillingDate = getPeriodEndInclusive(periodStart, cycle);
+  }
+
+  if (!item.returnActual && nextBillingDate.getTime() > n.getTime()) {
+    out.push({
+      periodStart: normalizeDateForBilling(periodStart),
+      periodEnd: normalizeDateForBilling(nextBillingDate),
+      kind: "draft",
+    });
+  }
+
+  return out;
+}
+
 /** Formata data local YYYY-MM-DD (evita deslocar fuso como toISOString). */
 export function formatYmdLocal(d: Date): string {
   const x = normalizeDateForBilling(d);

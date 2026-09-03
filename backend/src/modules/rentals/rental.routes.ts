@@ -38,6 +38,7 @@ router.patch('/rentals/:id/checklist/pickup', rentalController.updatePickupCheck
 router.patch('/rentals/:id/checklist/return', rentalController.updateReturnChecklist.bind(rentalController));
 router.get('/rentals/:id/close-preview', rentalController.getClosePreview.bind(rentalController));
 router.post('/rentals/:id/process-billing', rentalController.processBillingCycles.bind(rentalController));
+router.post('/rentals/:id/generate-future-billings', rentalController.generateFutureBillings.bind(rentalController));
 
 router.post('/rentals/check-overdue', rentalController.checkOverdueRentals.bind(rentalController));
 // NOVO: Sistema de aprovações
