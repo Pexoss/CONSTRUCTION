@@ -26,11 +26,11 @@ import { rentalTypeLabel } from "../../utils/statusLabels";
 import {
   DEFAULT_INVOICE_PAYMENT_METHOD,
   DEFAULT_PAYMENT_METHOD,
+  formatPaymentMethodLabel,
 } from "../../constants/paymentMethods";
 import PaymentMethodSelect from "../../components/PaymentMethodSelect";
 import {
   formatDateNoTimezoneShift,
-  formatDateTimeForDisplay,
   formatDocumentForDisplay,
   formatCurrencyBr,
   formatMoneyInputBrLive,
@@ -39,6 +39,7 @@ import {
   getBillingOutstandingAmount,
   parseMoneyBr,
   toDateInputValue,
+  todayDateInputValue,
 } from "../../utils/formatters";
 import { foldAccents } from "../../utils/accentInsensitive";
 import { selectInputText } from "../../utils/selectInputText";
@@ -358,6 +359,7 @@ const FinancialCenterPage: React.FC = () => {
   const chargePartialDiscountLinksAmountRef = useRef(false);
   const chargePartialPrevAdditionalRef = useRef(0);
   const [chargePartialMethod, setChargePartialMethod] = useState<string>(DEFAULT_PAYMENT_METHOD);
+  const [chargePaymentDate, setChargePaymentDate] = useState<string>(todayDateInputValue());
   const [invoiceDueDate, setInvoiceDueDate] = useState<string>("");
   const [invoicePaymentMethod, setInvoicePaymentMethod] = useState<string>(
     DEFAULT_INVOICE_PAYMENT_METHOD,
@@ -490,6 +492,7 @@ const FinancialCenterPage: React.FC = () => {
     chargePartialPrevAdditionalRef.current = 0;
     chargePartialDiscountLinksAmountRef.current = false;
     setChargePartialMethod(DEFAULT_PAYMENT_METHOD);
+    setChargePaymentDate(todayDateInputValue());
   }, []);
 
   const chargePartialEffectiveSettleBase = useMemo(() => {
@@ -590,6 +593,7 @@ const FinancialCenterPage: React.FC = () => {
       amount,
       discount,
       method,
+      paidAt,
       additionalAmount,
       additionalAmountReason,
     }: {
@@ -597,6 +601,7 @@ const FinancialCenterPage: React.FC = () => {
       amount: number;
       discount?: number;
       method?: string;
+      paidAt?: string;
       additionalAmount?: number;
       additionalAmountReason?: string;
     }) => {
@@ -604,6 +609,7 @@ const FinancialCenterPage: React.FC = () => {
         amount,
         discount,
         paymentMethod: method || DEFAULT_PAYMENT_METHOD,
+        paidAt,
         additionalAmount,
         additionalAmountReason,
       });
@@ -984,11 +990,16 @@ const FinancialCenterPage: React.FC = () => {
       toast.warning("Baixa + desconto não pode exceder o saldo da cobrança (incluindo adicional).");
       return;
     }
+    if (!chargePaymentDate) {
+      toast.warning("Informe a data de pagamento.");
+      return;
+    }
     payChargeMutation.mutate({
       chargeId: chargeModal._id,
       amount,
       discount: Number.isFinite(discount) && discount > 0 ? discount : 0,
       method: chargePartialMethod,
+      paidAt: chargePaymentDate,
       additionalAmount: additional > 0 ? additional : undefined,
       additionalAmountReason:
         additional > 0 && chargePayAdditionalReason.trim()
@@ -1992,7 +2003,9 @@ const FinancialCenterPage: React.FC = () => {
                               </span>
                               {(() => {
                                 const lastIso = getChargeLatestPaymentPaidAtIso(charge);
-                                const lastLabel = lastIso ? formatDateTimeForDisplay(lastIso) : "";
+                                const lastLabel = lastIso
+                                  ? formatDateNoTimezoneShift(lastIso)
+                                  : "";
                                 return lastLabel ? (
                                   <>
                                     {" · "}Última baixa:{" "}
@@ -2284,6 +2297,51 @@ const FinancialCenterPage: React.FC = () => {
                 </div>
               </div>
 
+              {Array.isArray(chargeModal.payments) && chargeModal.payments.length > 0 ? (
+                <section className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                  <div className="bg-gray-50/90 dark:bg-gray-800/60 px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+                      Pagamentos registrados
+                    </h4>
+                  </div>
+                  <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {chargeModal.payments.map((payment: any, index: number) => {
+                      const amount = Number(payment.amount || 0);
+                      const discount = Number(payment.discount || 0);
+                      return (
+                        <div
+                          key={`${chargeModal._id}-pay-${index}`}
+                          className="px-4 py-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm"
+                        >
+                          <p className="text-gray-800 dark:text-gray-200">
+                            <span className="font-medium tabular-nums">
+                              {payment.paidAt
+                                ? formatDateNoTimezoneShift(payment.paidAt)
+                                : "—"}
+                            </span>
+                            {payment.paymentMethod ? (
+                              <span className="text-gray-500 dark:text-gray-400">
+                                {" "}
+                                · {formatPaymentMethodLabel(payment.paymentMethod)}
+                              </span>
+                            ) : null}
+                          </p>
+                          <p className="tabular-nums text-gray-900 dark:text-white">
+                            {formatCurrencyBr(amount)}
+                            {discount > 0.01 ? (
+                              <span className="text-gray-500 dark:text-gray-400">
+                                {" "}
+                                + desc. {formatCurrencyBr(discount)}
+                              </span>
+                            ) : null}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
+
               <section className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                 <div className="bg-gray-50/90 dark:bg-gray-800/60 px-4 py-2.5 border-b border-gray-200 dark:border-gray-700">
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
@@ -2503,6 +2561,7 @@ const FinancialCenterPage: React.FC = () => {
                       Registrar baixa
                     </h4>
                     <p className="text-2xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      Informe a data em que o pagamento ocorreu, junto com o valor e o desconto.
                       Alterar o valor não muda o desconto. O desconto só reduz o valor quando ele
                       estiver igual ao saldo a quitar (
                       {formatCurrencyBr(chargePartialEffectiveSettleBase)}
@@ -2521,6 +2580,18 @@ const FinancialCenterPage: React.FC = () => {
                     </div>
                     <div className="p-4 space-y-3 flex-1 flex flex-col">
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                            Data de pagamento
+                          </label>
+                          <input
+                            type="date"
+                            className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 text-sm bg-white dark:bg-gray-900"
+                            max={todayDateInputValue()}
+                            value={chargePaymentDate}
+                            onChange={(e) => setChargePaymentDate(e.target.value)}
+                          />
+                        </div>
                         <div className="space-y-1.5">
                           <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
                             Valor (R$)

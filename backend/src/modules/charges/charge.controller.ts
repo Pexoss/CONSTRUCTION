@@ -74,7 +74,11 @@ class ChargeController {
       const companyId = req.companyId!;
       const userId = req.user!._id.toString();
       const data = paymentSchema.parse(req.body);
-      const charge = await chargeService.applyPayment(companyId, req.params.id, userId, data);
+      const paidAt = resolveDueDateFromBody(req.body.paidAt, data.paidAt);
+      const charge = await chargeService.applyPayment(companyId, req.params.id, userId, {
+        ...data,
+        paidAt,
+      });
       res.json({ success: true, data: charge });
     } catch (error) {
       next(error);
