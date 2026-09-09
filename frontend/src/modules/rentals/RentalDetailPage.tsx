@@ -402,7 +402,6 @@ const RentalDetailPage: React.FC = () => {
   })();
   const rentalListBackTo = returnToFromFinance || "/rentals";
   const rentalDetailBackTo = returnToFromFinance || "/dashboard";
-  const financeHubTo = returnToFromFinance || "/finance";
   const backLinkLabel = returnToFromFinance
     ? "Voltar ao financeiro"
     : "Voltar para Aluguéis";
@@ -4374,7 +4373,14 @@ const RentalDetailPage: React.FC = () => {
                   {features.financialUnifiedModule && (
                     <button
                       type="button"
-                      onClick={() => navigate(financeHubTo)}
+                      onClick={() => {
+                        const customerId = getRentalEntityId(rental.customerId);
+                        navigate(
+                          customerId
+                            ? `/finance?customer=${encodeURIComponent(customerId)}`
+                            : "/finance",
+                        );
+                      }}
                       className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                     >
                       Gerenciar no financeiro
