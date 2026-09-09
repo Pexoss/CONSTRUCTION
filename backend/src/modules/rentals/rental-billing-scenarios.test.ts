@@ -426,3 +426,41 @@ describe("antecipação de fechamentos futuros (simulação)", () => {
     expect(rows.filter((r) => r.kind === "draft")).toHaveLength(0);
   });
 });
+
+describe("devolução parcial quantitativa — saldo continua no mesmo período", () => {
+  it("10 mensal desde 01/04, devolve 5 em 30/04: o cursor do saldo não apaga o 1º mês; o 2º mês vence em 30/05", () => {
+    const remainderAfterPartialReturn = simulateNonDailyPeriodicClosures(
+      {
+        pickupScheduled: d(2026, 4, 1),
+        rentalType: "monthly",
+        lastBillingDate: d(2026, 4, 30),
+      },
+      d(2026, 4, 30),
+    );
+    const approvedOnReturnDay = remainderAfterPartialReturn.filter(
+      (r) => r.kind === "approved",
+    );
+    const draftOnReturnDay = remainderAfterPartialReturn.filter(
+      (r) => r.kind === "draft",
+    );
+    expect(approvedOnReturnDay).toHaveLength(0);
+    expect(draftOnReturnDay).toHaveLength(1);
+    expect(formatYmdLocal(draftOnReturnDay[0].periodStart)).toBe("2026-05-01");
+    expect(formatYmdLocal(draftOnReturnDay[0].periodEnd)).toBe("2026-05-30");
+
+    const remainderWhenSecondMonthDue = simulateNonDailyPeriodicClosures(
+      {
+        pickupScheduled: d(2026, 4, 1),
+        rentalType: "monthly",
+        lastBillingDate: d(2026, 4, 30),
+      },
+      d(2026, 5, 30),
+    );
+    const approvedLater = remainderWhenSecondMonthDue.filter(
+      (r) => r.kind === "approved",
+    );
+    expect(approvedLater).toHaveLength(1);
+    expect(formatYmdLocal(approvedLater[0].periodStart)).toBe("2026-05-01");
+    expect(formatYmdLocal(approvedLater[0].periodEnd)).toBe("2026-05-30");
+  });
+});

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
@@ -630,7 +630,9 @@ const RentalDetailPage: React.FC = () => {
 
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [showFutureBillingsModal, setShowFutureBillingsModal] = useState(false);
+  const [showCancelRentalModal, setShowCancelRentalModal] = useState(false);
   const [futureUntilDate, setFutureUntilDate] = useState("");
+  const dueBillingsSyncedForId = useRef<string | null>(null);
 
   const processBillingMutation = useMutation({
     mutationFn: () => billingService.processRentalBilling(id!),
@@ -691,6 +693,39 @@ const RentalDetailPage: React.FC = () => {
     }
   };
 
+  const cancelRentalMutation = useMutation({
+    mutationFn: () =>
+      rentalService.updateRentalStatus(id!, { status: "cancelled" }),
+    onSuccess: (response) => {
+      setShowCancelRentalModal(false);
+      setServerError(null);
+      queryClient.invalidateQueries({ queryKey: ["rental", id] });
+      queryClient.invalidateQueries({ queryKey: ["rentals"] });
+      queryClient.invalidateQueries({ queryKey: ["rental-billings", id] });
+      queryClient.invalidateQueries({ queryKey: ["billings"] });
+      queryClient.invalidateQueries({ queryKey: ["charges"] });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+      if ("requiresApproval" in response && response.requiresApproval) {
+        toast.success("Solicitação de cancelamento enviada para aprovação");
+        return;
+      }
+      toast.success("Aluguel cancelado. Fechamentos e cobranças em aberto foram cancelados.");
+    },
+    onError: (err: unknown) => {
+      const data = (
+        err as {
+          response?: { data?: { message?: string; error?: string } };
+        }
+      )?.response?.data;
+      const message =
+        (typeof data?.message === "string" && data.message.trim()) ||
+        (typeof data?.error === "string" && data.error.trim()) ||
+        "Não foi possível cancelar o aluguel.";
+      setServerError(message);
+      toast.error(message);
+    },
+  });
+
   const { data: billingsData, isLoading: billingsLoading } = useQuery<RentalBillingsResult>({
     queryKey: ["rental-billings", id],
     queryFn: () => billingService.getBillings({ rentalId: id!, limit: 200 }),
@@ -703,6 +738,38 @@ const RentalDetailPage: React.FC = () => {
   );
 
   const rentalDoc = data?.data;
+
+  useEffect(() => {
+    if (!id || !rentalDoc) return;
+    if (rentalDoc.status !== "active" && rentalDoc.status !== "overdue") return;
+    if (dueBillingsSyncedForId.current === id) return;
+    dueBillingsSyncedForId.current = id;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const payload = await billingService.processRentalBilling(id);
+        if (cancelled) return;
+        const created = Number(payload?.data?.created || 0);
+        const draftsCreated = Number(payload?.data?.draftsCreated || 0);
+        if (created > 0 || draftsCreated > 0) {
+          queryClient.invalidateQueries({ queryKey: ["rental-billings", id] });
+          queryClient.invalidateQueries({ queryKey: ["rental", id] });
+        }
+        if (created > 0) {
+          toast.info(
+            created === 1
+              ? "1 fechamento vencido foi gerado automaticamente."
+              : `${created} fechamentos vencidos foram gerados automaticamente.`,
+          );
+        }
+      } catch {
+        dueBillingsSyncedForId.current = null;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, rentalDoc, queryClient]);
   const billingsForClosureTable = useMemo(
     () =>
       sortBillingDocumentsFreteClosureGroupLastStable(billings, (it) =>
@@ -3449,7 +3516,7 @@ const RentalDetailPage: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={handleDownloadRentalPDF}
                   className="inline-flex items-center justify-center px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
@@ -3597,6 +3664,21 @@ const RentalDetailPage: React.FC = () => {
                   </svg>
                   Editar informações
                 </button>
+                {(rental.status === "reserved" ||
+                  rental.status === "active" ||
+                  rental.status === "overdue" ||
+                  rental.status === "ready_to_close") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setServerError(null);
+                      setShowCancelRentalModal(true);
+                    }}
+                    className="inline-flex items-center justify-center px-4 py-2.5 border border-red-300 dark:border-red-700 rounded-lg text-sm font-medium text-red-700 dark:text-red-300 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  >
+                    Cancelar aluguel
+                  </button>
+                )}
                 {/* TODO: Reativar modal de alteração de status quando voltar fluxo de ativação manual */}
                 {/* <button
                   onClick={() => {
@@ -6115,6 +6197,49 @@ const RentalDetailPage: React.FC = () => {
           </div>
           );
         })()}
+
+        {showCancelRentalModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75">
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-xl p-6 w-full max-w-md">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
+                Cancelar aluguel
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                Fechamentos e cobranças em aberto serão cancelados. Itens que
+                ainda estão em campo voltam ao estoque.
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+                Se já existir algum pagamento, o cancelamento não será
+                permitido.
+              </p>
+              {serverError && (
+                <p className="text-sm text-red-600 dark:text-red-400 mb-4">
+                  {serverError}
+                </p>
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCancelRentalModal(false)}
+                  disabled={cancelRentalMutation.isPending}
+                  className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cancelRentalMutation.mutate()}
+                  disabled={cancelRentalMutation.isPending}
+                  className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                >
+                  {cancelRentalMutation.isPending
+                    ? "Cancelando…"
+                    : "Confirmar cancelamento"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {showConfirmFinalClosure && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-500/75 dark:bg-gray-900/75">

@@ -80,12 +80,12 @@ const BillingsPage: React.FC = () => {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["billings"] });
       const d = res?.data;
-      if (d && d.rentalsProcessed > 0) {
+      if (d && (d.created > 0 || d.rentalsProcessed > 0)) {
         toast.success(
           `Sincronizado: ${d.rentalsProcessed} aluguel(is), ${d.created} fechamento(s) criado(s).`,
         );
       } else {
-        toast.info("Nenhum aluguel em aberto sem fechamento encontrado.");
+        toast.info("Nenhum fechamento vencido em falta no momento.");
       }
     },
     onError: (err: any) => {

@@ -1356,6 +1356,65 @@ class RentalService {
   }
 
   /**
+   * Devolução parcial antiga avançava lastBillingDate do saldo sem gerar o fechamento
+   * daquele mesmo período. Recria só quando o cursor ainda coincide com o trecho devolvido.
+   */
+  private async ensureMissingRemainderSamePeriodBilling(
+    companyId: string,
+    rental: IRental,
+    item: IRentalItem,
+    itemFilter: Record<string, unknown>,
+    userId: string,
+    includeServices: boolean,
+  ): Promise<boolean> {
+    if (item.returnActual || !item.lastBillingDate || !item.pickupScheduled) {
+      return false;
+    }
+    const priorPartialEnd = this.findPriorPartialReturnBillingEnd(
+      rental.items,
+      item,
+    );
+    if (!priorPartialEnd) {
+      return false;
+    }
+    const splitEnd = this.normalizeDate(priorPartialEnd);
+    const cursor = this.normalizeDate(new Date(item.lastBillingDate));
+    if (splitEnd.getTime() !== cursor.getTime()) {
+      return false;
+    }
+    const cycle = (item.rentalType || "daily") as RentalType;
+    const pickupSource = new Date(item.pickupScheduled);
+    const splitStart =
+      cycle === "daily" ? pickupSource : this.normalizeDate(pickupSource);
+    if (splitStart.getTime() > splitEnd.getTime()) {
+      return false;
+    }
+    const existing = await Billing.findOne({
+      ...itemFilter,
+      periodStart: splitStart,
+      periodEnd: splitEnd,
+      status: { $ne: "cancelled" },
+    }).lean();
+    if (existing) {
+      return false;
+    }
+    await billingService.createPeriodicBillingForItem(
+      companyId,
+      rental,
+      item,
+      splitStart,
+      splitEnd,
+      userId,
+      {
+        includeServices,
+        notes: "Fechamento do saldo no período da devolução parcial",
+        status: "approved",
+      },
+    );
+    return true;
+  }
+
+  /**
    * Janela de cobrança na devolução: do dia após o último fechamento (ou retirada) até a data de cálculo.
    * Quando o próximo início técnico ficaria após a devolução, reancora na retirada.
    */
@@ -3601,7 +3660,7 @@ class RentalService {
             partnerQtyOnLine - partnerReleased,
           );
           targetItem.lineId = splitRemainderLineId;
-          /** Mesma retirada civil; cobrança do saldo começa após o fim do trecho devolvido parcialmente. */
+          /** Mesma retirada civil: o saldo também esteve em campo neste período. */
           targetItem.pickupScheduled = pickupContinued;
           targetItem.quantity = prevQty - returnedQuantity;
           if (remainingPartner > 0 && plainItem.partnerSupply?.partnerId) {
@@ -3638,6 +3697,36 @@ class RentalService {
           );
           targetItem.subtotal = Number(
             ((Number(plainItem.subtotal || 0) * targetItem.quantity) / prevQty).toFixed(2),
+          );
+
+          const remainderLineForBilling: any = {
+            ...plainItem,
+            lineId: splitRemainderLineId,
+            pickupScheduled: pickupContinued,
+            quantity: targetItem.quantity,
+            rentalType: remainderType,
+            unitPrice: remainderRate,
+            periodRateOverride:
+              remainderOverride > 0
+                ? remainderOverride
+                : plainItem.periodRateOverride,
+            partnerSupply: targetItem.partnerSupply,
+            returnActual: undefined,
+            lastBillingDate: undefined,
+            nextBillingDate: undefined,
+          };
+          await billingService.createPeriodicBillingForItem(
+            companyId,
+            rental,
+            remainderLineForBilling,
+            periodStartRaw,
+            periodEndCharge,
+            userId,
+            {
+              includeServices: false,
+              notes: "Fechamento do saldo no período da devolução parcial",
+              status: "approved",
+            },
           );
         }
       }
@@ -4423,7 +4512,7 @@ class RentalService {
   }
 
   /**
-   * Para aluguéis sem nenhum fechamento: gera fechamentos e alinha totais.
+   * Gera fechamentos vencidos e alinha totais dos aluguéis em aberto da empresa.
    */
   async syncMissingBillingsForCompany(
     companyId: string,
@@ -4453,14 +4542,6 @@ class RentalService {
     let refreshed = 0;
 
     for (const r of rentals) {
-      const hasBilling = await Billing.exists({
-        companyId,
-        rentalId: r._id,
-      });
-      if (hasBilling) {
-        continue;
-      }
-
       const sync = await this.syncBillingsAfterRentalChange(
         companyId,
         String(r._id),
@@ -4863,6 +4944,20 @@ class RentalService {
           !item.returnActual &&
           prepaidThrough.getTime() >= todayNorm.getTime();
 
+        if (
+          await this.ensureMissingRemainderSamePeriodBilling(
+            companyId,
+            rental,
+            item,
+            itemFilter,
+            userId,
+            includeServicesAvailable,
+          )
+        ) {
+          includeServicesAvailable = false;
+          createdCount += 1;
+        }
+
         if (prepaidCoversToday) {
           continue;
         }
@@ -4946,6 +5041,20 @@ class RentalService {
           item.nextBillingDate = undefined;
         }
         continue;
+      }
+
+      if (
+        await this.ensureMissingRemainderSamePeriodBilling(
+          companyId,
+          rental,
+          item,
+          itemFilter,
+          userId,
+          includeServicesAvailable,
+        )
+      ) {
+        includeServicesAvailable = false;
+        createdCount += 1;
       }
 
       let lastBillingDate = item.lastBillingDate
@@ -6266,6 +6375,180 @@ class RentalService {
     );
   }
 
+  private paidFinancialBlockMessage(): string {
+    return "Não é possível cancelar o aluguel: já existe fechamento, cobrança ou fatura com pagamento. Estorne ou ajuste os pagamentos antes de cancelar.";
+  }
+
+  private async assertRentalHasNoPaidFinancials(
+    companyId: string,
+    rentalId: string,
+  ): Promise<void> {
+    const paidBilling = await Billing.findOne({
+      companyId,
+      rentalId,
+      status: "paid",
+    }).select("_id");
+    if (paidBilling) {
+      throw badRequest(this.paidFinancialBlockMessage());
+    }
+
+    const billingIds = (
+      await Billing.find({ companyId, rentalId }).select("_id")
+    ).map((row) => row._id);
+    if (!billingIds.length) {
+      const paidInvoiceByRental = await Invoice.findOne({
+        companyId,
+        rentalId,
+        status: "paid",
+      }).select("_id");
+      if (paidInvoiceByRental) {
+        throw badRequest(this.paidFinancialBlockMessage());
+      }
+      return;
+    }
+
+    const paidCharge = await Charge.findOne({
+      companyId,
+      billingIds: { $in: billingIds },
+      $or: [
+        { status: { $in: ["paid", "partial"] } },
+        { paidAmount: { $gt: 0 } },
+        { "payments.0": { $exists: true } },
+      ],
+    }).select("_id");
+    if (paidCharge) {
+      throw badRequest(this.paidFinancialBlockMessage());
+    }
+
+    const paidInvoice = await Invoice.findOne({
+      companyId,
+      status: "paid",
+      $or: [{ rentalId }, { billingIds: { $in: billingIds } }],
+    }).select("_id");
+    if (paidInvoice) {
+      throw badRequest(this.paidFinancialBlockMessage());
+    }
+  }
+
+  private async cancelOpenFinancialsForRental(
+    companyId: string,
+    rentalId: string,
+  ): Promise<void> {
+    const openBillings = await Billing.find({
+      companyId,
+      rentalId,
+      status: { $nin: ["paid", "cancelled"] },
+    }).select("_id");
+    const cancelledBillingIds = openBillings.map((row) => row._id);
+
+    for (const billing of openBillings) {
+      await billingService.cancelBilling(companyId, String(billing._id));
+    }
+
+    if (cancelledBillingIds.length) {
+      const charges = await Charge.find({
+        companyId,
+        billingIds: { $in: cancelledBillingIds },
+        status: { $nin: ["paid", "cancelled"] },
+      });
+      for (const charge of charges) {
+        if (
+          Number(charge.paidAmount || 0) > 0 ||
+          (charge.payments?.length ?? 0) > 0
+        ) {
+          continue;
+        }
+        const remainingIds = (charge.billingIds || []).filter(
+          (id) =>
+            !cancelledBillingIds.some(
+              (cancelledId) => String(cancelledId) === String(id),
+            ),
+        );
+        if (!remainingIds.length) {
+          charge.status = "cancelled";
+          await charge.save();
+          continue;
+        }
+        const related = await Billing.find({
+          _id: { $in: remainingIds },
+          companyId,
+          status: { $ne: "cancelled" },
+        });
+        charge.billingIds = remainingIds as typeof charge.billingIds;
+        const totalCharge =
+          related.reduce(
+            (acc, billing) =>
+              acc +
+              Number(
+                billing.outstandingAmount ?? billing.calculation?.total ?? 0,
+              ),
+            0,
+          ) + Number(charge.paidAmount || 0);
+        charge.total = Number(totalCharge.toFixed(2));
+        charge.outstandingAmount = Math.max(
+          0,
+          charge.total - Number(charge.paidAmount || 0),
+        );
+        await charge.save();
+      }
+    }
+
+    const invoices = await Invoice.find({
+      companyId,
+      status: { $nin: ["paid", "cancelled"] },
+      $or: [
+        { rentalId },
+        ...(cancelledBillingIds.length
+          ? [{ billingIds: { $in: cancelledBillingIds } }]
+          : []),
+      ],
+    });
+    for (const invoice of invoices) {
+      invoice.status = "cancelled";
+      await invoice.save();
+    }
+  }
+
+  private async restoreInventoryForCancelledRental(
+    rental: IRental,
+    companyId: string,
+    userId: string,
+  ): Promise<void> {
+    for (const item of rental.items) {
+      if (item.returnActual) {
+        continue;
+      }
+      const itemDoc = await Item.findOne({ _id: item.itemId, companyId });
+      if (!itemDoc) {
+        continue;
+      }
+      const ownQty = ownStockQuantity(item);
+      const restoreQty = item.unitId ? item.quantity : ownQty;
+      const inventoryRestore = await this.planRentalLineInventoryRestore(
+        companyId,
+        rental._id,
+        itemDoc,
+        item,
+        restoreQty,
+      );
+      if (!inventoryRestore) {
+        continue;
+      }
+      await this.updateItemQuantityForRental(
+        companyId,
+        item.itemId as any,
+        inventoryRestore.quantity,
+        inventoryRestore.action,
+        userId,
+        rental._id,
+        inventoryRestore.unitId,
+        rental.customerId.toString(),
+      );
+    }
+
+    await partnerService.cancelLoansForRental(companyId, String(rental._id));
+  }
+
   private async applyStatusChangeDirect(
     rental: IRental,
     oldStatus: RentalStatus,
@@ -6289,6 +6572,24 @@ class RentalService {
     if (oldStatus === newStatus) {
       console.warn("[AVISO] Tentativa de mudança de status redundante");
       return;
+    }
+
+    if (newStatus === "cancelled") {
+      if (oldStatus === "completed") {
+        throw badRequest("Não é possível cancelar um aluguel já finalizado.");
+      }
+      if (
+        oldStatus !== "reserved" &&
+        oldStatus !== "active" &&
+        oldStatus !== "overdue" &&
+        oldStatus !== "ready_to_close"
+      ) {
+        throw badRequest("Este aluguel não pode ser cancelado no status atual.");
+      }
+      await this.assertRentalHasNoPaidFinancials(
+        companyId,
+        String(rental._id),
+      );
     }
 
     rental.status = newStatus;
@@ -6587,6 +6888,26 @@ class RentalService {
     }
 
     /**
+     * ACTIVE / OVERDUE / READY_TO_CLOSE → CANCELLED
+     * Devolve ao estoque só o que ainda está em campo (itens já devolvidos não entram).
+     */
+    if (
+      newStatus === "cancelled" &&
+      (oldStatus === "active" ||
+        oldStatus === "overdue" ||
+        oldStatus === "ready_to_close")
+    ) {
+      await this.restoreInventoryForCancelledRental(rental, companyId, userId);
+    }
+
+    if (newStatus === "cancelled") {
+      await this.cancelOpenFinancialsForRental(companyId, String(rental._id));
+      rental.notes = [rental.notes, "[Cancelamento] Aluguel cancelado"]
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    /**
      * READY_TO_CLOSE → COMPLETED
      * Transição final do aluguel após todos os itens serem devolvidos
      * 
@@ -6731,6 +7052,10 @@ class RentalService {
 
     if (adjustments && status !== "completed") {
       throw badRequest("Ajustes só podem ser enviados no fechamento do aluguel");
+    }
+
+    if (status === "cancelled") {
+      await this.assertRentalHasNoPaidFinancials(companyId, rentalId);
     }
 
     // funcionário → cria solicitação
