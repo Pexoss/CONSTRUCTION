@@ -1356,6 +1356,43 @@ class RentalService {
   }
 
   /**
+   * Fechamento já pago do mesmo item/unidade cujo período cobre a janela.
+   * Ignora rentalLineKey — após split da devolução a chave muda e não pode gerar outro cobrável.
+   */
+  private async findPaidBillingOverlappingItemWindow(
+    companyId: string,
+    rentalId: mongoose.Types.ObjectId,
+    item: { itemId: any; unitId?: string },
+    windowStart: Date,
+    windowEnd: Date,
+  ): Promise<any | null> {
+    const winStart = this.normalizeDate(windowStart);
+    const winEnd = this.normalizeDate(windowEnd);
+    const idStr = item.itemId?.toString?.() || String(item.itemId);
+    const unitId = item.unitId ? String(item.unitId).trim() : "";
+
+    const paid = await Billing.find({
+      companyId,
+      rentalId,
+      status: "paid",
+      periodStart: { $lte: winEnd },
+      periodEnd: { $gte: winStart },
+      "items.itemId": item.itemId,
+    });
+
+    return (
+      paid.find((billing) =>
+        (billing.items || []).some((row: any) => {
+          const rowItemId = row.itemId?.toString?.() || String(row.itemId);
+          if (rowItemId !== idStr) return false;
+          const rowUnit = row.unitId ? String(row.unitId).trim() : "";
+          return unitId ? rowUnit === unitId : !rowUnit;
+        }),
+      ) || null
+    );
+  }
+
+  /**
    * Devolução parcial antiga avançava lastBillingDate do saldo sem gerar o fechamento
    * daquele mesmo período. Recria só quando o cursor ainda coincide com o trecho devolvido.
    */
@@ -1396,6 +1433,16 @@ class RentalService {
       status: { $ne: "cancelled" },
     }).lean();
     if (existing) {
+      return false;
+    }
+    const paidCovering = await this.findPaidBillingOverlappingItemWindow(
+      companyId,
+      rental._id,
+      item,
+      splitStart,
+      splitEnd,
+    );
+    if (paidCovering) {
       return false;
     }
     await billingService.createPeriodicBillingForItem(
@@ -3127,7 +3174,15 @@ class RentalService {
           ? this.billingInstantOrDayMatch(periodEnd)
           : periodEnd;
 
-      let finalBilling: any = await Billing.findOne({
+      let finalBilling: any =
+        (await this.findPaidBillingOverlappingItemWindow(
+          companyId,
+          rental._id,
+          targetItem,
+          periodStart,
+          periodEnd,
+        )) ||
+        (await Billing.findOne({
         companyId,
         rentalId: rental._id,
         status: { $nin: ["paid", "cancelled"] },
@@ -3136,9 +3191,13 @@ class RentalService {
         "items.rentalLineKey": rentalLineKey,
         periodStart: periodStartQuery,
         periodEnd: periodEndQuery,
-      });
+      }));
 
-      if (!finalBilling) {
+      if (finalBilling?.status === "paid") {
+        finalBillingSubtotal = Number(
+          finalBilling.calculation?.total ?? 0,
+        );
+      } else if (!finalBilling) {
         finalBilling = await billingService.createPeriodicBillingForItem(
           companyId,
           rental,
@@ -3522,7 +3581,18 @@ class RentalService {
           lineForBilling.rentalType = reqItem.billingRentalType;
         }
 
-        const createdBilling = await billingService.createPeriodicBillingForItem(
+        const paidCoveringPeriod =
+          await this.findPaidBillingOverlappingItemWindow(
+            companyId,
+            rental._id,
+            targetItem,
+            periodStartRaw,
+            periodEndCharge,
+          );
+
+        const createdBilling = paidCoveringPeriod
+          ? paidCoveringPeriod
+          : await billingService.createPeriodicBillingForItem(
           companyId,
           rental,
           lineForBilling,
@@ -3699,35 +3769,37 @@ class RentalService {
             ((Number(plainItem.subtotal || 0) * targetItem.quantity) / prevQty).toFixed(2),
           );
 
-          const remainderLineForBilling: any = {
-            ...plainItem,
-            lineId: splitRemainderLineId,
-            pickupScheduled: pickupContinued,
-            quantity: targetItem.quantity,
-            rentalType: remainderType,
-            unitPrice: remainderRate,
-            periodRateOverride:
-              remainderOverride > 0
-                ? remainderOverride
-                : plainItem.periodRateOverride,
-            partnerSupply: targetItem.partnerSupply,
-            returnActual: undefined,
-            lastBillingDate: undefined,
-            nextBillingDate: undefined,
-          };
-          await billingService.createPeriodicBillingForItem(
-            companyId,
-            rental,
-            remainderLineForBilling,
-            periodStartRaw,
-            periodEndCharge,
-            userId,
-            {
-              includeServices: false,
-              notes: "Fechamento do saldo no período da devolução parcial",
-              status: "approved",
-            },
-          );
+          if (!paidCoveringPeriod) {
+            const remainderLineForBilling: any = {
+              ...plainItem,
+              lineId: splitRemainderLineId,
+              pickupScheduled: pickupContinued,
+              quantity: targetItem.quantity,
+              rentalType: remainderType,
+              unitPrice: remainderRate,
+              periodRateOverride:
+                remainderOverride > 0
+                  ? remainderOverride
+                  : plainItem.periodRateOverride,
+              partnerSupply: targetItem.partnerSupply,
+              returnActual: undefined,
+              lastBillingDate: undefined,
+              nextBillingDate: undefined,
+            };
+            await billingService.createPeriodicBillingForItem(
+              companyId,
+              rental,
+              remainderLineForBilling,
+              periodStartRaw,
+              periodEndCharge,
+              userId,
+              {
+                includeServices: false,
+                notes: "Fechamento do saldo no período da devolução parcial",
+                status: "approved",
+              },
+            );
+          }
         }
       }
 
@@ -4345,6 +4417,7 @@ class RentalService {
         ...itemFilter,
         periodStart: ps,
         periodEnd: pe,
+        status: { $ne: "cancelled" },
       }).lean();
 
       if (!existingFirst) {
@@ -4378,6 +4451,7 @@ class RentalService {
           ...itemFilter,
           periodStart: ns,
           periodEnd: ne,
+          status: { $ne: "cancelled" },
         }).lean();
 
         if (!existingDraft) {
@@ -5074,11 +5148,20 @@ class RentalService {
       }
 
       while (nextBillingDate <= now && nextBillingDate <= horizon) {
-        const existing = await Billing.findOne({
-          ...itemFilter,
-          periodStart: this.normalizeDate(periodStart),
-          periodEnd: this.normalizeDate(nextBillingDate),
-        }).lean();
+        const existing =
+          (await this.findPaidBillingOverlappingItemWindow(
+            companyId,
+            rental._id,
+            item,
+            periodStart,
+            nextBillingDate,
+          )) ||
+          (await Billing.findOne({
+            ...itemFilter,
+            periodStart: this.normalizeDate(periodStart),
+            periodEnd: this.normalizeDate(nextBillingDate),
+            status: { $ne: "cancelled" },
+          }).lean());
 
         if (!existing) {
           await billingService.createPeriodicBillingForItem(
@@ -5095,7 +5178,7 @@ class RentalService {
           );
           includeServicesAvailable = false;
           createdCount += 1;
-        } else {
+        } else if (existing.status !== "paid") {
           if (existing.status === "draft") {
             await Billing.updateOne(
               { _id: existing._id },
@@ -5154,14 +5237,24 @@ class RentalService {
       ) {
         const nextFullNorm = this.normalizeDate(nextBillingDate);
         if (capNormalized.getTime() <= nextFullNorm.getTime()) {
-          const tailExisting = await Billing.findOne({
+          const tailExisting =
+            (await this.findPaidBillingOverlappingItemWindow(
+              companyId,
+              rental._id,
+              item,
+              tailStartNorm,
+              capNormalized,
+            )) ||
+            (await Billing.findOne({
             ...itemFilter,
             periodStart: tailStartNorm,
             periodEnd: capNormalized,
             status: { $nin: ["paid", "cancelled"] },
-          }).lean();
+          }).lean());
 
-          if (!tailExisting) {
+          if (tailExisting?.status === "paid") {
+            /* Período já pago — não cria fatia nova. */
+          } else if (!tailExisting) {
             await billingService.createPeriodicBillingForItem(
               companyId,
               rental,
@@ -5204,6 +5297,7 @@ class RentalService {
           ...itemFilter,
           periodStart: this.normalizeDate(periodStart),
           periodEnd: this.normalizeDate(nextBillingDate),
+          status: { $ne: "cancelled" },
         }).lean();
 
         if (!existingFuture) {

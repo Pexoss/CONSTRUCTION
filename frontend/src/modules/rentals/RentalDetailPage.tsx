@@ -725,6 +725,24 @@ const RentalDetailPage: React.FC = () => {
     },
   });
 
+  const cancelBillingMutation = useMutation({
+    mutationFn: (billingId: string) => billingService.cancelBilling(billingId),
+    onSuccess: () => {
+      toast.success(
+        "Fechamento cancelado. Use “Atualizar fechamentos” se precisar gerar um novo.",
+      );
+      queryClient.invalidateQueries({ queryKey: ["rental-billings", id] });
+      queryClient.invalidateQueries({ queryKey: ["billings"] });
+      queryClient.invalidateQueries({ queryKey: ["financial-board"] });
+    },
+    onError: (err: unknown) => {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message || "Não foi possível cancelar o fechamento.";
+      toast.error(message);
+    },
+  });
+
   const { data: billingsData, isLoading: billingsLoading } = useQuery<RentalBillingsResult>({
     queryKey: ["rental-billings", id],
     queryFn: () => billingService.getBillings({ rentalId: id!, limit: 200 }),
@@ -4515,15 +4533,35 @@ const RentalDetailPage: React.FC = () => {
                             )}
                           </td>
                           <td className="px-3 py-2 text-right">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleDownloadBillingPDF(billing._id)
-                              }
-                              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
-                            >
-                              Baixar PDF
-                            </button>
+                            <div className="flex flex-col items-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleDownloadBillingPDF(billing._id)
+                                }
+                                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                              >
+                                Baixar PDF
+                              </button>
+                              {canManageFinancial(user?.role) &&
+                              billing.status !== "paid" &&
+                              billing.status !== "cancelled" ? (
+                                <button
+                                  type="button"
+                                  disabled={cancelBillingMutation.isPending}
+                                  onClick={() => {
+                                    const ok = window.confirm(
+                                      "Cancelar este fechamento? Ele sai da cobrança em aberto. Depois você pode gerar um novo em “Atualizar fechamentos”.",
+                                    );
+                                    if (!ok) return;
+                                    cancelBillingMutation.mutate(billing._id);
+                                  }}
+                                  className="text-xs text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+                                >
+                                  Cancelar fechamento
+                                </button>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -4531,6 +4569,12 @@ const RentalDetailPage: React.FC = () => {
                   </table>
                 </div>
               )}
+              {canManageFinancial(user?.role) ? (
+                <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                  Fechamento pago não pode ser cancelado. Se um em aberto estiver
+                  errado, cancele e use “Atualizar fechamentos” para criar outro.
+                </p>
+              ) : null}
             </div>
           </div>
         </div>

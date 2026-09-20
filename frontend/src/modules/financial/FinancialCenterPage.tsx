@@ -1842,13 +1842,22 @@ const FinancialCenterPage: React.FC = () => {
                                           Adicional
                                         </button>
                                       ) : null}
+                                      {bill.status !== "paid" &&
+                                      bill.status !== "cancelled" ? (
                                       <button
                                         type="button"
                                         className="px-2 py-0.5 border rounded text-xs text-red-600"
-                                        onClick={() => cancelBillingMutation.mutate(bill._id)}
+                                        onClick={() => {
+                                          const ok = window.confirm(
+                                            "Cancelar este fechamento? Depois você pode gerar um novo em “Atualizar fechamentos” no aluguel.",
+                                          );
+                                          if (!ok) return;
+                                          cancelBillingMutation.mutate(bill._id);
+                                        }}
                                       >
                                         Cancelar
                                       </button>
+                                      ) : null}
                                       {bill.status !== "paid" && bill.status !== "cancelled" ? (
                                         <button
                                           type="button"

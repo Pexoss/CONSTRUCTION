@@ -888,7 +888,12 @@ class BillingService {
   async cancelBilling(companyId: string, billingId: string): Promise<IBilling> {
     const billing = await Billing.findOne({ _id: billingId, companyId });
     if (!billing) throw new Error("Billing not found");
-    if (billing.status === "paid") throw new Error("Não é possível cancelar fechamento pago");
+    if (billing.status === "paid") {
+      throw new Error("Não é possível cancelar fechamento pago. Estorne o pagamento antes.");
+    }
+    if (billing.status === "cancelled") {
+      return billing;
+    }
 
     billing.status = "cancelled";
     billing.financialStage = "cancelled";
@@ -1336,6 +1341,28 @@ class BillingService {
     const existing = await Billing.findOne(itemScopedFilter);
     if (existing) {
       return existing as IBilling;
+    }
+
+    const itemIdStr = item.itemId?.toString?.() || String(item.itemId);
+    const unitIdStr = item.unitId ? String(item.unitId).trim() : "";
+    const paidOverlapping = await Billing.find({
+      companyId,
+      rentalId: rental._id,
+      status: "paid",
+      periodStart: { $lte: billingPeriodEnd },
+      periodEnd: { $gte: billingPeriodStart },
+      "items.itemId": item.itemId,
+    });
+    const paidSameItem = paidOverlapping.find((billing) =>
+      (billing.items || []).some((row: any) => {
+        const rowItemId = row.itemId?.toString?.() || String(row.itemId);
+        if (rowItemId !== itemIdStr) return false;
+        const rowUnit = row.unitId ? String(row.unitId).trim() : "";
+        return unitIdStr ? rowUnit === unitIdStr : !rowUnit;
+      }),
+    );
+    if (paidSameItem) {
+      return paidSameItem as IBilling;
     }
 
     const billing = await createBillingWithRetry({
