@@ -128,4 +128,18 @@ export const billingService = {
     }>("/billings/sync-missing-rentals");
     return response.data;
   },
+
+  runDailySync: async () => {
+    const response = await api.post<{
+      success: boolean;
+      data: {
+        skipped: boolean;
+        reason?: "already_ran_today";
+        rentalsProcessed: number;
+        created: number;
+        draftsCreated: number;
+      };
+    }>("/billings/daily-sync");
+    return response.data;
+  },
 };

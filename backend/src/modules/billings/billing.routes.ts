@@ -15,6 +15,10 @@ router.post(
   requireFinancialManager,
   billingController.syncMissingRentals.bind(billingController),
 );
+router.post(
+  '/daily-sync',
+  billingController.runDailyBillingSync.bind(billingController),
+);
 router.get('/pending-approvals', billingController.getPendingApprovals.bind(billingController));
 router.get(
   '/attention-summary',

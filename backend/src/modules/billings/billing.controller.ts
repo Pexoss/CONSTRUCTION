@@ -120,6 +120,26 @@ class BillingController {
   }
 
   /**
+   * Primeiro acesso do dia: gera fechamentos vencidos (ignora devolvidos e cancelados).
+   */
+  async runDailyBillingSync(req: Request, res: Response, next: NextFunction) {
+    try {
+      const companyId = req.companyId!;
+      const userId = req.user!._id.toString();
+      const result = await rentalService.runDailyDueBillingsSync(
+        companyId,
+        userId,
+      );
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      next(error);
+    }
+  }
+
+  /**
    * Obter fechamento por ID
    */
   async getBillingById(req: Request, res: Response, next: NextFunction) {

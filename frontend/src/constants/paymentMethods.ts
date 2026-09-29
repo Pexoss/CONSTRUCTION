@@ -9,7 +9,7 @@ export const PAYMENT_METHODS = [
 
 export type PaymentMethodValue = (typeof PAYMENT_METHODS)[number]["value"];
 
-export const DEFAULT_PAYMENT_METHOD: PaymentMethodValue = "manual";
+export const DEFAULT_PAYMENT_METHOD: PaymentMethodValue = "pix";
 export const DEFAULT_INVOICE_PAYMENT_METHOD: PaymentMethodValue = "pix";
 
 const PAYMENT_METHOD_VALUE_SET = new Set<string>(

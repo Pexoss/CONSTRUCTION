@@ -15,6 +15,7 @@ import RegisterPage from "./modules/auth/RegisterPage";
 import RegisterEmploye from "./modules/employe/RegisterEmploye";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AuthSessionBridge from "./components/AuthSessionBridge";
+import DailyBillingSync from "./components/DailyBillingSync";
 import Dashboard from "./modules/dashboard/Dashboard";
 import Skeleton from "./components/Skeleton";
 import InventoryPage from "./modules/inventory/InventoryPage";
@@ -73,6 +74,7 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <Router>
           <AuthSessionBridge />
+          <DailyBillingSync />
           <Suspense fallback={<Skeleton className="w-full h-screen" />}>
             <Routes>
               <Route path="/" element={<LoginPage />} />

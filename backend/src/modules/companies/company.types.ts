@@ -35,6 +35,8 @@ export interface ICompany {
   invoiceIssuers?: CompanyInvoiceIssuer[];
   /** Início da numeração dos contratos online (ex.: 50000); próximo = max(configurado, maior já usado + 1). */
   initialContractNumber?: number;
+  /** YYYY-MM-DD (America/Sao_Paulo) da última rotina diária de fechamentos. */
+  lastDailyBillingSyncDate?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }

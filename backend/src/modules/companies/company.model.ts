@@ -120,6 +120,11 @@ const CompanySchema = new Schema<ICompany>(
       default: 1,
       min: 1,
     },
+    /** YYYY-MM-DD (America/Sao_Paulo) da última rotina diária de fechamentos. */
+    lastDailyBillingSyncDate: {
+      type: String,
+      trim: true,
+    },
   },
   {
     timestamps: true,

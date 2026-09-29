@@ -89,6 +89,15 @@ function readInitialContractNumber(raw: unknown): number {
   return 1;
 }
 
+function calendarDateKeySaoPaulo(at = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(at);
+}
+
 class RentalService {
   private getPeriodLengthDays(rentalType: RentalType): number {
     return getPeriodLengthDaysFromUtil(rentalType);
@@ -4556,9 +4565,12 @@ class RentalService {
       companyId,
       rentalId: rental._id,
       status: { $nin: ["paid", "cancelled"] },
-    }).select("_id");
+    }).select("_id items");
 
     for (const b of openBillings) {
+      if (this.billingBelongsToReturnedLine(rental, b)) {
+        continue;
+      }
       try {
         await billingService.refreshBillingFromRental(
           companyId,
@@ -4628,6 +4640,107 @@ class RentalService {
     }
 
     return { rentalsProcessed, created, draftsCreated, refreshed };
+  }
+
+  /**
+   * Primeiro acesso do dia: gera fechamentos vencidos dos aluguéis ativos.
+   * Não mexe em aluguel cancelado/finalizado nem em linha já devolvida.
+   */
+  async runDailyDueBillingsSync(
+    companyId: string,
+    userId: string,
+  ): Promise<{
+    skipped: boolean;
+    reason?: "already_ran_today";
+    rentalsProcessed: number;
+    created: number;
+    draftsCreated: number;
+  }> {
+    const todayKey = calendarDateKeySaoPaulo();
+    const claimed = await Company.findOneAndUpdate(
+      {
+        _id: companyId,
+        lastDailyBillingSyncDate: { $ne: todayKey },
+      },
+      { $set: { lastDailyBillingSyncDate: todayKey } },
+    );
+    if (!claimed) {
+      return {
+        skipped: true,
+        reason: "already_ran_today",
+        rentalsProcessed: 0,
+        created: 0,
+        draftsCreated: 0,
+      };
+    }
+
+    const previousDate = claimed.lastDailyBillingSyncDate;
+    try {
+      const rentals = await Rental.find({
+        companyId,
+        status: { $in: ["active", "overdue"] },
+      })
+        .select("_id")
+        .lean();
+
+      let rentalsProcessed = 0;
+      let created = 0;
+      let draftsCreated = 0;
+
+      for (const row of rentals) {
+        const sync = await this.processDueBillings(
+          companyId,
+          String(row._id),
+          userId,
+        );
+        created += sync.created;
+        draftsCreated += sync.draftsCreated;
+        rentalsProcessed += 1;
+      }
+
+      return {
+        skipped: false,
+        rentalsProcessed,
+        created,
+        draftsCreated,
+      };
+    } catch (err) {
+      await Company.updateOne(
+        { _id: companyId, lastDailyBillingSyncDate: todayKey },
+        previousDate
+          ? { $set: { lastDailyBillingSyncDate: previousDate } }
+          : { $unset: { lastDailyBillingSyncDate: 1 } },
+      );
+      throw err;
+    }
+  }
+
+  private billingBelongsToReturnedLine(
+    rental: IRental,
+    billing: { items?: Array<{ rentalLineKey?: string; itemId?: any; unitId?: string }> },
+  ): boolean {
+    const rows = billing.items || [];
+    if (!rows.length) {
+      return false;
+    }
+    return rows.every((row) => {
+      const lineKey = String(row.rentalLineKey || "").trim();
+      const itemId = row.itemId?.toString?.() || String(row.itemId || "");
+      const unitId = row.unitId ? String(row.unitId).trim() : "";
+      const match = (rental.items || []).find((rentalItem) => {
+        if (lineKey) {
+          return String(buildRentalLineKey(rentalItem as any)).trim() === lineKey;
+        }
+        const rentalItemId =
+          rentalItem.itemId?.toString?.() || String(rentalItem.itemId || "");
+        if (rentalItemId !== itemId) {
+          return false;
+        }
+        const rentalUnit = rentalItem.unitId ? String(rentalItem.unitId).trim() : "";
+        return unitId ? rentalUnit === unitId : !rentalUnit;
+      });
+      return Boolean(match?.returnActual);
+    });
   }
 
   private billingLineFilter(
@@ -4971,6 +5084,9 @@ class RentalService {
         continue;
       }
       if (this.isLoanLine(item)) {
+        continue;
+      }
+      if (item.returnActual) {
         continue;
       }
       const cycle: RentalType = item.rentalType || "daily";
@@ -5330,9 +5446,12 @@ class RentalService {
       companyId,
       rentalId: rental._id,
       status: { $nin: ["paid", "cancelled"] },
-    }).select("_id");
+    }).select("_id items");
 
     for (const billing of refreshableBillings) {
+      if (this.billingBelongsToReturnedLine(rental, billing)) {
+        continue;
+      }
       try {
         await billingService.refreshBillingFromRental(
           companyId,
