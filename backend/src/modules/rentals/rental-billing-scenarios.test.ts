@@ -10,6 +10,7 @@ import {
   simulateAdvancePeriodicClosures,
   formatYmdLocal,
 } from "./rental-billing-simulation";
+import { unpaidReturnChargeWindow } from "../../shared/utils/rental-period.util";
 
 const d = (y: number, m: number, day: number) => new Date(y, m - 1, day);
 const dt = (y: number, m: number, day: number, h: number, min: number) =>
@@ -462,5 +463,73 @@ describe("devolução parcial quantitativa — saldo continua no mesmo período"
     expect(approvedLater).toHaveLength(1);
     expect(formatYmdLocal(approvedLater[0].periodStart)).toBe("2026-05-01");
     expect(formatYmdLocal(approvedLater[0].periodEnd)).toBe("2026-05-30");
+  });
+});
+
+describe("devolução após fechamentos pagos — só o período não pago", () => {
+  it("2 meses mensais pagos e devolução no 3º mês cobra só o saldo, sem voltar à retirada", () => {
+    const pickup = d(2026, 4, 1);
+    const lastPaidEnd = d(2026, 5, 30);
+    const returnAt = d(2026, 6, 15);
+    const window = unpaidReturnChargeWindow({
+      pickup,
+      returnAt,
+      lastCovered: lastPaidEnd,
+      rentalType: "monthly",
+    });
+
+    expect(window.alreadyCovered).toBe(false);
+    expect(formatYmdLocal(window.periodStart)).toBe("2026-05-31");
+    expect(formatYmdLocal(window.periodEnd)).toBe("2026-06-15");
+
+    const charged = calculateBillingPeriod(
+      window.periodStart,
+      window.periodEnd,
+      "monthly",
+    );
+    const periodsCharged =
+      charged.periodsCompleted + (charged.extraDays > 0 ? 1 : 0);
+    expect(periodsCharged).toBe(1);
+
+    const wrongWholeSpan = calculateBillingPeriod(pickup, returnAt, "monthly");
+    const wrongPeriods =
+      wrongWholeSpan.periodsCompleted +
+      (wrongWholeSpan.extraDays > 0 ? 1 : 0);
+    expect(wrongPeriods).toBeGreaterThanOrEqual(2);
+  });
+
+  it("cursor avançado além da devolução não reancora na retirada", () => {
+    const window = unpaidReturnChargeWindow({
+      pickup: d(2026, 4, 1),
+      returnAt: d(2026, 6, 15),
+      lastCovered: d(2026, 6, 30),
+      rentalType: "monthly",
+    });
+    expect(window.alreadyCovered).toBe(true);
+    expect(formatYmdLocal(window.periodStart)).toBe("2026-07-01");
+    expect(formatYmdLocal(window.periodEnd)).toBe("2026-06-15");
+  });
+
+  it("devolução no último dia já pago não gera nova janela", () => {
+    const window = unpaidReturnChargeWindow({
+      pickup: d(2026, 4, 1),
+      returnAt: d(2026, 5, 30),
+      lastCovered: d(2026, 5, 30),
+      rentalType: "monthly",
+    });
+    expect(window.alreadyCovered).toBe(true);
+    expect(formatYmdLocal(window.periodStart)).toBe("2026-05-31");
+  });
+
+  it("sem cobertura prévia a janela começa na retirada", () => {
+    const pickup = d(2026, 4, 1);
+    const window = unpaidReturnChargeWindow({
+      pickup,
+      returnAt: d(2026, 4, 20),
+      rentalType: "monthly",
+    });
+    expect(window.alreadyCovered).toBe(false);
+    expect(formatYmdLocal(window.periodStart)).toBe("2026-04-01");
+    expect(formatYmdLocal(window.periodEnd)).toBe("2026-04-20");
   });
 });

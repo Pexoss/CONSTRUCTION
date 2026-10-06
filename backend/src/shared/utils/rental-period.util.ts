@@ -64,3 +64,49 @@ export function getPeriodEndInclusive(
     getPeriodLengthDays(rentalType) - 1,
   );
 }
+
+/**
+ * Janela ainda não cobrada na devolução: dia após o último período já faturado
+ * (pago/aprovado) até a data de devolução. Não volta para a retirada.
+ */
+export function unpaidReturnChargeWindow(params: {
+  pickup: Date;
+  returnAt: Date;
+  lastCovered?: Date | null;
+  rentalType: RentalType;
+}): {
+  periodStart: Date;
+  periodEnd: Date;
+  alreadyCovered: boolean;
+} {
+  const isDaily = params.rentalType === "daily";
+  const pickupPure = new Date(params.pickup);
+  const pickupNorm = normalizeDateForBilling(pickupPure);
+  const periodEnd = isDaily
+    ? new Date(params.returnAt)
+    : normalizeDateForBilling(params.returnAt);
+
+  let periodStart: Date;
+  if (params.lastCovered) {
+    const lastNorm = normalizeDateForBilling(new Date(params.lastCovered));
+    periodStart = addBillingDays(lastNorm, 1);
+    if (isDaily && !isLocalMidnight(pickupPure)) {
+      const lastRaw = new Date(params.lastCovered);
+      if (!isLocalMidnight(lastRaw)) {
+        periodStart = addBillingDays(lastRaw, 1);
+      }
+    }
+  } else {
+    periodStart = isDaily ? pickupPure : pickupNorm;
+  }
+
+  if (periodStart.getTime() < pickupNorm.getTime()) {
+    periodStart = isDaily ? pickupPure : pickupNorm;
+  }
+
+  return {
+    periodStart,
+    periodEnd,
+    alreadyCovered: periodStart.getTime() > periodEnd.getTime(),
+  };
+}

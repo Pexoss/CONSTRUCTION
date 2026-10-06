@@ -68,6 +68,7 @@ import {
   getPeriodEndInclusive,
   getPeriodLengthDays as getPeriodLengthDaysFromUtil,
   isLocalMidnight,
+  unpaidReturnChargeWindow,
 } from "../../shared/utils/rental-period.util";
 import { formatCurrencyBr } from "../../shared/utils/money-display.util";
 import { accentInsensitiveRegexFilter } from "../../shared/utils/accent-insensitive.util";
@@ -545,14 +546,14 @@ class RentalService {
     } as IRentalItem;
   }
 
-  private collectReturnClosureRentalLineKeys(
+  private async collectReturnClosureRentalLineKeys(
     rental: IRental,
     line: IRentalItem,
     closureReturnAt: Date,
-  ): string[] {
+  ): Promise<string[]> {
     const rentalType = (line.rentalType || "daily") as RentalType;
     const keys = new Set<string>(this.rentalLineKeysForCorrectionMatch(line));
-    const { periodEndCharge } = this.resolveReturnChargePeriod(
+    const { periodEndCharge } = await this.resolveReturnChargePeriod(
       line,
       rental,
       closureReturnAt,
@@ -635,7 +636,7 @@ class RentalService {
     closureReturnAt: Date,
   ): Promise<void> {
     const oldRentalType = (lineSnapshot.rentalType || "daily") as RentalType;
-    const { periodStartRaw, periodEndCharge } = this.resolveReturnChargePeriod(
+    const { periodStartRaw, periodEndCharge } = await this.resolveReturnChargePeriod(
       lineSnapshot,
       rental,
       closureReturnAt,
@@ -651,7 +652,7 @@ class RentalService {
         : this.normalizeDate(periodEndCharge);
 
     const closureKeys = new Set(
-      this.collectReturnClosureRentalLineKeys(rental, lineSnapshot, closureReturnAt),
+      await this.collectReturnClosureRentalLineKeys(rental, lineSnapshot, closureReturnAt),
     );
     const itemId = asIdString(lineSnapshot.itemId);
     const unitId =
@@ -1471,54 +1472,98 @@ class RentalService {
   }
 
   /**
-   * Janela de cobrança na devolução: do dia após o último fechamento (ou retirada) até a data de cálculo.
-   * Quando o próximo início técnico ficaria após a devolução, reancora na retirada.
+   * Último dia já coberto de fato: fechamento pago do item/unidade, ou o fim
+   * da devolução parcial irmã. Não usa lastBillingDate — a rotina periódica
+   * avança esse cursor em fechamentos ainda não pagos.
    */
-  private resolveReturnChargePeriod(
+  private async findLatestCoveredPeriodEndForItem(
+    rental: {
+      _id?: any;
+      companyId?: any;
+      items?: IRentalItem[];
+    },
+    line: IRentalItem,
+  ): Promise<Date | null> {
+    const candidates: Date[] = [];
+    const priorPartialEnd = this.findPriorPartialReturnBillingEnd(
+      rental.items,
+      line,
+    );
+    if (priorPartialEnd) {
+      candidates.push(new Date(priorPartialEnd));
+    }
+
+    if (rental._id && rental.companyId) {
+      const idStr = line.itemId?.toString?.() || String(line.itemId);
+      const unitId = line.unitId ? String(line.unitId).trim() : "";
+      const paid = await Billing.find({
+        companyId: rental.companyId,
+        rentalId: rental._id,
+        status: "paid",
+        "items.itemId": line.itemId,
+      })
+        .select("periodEnd items")
+        .lean();
+
+      for (const billing of paid) {
+        if (!billing.periodEnd) continue;
+        const matches = (billing.items || []).some((row: any) => {
+          const rowItemId = row.itemId?.toString?.() || String(row.itemId);
+          if (rowItemId !== idStr) return false;
+          const rowUnit = row.unitId ? String(row.unitId).trim() : "";
+          return unitId ? rowUnit === unitId : !rowUnit;
+        });
+        if (matches) {
+          candidates.push(new Date(billing.periodEnd as Date));
+        }
+      }
+    }
+
+    if (!candidates.length) return null;
+    return candidates.reduce((max, d) =>
+      d.getTime() > max.getTime() ? d : max,
+    );
+  }
+
+  /**
+   * Janela ainda não cobrada na devolução: dia após o último período pago
+   * (ou retirada) até a data de cálculo. Não volta para a retirada.
+   */
+  private async resolveReturnChargePeriod(
     targetItem: IRentalItem,
-    rental: { dates?: { pickupScheduled?: Date }; items?: IRentalItem[] },
+    rental: {
+      _id?: any;
+      companyId?: any;
+      dates?: { pickupScheduled?: Date };
+      items?: IRentalItem[];
+    },
     returnAt: Date,
     billingRt: RentalType,
-  ): { periodStartRaw: Date; periodEndCharge: Date } {
+  ): Promise<{
+    periodStartRaw: Date;
+    periodEndCharge: Date;
+    alreadyCovered: boolean;
+  }> {
     const pickupSource =
       targetItem.pickupScheduled ?? rental.dates?.pickupScheduled;
     if (!pickupSource) {
       throw badRequest("Data de retirada não encontrada para calcular o período.");
     }
-    const pickupPure = new Date(pickupSource);
-    const pickupNorm = this.normalizeDate(pickupPure);
-    const periodEndCharge =
-      billingRt === "daily" ? new Date(returnAt) : this.normalizeDate(returnAt);
-
-    const priorPartialEnd = this.findPriorPartialReturnBillingEnd(
-      rental.items,
+    const lastCovered = await this.findLatestCoveredPeriodEndForItem(
+      rental,
       targetItem,
     );
-
-    let periodStartRaw: Date;
-    if (targetItem.lastBillingDate) {
-      const lastNorm = this.normalizeDate(new Date(targetItem.lastBillingDate));
-      periodStartRaw = this.addDays(lastNorm, 1);
-      if (priorPartialEnd) {
-        const priorNorm = this.normalizeDate(priorPartialEnd);
-        if (lastNorm.getTime() < priorNorm.getTime()) {
-          periodStartRaw = this.addDays(priorNorm, 1);
-        }
-      }
-    } else if (priorPartialEnd) {
-      periodStartRaw = this.addDays(this.normalizeDate(priorPartialEnd), 1);
-    } else {
-      periodStartRaw = billingRt === "daily" ? pickupPure : pickupNorm;
-    }
-
-    if (periodStartRaw.getTime() > periodEndCharge.getTime()) {
-      periodStartRaw = billingRt === "daily" ? pickupPure : pickupNorm;
-    }
-    if (periodStartRaw.getTime() < pickupNorm.getTime()) {
-      periodStartRaw = billingRt === "daily" ? pickupPure : pickupNorm;
-    }
-
-    return { periodStartRaw, periodEndCharge };
+    const window = unpaidReturnChargeWindow({
+      pickup: new Date(pickupSource),
+      returnAt,
+      lastCovered,
+      rentalType: billingRt,
+    });
+    return {
+      periodStartRaw: window.periodStart,
+      periodEndCharge: window.periodEnd,
+      alreadyCovered: window.alreadyCovered,
+    };
   }
 
   /** Permite fechar no mesmo dia civil (ex.: último dia após fechamento até 15/06). */
@@ -2455,9 +2500,14 @@ class RentalService {
    * Menor custo entre tipos de cobrança disponíveis e ajuste de data de cálculo
    * somente quando a devolução ultrapassa o ciclo por no máximo 1 dia.
    */
-  private buildCheapestCloseSuggestion(params: {
+  private async buildCheapestCloseSuggestion(params: {
     targetItem: IRentalItem;
-    rental: { dates?: { pickupScheduled?: Date }; items?: IRentalItem[] };
+    rental: {
+      _id?: any;
+      companyId?: any;
+      dates?: { pickupScheduled?: Date };
+      items?: IRentalItem[];
+    };
     inventoryPricing:
       | {
           dailyRate?: number;
@@ -2475,7 +2525,7 @@ class RentalService {
     returnedQuantity: number;
     currentBaseAmount: number;
     additionalAmount: number;
-  }): {
+  }): Promise<{
     expectedBillingAmount: number;
     baseBillingAmount: number;
     savings: number;
@@ -2491,7 +2541,7 @@ class RentalService {
       returnDate: string;
       returnTime: string;
     };
-  } | null {
+  } | null> {
     type Candidate = {
       baseAmount: number;
       billingType: RentalType;
@@ -2520,12 +2570,15 @@ class RentalService {
       let periodStart: Date;
       let periodEnd: Date;
       try {
-        const resolved = this.resolveReturnChargePeriod(
+        const resolved = await this.resolveReturnChargePeriod(
           params.targetItem,
           params.rental,
           params.returnAt,
           rt,
         );
+        if (resolved.alreadyCovered) {
+          continue;
+        }
         periodStart = resolved.periodStartRaw;
         periodEnd = resolved.periodEndCharge;
       } catch {
@@ -2872,12 +2925,6 @@ class RentalService {
       ? 1
       : Math.max(1, Math.min(opts?.returnedQuantity ?? maxQty, maxQty));
 
-    const useReturnsFlow =
-      isUnit ||
-      maxQty > 1 ||
-      Boolean(opts?.billingRentalType) ||
-      returnedQuantity < maxQty;
-
     const billingRt = (opts?.billingRentalType ||
       targetItem.rentalType ||
       "daily") as RentalType;
@@ -2941,30 +2988,35 @@ class RentalService {
       this.assertConfiguredRateForRentalType(inventoryItem, billingRt);
     }
 
-    let periodStartRaw: Date;
-    let periodEndCharge: Date;
-    let effectiveRt: RentalType;
+    const effectiveRt = billingRt;
+    const resolved = await this.resolveReturnChargePeriod(
+      targetItem,
+      rental,
+      returnAt,
+      billingRt,
+    );
+    const periodStartRaw = resolved.periodStartRaw;
+    const periodEndCharge = resolved.periodEndCharge;
 
-    if (useReturnsFlow) {
-      effectiveRt = billingRt;
-      const resolved = this.resolveReturnChargePeriod(
-        targetItem,
-        rental,
-        returnAt,
-        billingRt,
-      );
-      periodStartRaw = resolved.periodStartRaw;
-      periodEndCharge = resolved.periodEndCharge;
-    } else {
-      effectiveRt = (targetItem.rentalType || "daily") as RentalType;
-      const pickupRaw = new Date(
-        targetItem.pickupScheduled || rental.dates.pickupScheduled,
-      );
-      const pickupBase =
-        effectiveRt === "daily" ? pickupRaw : this.normalizeDate(pickupRaw);
-      periodStartRaw = pickupBase;
-      periodEndCharge =
-        effectiveRt === "daily" ? returnAt : this.normalizeDate(returnAt);
+    if (resolved.alreadyCovered) {
+      return {
+        originalTotal,
+        recalculatedTotal: 0,
+        expectedBillingAmount: 0,
+        baseBillingAmount: 0,
+        additionalAmount: Math.max(0, Number(opts?.additionalAmount || 0)),
+        usedDays: 0,
+        periodsCharged: 0,
+        contractedDays,
+        rentalType: targetItem.rentalType || "daily",
+        billingRentalTypeUsed: effectiveRt,
+        rentalTotalAfterClose: originalTotal,
+        periodStart: periodStartRaw.toISOString(),
+        periodEnd: periodEndCharge.toISOString(),
+        isLoan: false,
+        cheapestSuggestion: null,
+        alreadyCovered: true,
+      };
     }
 
     this.assertReturnChargePeriodValid(
@@ -2999,7 +3051,7 @@ class RentalService {
     const baseTotal = Number((amount * returnedQuantity).toFixed(2));
     const recalculatedTotal = Number((baseTotal + additionalAmount).toFixed(2));
 
-    const cheapestSuggestion = this.buildCheapestCloseSuggestion({
+    const cheapestSuggestion = await this.buildCheapestCloseSuggestion({
       targetItem,
       rental,
       inventoryPricing: inventoryItem.pricing,
@@ -3146,34 +3198,41 @@ class RentalService {
     // =========================
     const rentalLineKey = buildRentalLineKey(targetItem as any);
 
-    const { periodStartRaw, periodEndCharge } = this.resolveReturnChargePeriod(
-      targetItem,
-      rental,
-      returnAt,
-      rtClose,
-    );
-    this.assertReturnChargePeriodValid(
-      periodStartRaw,
-      periodEndCharge,
-      rtClose,
-    );
+    const { periodStartRaw, periodEndCharge, alreadyCovered } =
+      await this.resolveReturnChargePeriod(
+        targetItem,
+        rental,
+        returnAt,
+        rtClose,
+      );
+    if (!alreadyCovered) {
+      this.assertReturnChargePeriodValid(
+        periodStartRaw,
+        periodEndCharge,
+        rtClose,
+      );
 
-    await this.deleteUnpaidBillingsOverlappingItemWindow(
-      companyId,
-      rental._id,
-      targetItem.itemId,
-      targetItem.unitId,
-      periodStartRaw,
-      periodEndCharge,
-      rentalLineKey,
-    );
+      await this.deleteUnpaidBillingsOverlappingItemWindow(
+        companyId,
+        rental._id,
+        targetItem.itemId,
+        targetItem.unitId,
+        periodStartRaw,
+        periodEndCharge,
+        rentalLineKey,
+      );
+    }
 
     const periodStart = periodStartRaw;
     const periodEnd = periodEndCharge;
     let finalBillingSubtotal: number | undefined;
     const isLoan = this.isLoanLine(targetItem);
 
-    if (!isLoan && periodEnd.getTime() >= periodStart.getTime()) {
+    if (
+      !alreadyCovered &&
+      !isLoan &&
+      periodEnd.getTime() >= periodStart.getTime()
+    ) {
       const periodStartQuery =
         rtClose === "daily"
           ? this.billingInstantOrDayMatch(periodStart)
@@ -3260,6 +3319,9 @@ class RentalService {
       targetItem.lastBillingDate = periodEnd;
       targetItem.nextBillingDate = undefined;
       targetItem.unitPrice = 0;
+    } else if (alreadyCovered) {
+      targetItem.lastBillingDate = returnNorm;
+      targetItem.nextBillingDate = undefined;
     }
 
     if (inventoryRestore) {
@@ -3278,22 +3340,32 @@ class RentalService {
     // =========================
     // 3. RECALCULAR ITEM (período retirada → devolução, dias inclusivos)
     // =========================
-    const usedDaysBilling = calculateBillingPeriod(
-      periodStart,
-      periodEnd,
-      rtClose,
-    ).daysPassed;
+    if (!alreadyCovered) {
+      const usedDaysBilling = calculateBillingPeriod(
+        periodStart,
+        periodEnd,
+        rtClose,
+      ).daysPassed;
 
-    targetItem.subtotal = isLoan
-      ? 0
-      : finalBillingSubtotal ??
-        this.computeItemPartialSubtotal(
-          targetItem,
-          periodStart,
-          periodEnd,
-          targetItem.quantity,
-        );
-    targetItem.usedDays = Math.max(1, usedDaysBilling);
+      targetItem.subtotal = isLoan
+        ? 0
+        : finalBillingSubtotal ??
+          this.computeItemPartialSubtotal(
+            targetItem,
+            periodStart,
+            periodEnd,
+            targetItem.quantity,
+          );
+      targetItem.usedDays = Math.max(1, usedDaysBilling);
+    } else {
+      const pickupForDays = new Date(
+        targetItem.pickupScheduled || rental.dates.pickupScheduled,
+      );
+      targetItem.usedDays = Math.max(
+        1,
+        calculateBillingPeriod(pickupForDays, returnNorm, rtClose).daysPassed,
+      );
+    }
 
     // =========================
     // 4. RECALCULAR TOTAL DO ALUGUEL
@@ -3433,27 +3505,25 @@ class RentalService {
         ? 1
         : Math.max(1, Math.min(reqItem.returnedQuantity || targetItem.quantity, targetItem.quantity));
 
-      const pickupPure = new Date(
-        targetItem.pickupScheduled || rental.dates.pickupScheduled,
-      );
-      const pickupNorm = this.normalizeDate(pickupPure);
+      const { periodStartRaw, periodEndCharge, alreadyCovered } =
+        await this.resolveReturnChargePeriod(
+          targetItem,
+          rental,
+          returnAt,
+          billingRt,
+        );
 
-      const { periodStartRaw, periodEndCharge } = this.resolveReturnChargePeriod(
-        targetItem,
-        rental,
-        returnAt,
-        billingRt,
-      );
-
-      this.assertReturnChargePeriodValid(
-        periodStartRaw,
-        periodEndCharge,
-        billingRt,
-      );
+      if (!alreadyCovered) {
+        this.assertReturnChargePeriodValid(
+          periodStartRaw,
+          periodEndCharge,
+          billingRt,
+        );
+      }
 
       const isLoan = this.isLoanLine(targetItem);
 
-      if (!isLoan) {
+      if (!isLoan && !alreadyCovered) {
         await this.deleteUnpaidBillingsOverlappingItemWindow(
           companyId,
           rental._id,
@@ -3590,18 +3660,20 @@ class RentalService {
           lineForBilling.rentalType = reqItem.billingRentalType;
         }
 
-        const paidCoveringPeriod =
-          await this.findPaidBillingOverlappingItemWindow(
-            companyId,
-            rental._id,
-            targetItem,
-            periodStartRaw,
-            periodEndCharge,
-          );
+        const paidCoveringPeriod = alreadyCovered
+          ? null
+          : await this.findPaidBillingOverlappingItemWindow(
+              companyId,
+              rental._id,
+              targetItem,
+              periodStartRaw,
+              periodEndCharge,
+            );
 
-        const createdBilling = paidCoveringPeriod
-          ? paidCoveringPeriod
-          : await billingService.createPeriodicBillingForItem(
+        const createdBilling =
+          alreadyCovered || paidCoveringPeriod
+            ? paidCoveringPeriod || { items: [] as any[], calculation: {} as any }
+            : await billingService.createPeriodicBillingForItem(
           companyId,
           rental,
           lineForBilling,
@@ -3673,7 +3745,9 @@ class RentalService {
             unitPrice: billingRow ? Number(billingRow.unitPrice) : plainItem.unitPrice,
             subtotal: billingRow
               ? Number(createdBilling.calculation?.total ?? billingRow.subtotal)
-              : this.computeItemPartialSubtotal(
+              : alreadyCovered
+                ? 0
+                : this.computeItemPartialSubtotal(
                   {
                     ...(targetItem as any),
                     rentalType:
@@ -3778,7 +3852,7 @@ class RentalService {
             ((Number(plainItem.subtotal || 0) * targetItem.quantity) / prevQty).toFixed(2),
           );
 
-          if (!paidCoveringPeriod) {
+          if (!alreadyCovered && !paidCoveringPeriod) {
             const remainderLineForBilling: any = {
               ...plainItem,
               lineId: splitRemainderLineId,
@@ -4231,15 +4305,16 @@ class RentalService {
     const isLoan = this.isLoanLine(returnedLine);
     if (!isLoan) {
       const chargeReturnAt = billingRt === "daily" ? newReturnAt : newReturnNorm;
-      const { periodStartRaw, periodEndCharge } = this.resolveReturnChargePeriod(
-        returnedLine,
-        rental,
-        chargeReturnAt,
-        billingRt,
-      );
+      const { periodStartRaw, periodEndCharge, alreadyCovered } =
+        await this.resolveReturnChargePeriod(
+          returnedLine,
+          rental,
+          chargeReturnAt,
+          billingRt,
+        );
       const newLineKey = buildRentalLineKey(returnedLine as any);
 
-      if (periodEndCharge.getTime() >= periodStartRaw.getTime()) {
+      if (!alreadyCovered && periodEndCharge.getTime() >= periodStartRaw.getTime()) {
         const createdBilling =
           await billingService.createPeriodicBillingForItem(
             companyId,
@@ -4285,14 +4360,22 @@ class RentalService {
             ? periodEndCharge
             : this.normalizeDate(periodEndCharge);
         returnedLine.nextBillingDate = undefined;
+      } else if (alreadyCovered) {
+        returnedLine.lastBillingDate =
+          billingRt === "daily"
+            ? periodEndCharge
+            : this.normalizeDate(periodEndCharge);
+        returnedLine.nextBillingDate = undefined;
       }
 
-      const usedDays = calculateBillingPeriod(
-        periodStartRaw,
-        chargeReturnAt,
-        billingRt,
-      ).daysPassed;
-      returnedLine.usedDays = Math.max(1, usedDays);
+      if (!alreadyCovered) {
+        const usedDays = calculateBillingPeriod(
+          periodStartRaw,
+          chargeReturnAt,
+          billingRt,
+        ).daysPassed;
+        returnedLine.usedDays = Math.max(1, usedDays);
+      }
     } else {
       returnedLine.unitPrice = 0;
       returnedLine.subtotal = 0;
@@ -7176,12 +7259,17 @@ class RentalService {
       const rentalLineKey = buildRentalLineKey(item as any);
       const returnAt = new Date(itemReturn);
       const rt = (item.rentalType || "daily") as RentalType;
-      const { periodStartRaw, periodEndCharge } = this.resolveReturnChargePeriod(
-        item,
-        rental,
-        returnAt,
-        rt,
-      );
+      const { periodStartRaw, periodEndCharge, alreadyCovered } =
+        await this.resolveReturnChargePeriod(
+          item,
+          rental,
+          returnAt,
+          rt,
+        );
+
+      if (alreadyCovered) {
+        continue;
+      }
 
       try {
         this.assertReturnChargePeriodValid(
