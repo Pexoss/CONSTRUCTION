@@ -35,7 +35,13 @@ const CustomerSchema = new Schema<ICustomer>(
       type: String,
       lowercase: true,
       trim: true,
-      match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email'],
+      validate: {
+        validator(value: string) {
+          if (!value) return true;
+          return /^\S+@\S+\.\S+$/.test(value);
+        },
+        message: "Please provide a valid email",
+      },
     },
     phone: {
       type: String,

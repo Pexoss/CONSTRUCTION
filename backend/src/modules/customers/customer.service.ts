@@ -64,7 +64,7 @@ function sanitizeResponsiblesForSave(rows: unknown): Record<string, unknown>[] {
       const notes = String(item.notes || "").trim();
       if (notes) sanitized.notes = notes;
       const id = asObjectIdHex(item._id);
-      if (id) sanitized._id = new mongoose.Types.ObjectId(id);
+      if (id) sanitized._id = id;
       return sanitized;
     })
     .filter((row): row is Record<string, unknown> => row != null);
@@ -275,39 +275,66 @@ class CustomerService {
       }
     }
 
+    const $set: Record<string, unknown> = {};
+    const $unset: Record<string, 1> = {};
+
     if (data.cpfCnpj !== undefined) {
-      customer.cpfCnpj = normalizedCpfCnpj || undefined;
+      if (normalizedCpfCnpj) $set.cpfCnpj = normalizedCpfCnpj;
+      else $unset.cpfCnpj = 1;
     }
 
     if (data.email !== undefined) {
-      const email = String(data.email || "").trim();
-      customer.email = email || undefined;
+      const email = String(data.email || "").trim().toLowerCase();
+      if (!email) {
+        $unset.email = 1;
+      } else if (!/^\S+@\S+\.\S+$/.test(email)) {
+        warnings.push(
+          "E-mail inválido. Os demais dados foram salvos; corrija o e-mail quando possível.",
+        );
+      } else {
+        $set.email = email;
+      }
     }
 
     if (typeof data.name === "string" && data.name.trim()) {
-      customer.name = data.name.trim();
+      $set.name = data.name.trim();
     }
     if (data.phone !== undefined) {
-      customer.phone = String(data.phone || "").trim() || undefined;
+      const phone = String(data.phone || "").trim();
+      if (phone) $set.phone = phone;
+      else $unset.phone = 1;
     }
     if (data.notes !== undefined) {
-      customer.notes = String(data.notes || "").trim() || undefined;
+      const notes = String(data.notes || "").trim();
+      if (notes) $set.notes = notes;
+      else $unset.notes = 1;
     }
     if (typeof data.isBlocked === "boolean") {
-      customer.isBlocked = data.isBlocked;
+      $set.isBlocked = data.isBlocked;
     }
 
     if (Array.isArray(data.responsibles)) {
-      customer.set("responsibles", sanitizeResponsiblesForSave(data.responsibles));
+      $set.responsibles = sanitizeResponsiblesForSave(data.responsibles);
     }
 
     if (Array.isArray(data.addresses)) {
-      customer.set("addresses", data.addresses);
+      $set.addresses = data.addresses;
     }
 
-    await customer.save();
+    const update: { $set?: Record<string, unknown>; $unset?: Record<string, 1> } =
+      {};
+    if (Object.keys($set).length) update.$set = $set;
+    if (Object.keys($unset).length) update.$unset = $unset;
 
-    const fresh = await Customer.findOne({ _id: customerId, companyId });
+    if (!update.$set && !update.$unset) {
+      return { customer, warnings };
+    }
+
+    const fresh = await Customer.findOneAndUpdate(
+      { _id: customerId, companyId },
+      update,
+      { new: true, runValidators: true },
+    );
     return { customer: fresh ?? customer, warnings };
   }
 

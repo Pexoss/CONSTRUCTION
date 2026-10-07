@@ -75,7 +75,20 @@ export const createCustomerSchema = customerBaseSchema.superRefine(
   },
 );
 
-export const updateCustomerSchema = customerBaseSchema.partial();
+/** Update aceita payload da tela sem derrubar o PUT por validação rígida. */
+export const updateCustomerSchema = z
+  .object({
+    name: z.string().optional(),
+    cpfCnpj: z.union([z.string(), z.null()]).optional(),
+    email: z.union([z.string(), z.null()]).optional(),
+    phone: z.union([z.string(), z.null()]).optional(),
+    notes: z.union([z.string(), z.null()]).optional(),
+    isBlocked: z.boolean().optional(),
+    validateDocument: z.boolean().optional(),
+    responsibles: z.array(z.record(z.any())).optional(),
+    addresses: z.array(z.record(z.any())).optional(),
+  })
+  .partial();
 
 export const validateCustomerDocumentSchema = z.object({
   cpfCnpj: z.string().optional().nullable().or(z.literal('')),

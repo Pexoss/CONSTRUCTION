@@ -70,9 +70,15 @@ export const errorMiddleware = (
     console.error("=================================");
   }
 
-  // Zod validation errors
-  if (err instanceof ZodError) {
-    const fields = [...new Set(err.errors.map((e) => zodIssueFieldLabel(e)))];
+  const zodLike = err as ZodError & { issues?: ZodIssue[]; errors?: ZodIssue[] };
+  const zodIssues = Array.isArray(zodLike.issues)
+    ? zodLike.issues
+    : Array.isArray(zodLike.errors)
+      ? zodLike.errors
+      : undefined;
+  if (err instanceof ZodError || err.name === "ZodError" || zodIssues) {
+    const issues = (zodIssues || []) as ZodIssue[];
+    const fields = [...new Set(issues.map((e) => zodIssueFieldLabel(e)))];
     const message =
       fields.length === 1
         ? `Preencha o campo obrigatório: ${fields[0]}.`
@@ -81,7 +87,7 @@ export const errorMiddleware = (
     return res.status(400).json({
       success: false,
       message,
-      errors: err.errors.map((e) => ({
+      errors: issues.map((e) => ({
         path: e.path.join("."),
         message: e.message,
       })),

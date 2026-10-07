@@ -168,11 +168,24 @@ export class CustomerController {
     try {
       const companyId = req.companyId!;
       const customerId = req.params.id;
-      const validatedData = updateCustomerSchema.parse(req.body);
+      const parsed = updateCustomerSchema.safeParse(req.body);
+      if (!parsed.success) {
+        const first = parsed.error.errors[0];
+        res.status(400).json({
+          success: false,
+          message:
+            first?.message || "Dados inválidos para atualizar o cliente.",
+          errors: parsed.error.errors.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        });
+        return;
+      }
       const { customer, warnings } = await customerService.updateCustomer(
         companyId,
         customerId,
-        validatedData,
+        parsed.data,
       );
 
       if (!customer) {
