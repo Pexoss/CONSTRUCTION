@@ -14,7 +14,11 @@ import {
 import { billingService } from "../billings/billing.service";
 import { Billing, EMPTY_BILLINGS } from "../../types/billing.types";
 import { EMPTY_ITEMS, Item, ItemUnit } from "../../types/inventory.types";
-import { customerService } from "../customers/customer.service";
+import {
+  customerService,
+  customerFromUpdateResponse,
+  findAddedResponsible,
+} from "../customers/customer.service";
 import { CustomerResponsible } from "../../types/customer.types";
 import Layout from "../../components/Layout";
 import ErrorBoundary from "../../components/ErrorBoundary";
@@ -982,7 +986,10 @@ const RentalDetailPage: React.FC = () => {
       const response = await customerService.updateCustomer(customerId, {
         responsibles,
       });
-      return { customer: response.data, newResponsible: responsible };
+      return {
+        customer: customerFromUpdateResponse(response),
+        newResponsible: responsible,
+      };
     },
     onSuccess: ({ customer, newResponsible }) => {
       queryClient.setQueryData<RentalByIdResult | undefined>(
@@ -1001,25 +1008,35 @@ const RentalDetailPage: React.FC = () => {
           };
         },
       );
+      if (customer._id) {
+        queryClient.setQueryData(["customer", customer._id], {
+          success: true,
+          data: customer,
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["customer", customer._id],
+        });
+      }
 
-      const added =
-        (customer.responsibles || []).find(
-          (resp) =>
-            resp.name === newResponsible.name.trim() &&
-            resp.role === newResponsible.role &&
-            (resp.phone || "") === (newResponsible.phone?.trim() || ""),
-        ) ?? customer.responsibles?.[customer.responsibles.length - 1];
-
+      const added = findAddedResponsible(customer, newResponsible);
       if (added?._id) {
-        if (newResponsible.role === "financial") {
+        const addedId = String(added._id);
+        if (
+          newResponsible.role === "financial" ||
+          newResponsible.role === "other"
+        ) {
           setEditForm((prev) => ({
             ...prev,
-            financialResponsibleId: String(added._id),
+            financialResponsibleId: addedId,
           }));
-        } else if (newResponsible.role === "work") {
+        }
+        if (
+          newResponsible.role === "work" ||
+          newResponsible.role === "other"
+        ) {
           setEditForm((prev) => ({
             ...prev,
-            workResponsibleId: String(added._id),
+            workResponsibleId: addedId,
           }));
         }
       }
@@ -1436,10 +1453,16 @@ const RentalDetailPage: React.FC = () => {
     typeof rental.customerId === "object" ? rental.customerId : null;
   const customerResponsibles = customer?.responsibles ?? [];
   const financialResponsibles = customerResponsibles.filter(
-    (resp) => resp.role === "financial" || resp.role === "other",
+    (resp) =>
+      resp.role === "financial" ||
+      resp.role === "other" ||
+      String(resp._id || "") === editForm.financialResponsibleId,
   );
   const workResponsibles = customerResponsibles.filter(
-    (resp) => resp.role === "work" || resp.role === "other",
+    (resp) =>
+      resp.role === "work" ||
+      resp.role === "other" ||
+      String(resp._id || "") === editForm.workResponsibleId,
   );
   const customerAddresses = customer?.addresses ?? [];
 

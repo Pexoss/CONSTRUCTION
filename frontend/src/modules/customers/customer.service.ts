@@ -1,5 +1,11 @@
 import api from '../../config/api';
-import { Customer, CreateCustomerData, CustomerFilters, CustomerAddress } from '../../types/customer.types';
+import {
+  Customer,
+  CreateCustomerData,
+  CustomerFilters,
+  CustomerAddress,
+  CustomerResponsible,
+} from '../../types/customer.types';
 
 /** Resumo para alertas na tela de novo aluguel */
 export type CustomerRentalFinancialAlerts = {
@@ -100,6 +106,41 @@ export const customerService = {
     const response = await api.delete<{ success: boolean; customer: Customer }>(
       `/customers/${customerId}/addresses/${addressId}`
     );
-    return response.data.customer; // cliente atualizado
-  }
+    return response.data.customer;
+  },
 };
+
+export function customerFromUpdateResponse(
+  payload: { data?: Customer } | Customer,
+): Customer {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "data" in payload &&
+    payload.data &&
+    typeof payload.data === "object" &&
+    "_id" in payload.data
+  ) {
+    return payload.data;
+  }
+  return payload as Customer;
+}
+
+export function findAddedResponsible(
+  customer: Customer,
+  added: Pick<CustomerResponsible, "name" | "role" | "phone">,
+): CustomerResponsible | undefined {
+  const name = added.name.trim();
+  const phone = added.phone?.trim() || "";
+  const list = customer.responsibles || [];
+  return (
+    [...list]
+      .reverse()
+      .find(
+        (resp) =>
+          resp.name === name &&
+          resp.role === added.role &&
+          (resp.phone || "") === phone,
+      ) ?? list[list.length - 1]
+  );
+}

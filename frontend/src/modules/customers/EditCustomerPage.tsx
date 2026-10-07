@@ -62,12 +62,18 @@ const EditCustomerPage: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const payload: Partial<CreateCustomerData> = {
-      ...formData,
+      name: formData.name,
+      cpfCnpj: formData.cpfCnpj,
+      email: formData.email,
+      phone: formData.phone,
+      notes: formData.notes,
+      isBlocked: formData.isBlocked,
       responsibles: (formData.responsibles || [])
         .map((resp) => ({
-          ...resp,
+          ...(resp._id ? { _id: String(resp._id) } : {}),
           name: String(resp.name || "").trim(),
           phone: resp.phone?.trim(),
+          role: resp.role || "other",
           workName: resp.workName?.trim(),
           notes: resp.notes?.trim(),
         }))
@@ -197,9 +203,14 @@ const EditCustomerPage: React.FC = () => {
                     />
                   </svg>
                   <p className="text-sm font-medium text-red-700 dark:text-red-300">
-                    {updateMutation.error instanceof Error
-                      ? updateMutation.error.message
-                      : "Erro ao atualizar cliente"}
+                    {(
+                      updateMutation.error as {
+                        response?: { data?: { message?: string } };
+                      }
+                    )?.response?.data?.message ||
+                      (updateMutation.error instanceof Error
+                        ? updateMutation.error.message
+                        : "Erro ao atualizar cliente")}
                   </p>
                 </div>
               </div>

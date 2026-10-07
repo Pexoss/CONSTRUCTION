@@ -11,6 +11,64 @@ import {
 } from "../../shared/utils/document.utils";
 import { accentInsensitiveRegexFilter } from "../../shared/utils/accent-insensitive.util";
 import { ensureCustomerIndexes } from "./customer.index.util";
+import { conflict, notFound } from "../../shared/utils/http-error.util";
+
+const OBJECT_ID_HEX = /^[a-fA-F0-9]{24}$/;
+
+function asObjectIdHex(value: unknown): string | undefined {
+  if (value == null || value === "") return undefined;
+  if (typeof value === "string") {
+    return OBJECT_ID_HEX.test(value) ? value : undefined;
+  }
+  if (typeof value === "object") {
+    const oid = (value as { $oid?: unknown; toString?: () => string }).$oid;
+    if (typeof oid === "string" && OBJECT_ID_HEX.test(oid)) return oid;
+    if (typeof (value as { toString?: () => string }).toString === "function") {
+      const raw = String(value);
+      if (OBJECT_ID_HEX.test(raw)) return raw;
+    }
+  }
+  return undefined;
+}
+
+function asResponsibleRole(
+  value: unknown,
+): "financial" | "work" | "other" {
+  if (value === "financial" || value === "work" || value === "other") {
+    return value;
+  }
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "obra") return "work";
+  if (normalized === "financeiro") return "financial";
+  return "other";
+}
+
+function sanitizeResponsiblesForSave(rows: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const item = row as Record<string, unknown>;
+      const name = String(item.name || "").trim();
+      if (!name) return null;
+      const sanitized: Record<string, unknown> = {
+        name,
+        role: asResponsibleRole(item.role),
+      };
+      const phone = String(item.phone || "").trim();
+      if (phone) sanitized.phone = phone;
+      const workName = String(item.workName || "").trim();
+      if (workName) sanitized.workName = workName;
+      const notes = String(item.notes || "").trim();
+      if (notes) sanitized.notes = notes;
+      const id = asObjectIdHex(item._id);
+      if (id) sanitized._id = new mongoose.Types.ObjectId(id);
+      return sanitized;
+    })
+    .filter((row): row is Record<string, unknown> => row != null);
+}
 
 class CustomerService {
   /**
@@ -188,7 +246,7 @@ class CustomerService {
     const customer = await Customer.findOne({ _id: customerId, companyId });
 
     if (!customer) {
-      throw new Error("Customer not found");
+      throw notFound("Cliente não encontrado");
     }
 
     const warnings: string[] = [];
@@ -213,23 +271,44 @@ class CustomerService {
       });
 
       if (existingCustomer) {
-        throw new Error("Customer with this CPF/CNPJ already exists");
+        throw conflict("Já existe um cliente cadastrado com este CPF/CNPJ.");
       }
     }
 
     if (data.cpfCnpj !== undefined) {
-      if (normalizedCpfCnpj) data.cpfCnpj = normalizedCpfCnpj;
-      else data.cpfCnpj = undefined;
+      customer.cpfCnpj = normalizedCpfCnpj || undefined;
     }
 
-    if (data.email === "") {
-      data.email = undefined;
+    if (data.email !== undefined) {
+      const email = String(data.email || "").trim();
+      customer.email = email || undefined;
     }
 
-    Object.assign(customer, data);
+    if (typeof data.name === "string" && data.name.trim()) {
+      customer.name = data.name.trim();
+    }
+    if (data.phone !== undefined) {
+      customer.phone = String(data.phone || "").trim() || undefined;
+    }
+    if (data.notes !== undefined) {
+      customer.notes = String(data.notes || "").trim() || undefined;
+    }
+    if (typeof data.isBlocked === "boolean") {
+      customer.isBlocked = data.isBlocked;
+    }
+
+    if (Array.isArray(data.responsibles)) {
+      customer.set("responsibles", sanitizeResponsiblesForSave(data.responsibles));
+    }
+
+    if (Array.isArray(data.addresses)) {
+      customer.set("addresses", data.addresses);
+    }
+
     await customer.save();
 
-    return { customer, warnings };
+    const fresh = await Customer.findOne({ _id: customerId, companyId });
+    return { customer: fresh ?? customer, warnings };
   }
 
   /**

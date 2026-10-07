@@ -8,7 +8,11 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { rentalService } from "./rental.service";
-import { customerService } from "../customers/customer.service";
+import {
+  customerService,
+  customerFromUpdateResponse,
+  findAddedResponsible,
+} from "../customers/customer.service";
 import { useItems } from "../../hooks/useInventory";
 import {
   CreateRentalData,
@@ -145,8 +149,14 @@ interface SelectedItem {
   ownQuantity?: number;
   partnerAgreedCostInput?: string;
   partnerNotes?: string;
+  /** Enquanto true (ou omitido), acompanha o 1º item até o usuário alterar. */
+  followsFirstRentalType?: boolean;
+  followsFirstPickupDate?: boolean;
+  followsFirstPickupTime?: boolean;
   item: Item;
 }
+
+const followsFirst = (flag: boolean | undefined): boolean => flag !== false;
 
 const resolvedOwnQuantity = (
   si: Pick<SelectedItem, "quantity" | "ownQuantity" | "partnerQuantity">,
@@ -193,6 +203,12 @@ const rentalTypeLabels: Record<RentalTypeUI, string> = {
   mensal: "mensal",
 };
 
+const responsibleRoleLabel: Record<CustomerResponsible["role"], string> = {
+  financial: "Financeiro",
+  work: "Obra",
+  other: "Outro",
+};
+
 const getCatalogPeriodRate = (item: Item, rentalType: RentalTypeUI): number => {
   return registeredPeriodRateFromInventory(
     item.pricing,
@@ -203,6 +219,65 @@ const getCatalogPeriodRate = (item: Item, rentalType: RentalTypeUI): number => {
 const buildPeriodRateInput = (item: Item, rentalType: RentalTypeUI): string => {
   const rate = getCatalogPeriodRate(item, rentalType);
   return rate > 0 ? formatMoneyInputBr(rate) : "";
+};
+
+const calculateReturnDate = (pickup: string, type: RentalTypeUI) => {
+  if (!pickup) return "";
+
+  const [year, month, day] = pickup.split("-").map(Number);
+  const pickupDateObj = new Date(year, month - 1, day);
+
+  let daysToAdd = 1;
+  switch (type) {
+    case "diario":
+      daysToAdd = 1;
+      break;
+    case "semanal":
+      daysToAdd = 6;
+      break;
+    case "quinzenal":
+      daysToAdd = 14;
+      break;
+    case "mensal":
+      daysToAdd = 29;
+      break;
+    default:
+      daysToAdd = 1;
+  }
+
+  const returnDateObj = new Date(pickupDateObj);
+  returnDateObj.setDate(returnDateObj.getDate() + daysToAdd);
+
+  const y = returnDateObj.getFullYear();
+  const m = String(returnDateObj.getMonth() + 1).padStart(2, "0");
+  const d = String(returnDateObj.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+const withLineRentalType = (
+  si: SelectedItem,
+  newType: RentalTypeUI,
+): SelectedItem => {
+  const nextReturn = si.pickupDate
+    ? calculateReturnDate(si.pickupDate, newType)
+    : si.returnDate;
+  return {
+    ...si,
+    rentalType: newType,
+    returnDate: nextReturn || si.returnDate,
+    periodRateInput: buildPeriodRateInput(si.item, newType),
+  };
+};
+
+const withLinePickupDate = (si: SelectedItem, pickupDate: string): SelectedItem => {
+  const newReturn = pickupDate
+    ? calculateReturnDate(pickupDate, si.rentalType ?? "diario")
+    : si.returnDate;
+  return {
+    ...si,
+    pickupDate,
+    returnDate: newReturn,
+  };
 };
 
 const getResolvedPeriodRate = (
@@ -353,6 +428,7 @@ const CreateRentalPage: React.FC = () => {
     queryKey: ["customer", selectedCustomer],
     queryFn: () => customerService.getCustomerById(selectedCustomer),
     enabled: Boolean(selectedCustomer),
+    refetchOnMount: "always",
   });
 
   const filteredCustomers = useMemo((): Customer[] => {
@@ -389,16 +465,22 @@ const CreateRentalPage: React.FC = () => {
   const financialResponsibles = useMemo(
     () =>
       selectedCustomerResponsibles.filter(
-        (resp) => resp.role === "financial" || resp.role === "other",
+        (resp) =>
+          resp.role === "financial" ||
+          resp.role === "other" ||
+          String(resp._id || "") === selectedFinancialResponsibleId,
       ),
-    [selectedCustomerResponsibles],
+    [selectedCustomerResponsibles, selectedFinancialResponsibleId],
   );
   const workResponsibles = useMemo(
     () =>
       selectedCustomerResponsibles.filter(
-        (resp) => resp.role === "work" || resp.role === "other",
+        (resp) =>
+          resp.role === "work" ||
+          resp.role === "other" ||
+          String(resp._id || "") === selectedWorkResponsibleId,
       ),
-    [selectedCustomerResponsibles],
+    [selectedCustomerResponsibles, selectedWorkResponsibleId],
   );
 
   const financialAlertsQuery = useQuery({
@@ -552,29 +634,35 @@ const CreateRentalPage: React.FC = () => {
       const response = await customerService.updateCustomer(customerId, {
         responsibles,
       });
-      return { customer: response.data, newResponsible: responsible };
+      return {
+        customerId,
+        customer: customerFromUpdateResponse(response),
+        newResponsible: responsible,
+      };
     },
-    onSuccess: ({ customer, newResponsible }) => {
-      queryClient.setQueryData<CustomerByIdResult>(["customer", customer._id], {
+    onSuccess: async ({ customerId, customer, newResponsible }) => {
+      await queryClient.cancelQueries({ queryKey: ["customer", customerId] });
+      queryClient.setQueryData<CustomerByIdResult>(["customer", customerId], {
         success: true,
         data: customer,
       });
-      queryClient.invalidateQueries({ queryKey: ["customer", customer._id] });
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      void queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
+      void queryClient.invalidateQueries({ queryKey: ["customers"] });
 
-      const added =
-        (customer.responsibles || []).find(
-          (resp) =>
-            resp.name === newResponsible.name.trim() &&
-            resp.role === newResponsible.role &&
-            (resp.phone || "") === (newResponsible.phone?.trim() || ""),
-        ) ?? customer.responsibles?.[customer.responsibles.length - 1];
-
+      const added = findAddedResponsible(customer, newResponsible);
       if (added?._id) {
-        if (newResponsible.role === "financial") {
-          setSelectedFinancialResponsibleId(String(added._id));
-        } else if (newResponsible.role === "work") {
-          setSelectedWorkResponsibleId(String(added._id));
+        const addedId = String(added._id);
+        if (
+          newResponsible.role === "financial" ||
+          newResponsible.role === "other"
+        ) {
+          setSelectedFinancialResponsibleId(addedId);
+        }
+        if (
+          newResponsible.role === "work" ||
+          newResponsible.role === "other"
+        ) {
+          setSelectedWorkResponsibleId(addedId);
         }
       }
 
@@ -741,17 +829,12 @@ const CreateRentalPage: React.FC = () => {
       }
     }
 
-    //definir tipo automaticamente pelo item
-    const getRentalTypeFromItem = (item: Item): RentalTypeUI => {
-      if (item.pricing.monthlyRate) return "mensal";
-      if (item.pricing.biweeklyRate) return "quinzenal";
-      if (item.pricing.weeklyRate) return "semanal";
+    const getRentalTypeFromItem = (catalogItem: Item): RentalTypeUI => {
+      if (catalogItem.pricing.monthlyRate) return "mensal";
+      if (catalogItem.pricing.biweeklyRate) return "quinzenal";
+      if (catalogItem.pricing.weeklyRate) return "semanal";
       return "diario";
     };
-
-    const rentalType = getRentalTypeFromItem(item);
-    const defaultPickupDate = pickupDate || selectedItems[0]?.pickupDate || "";
-    const defaultPickupTime = pickupTime || selectedItems[0]?.pickupTime || "";
 
     setSelectedItems((prev) => {
       const existingIndex = prev.findIndex((si) => si.itemId === item._id);
@@ -770,8 +853,18 @@ const CreateRentalPage: React.FC = () => {
         return updated;
       }
 
+      const first = prev[0];
+      const inheritFromFirst = Boolean(first);
+      const lineType =
+        inheritFromFirst && first.rentalType
+          ? first.rentalType
+          : getRentalTypeFromItem(item);
+      const defaultPickupDate =
+        first?.pickupDate || pickupDate || "";
+      const defaultPickupTime =
+        first?.pickupTime || pickupTime || "";
       const calculatedReturn = defaultPickupDate
-        ? calculateReturnDate(defaultPickupDate, rentalType)
+        ? calculateReturnDate(defaultPickupDate, lineType)
         : "";
 
       return [
@@ -785,8 +878,11 @@ const CreateRentalPage: React.FC = () => {
           pickupDate: defaultPickupDate,
           pickupTime: defaultPickupTime,
           returnDate: calculatedReturn,
-          rentalType,
-          periodRateInput: buildPeriodRateInput(item, rentalType),
+          rentalType: lineType,
+          periodRateInput: buildPeriodRateInput(item, lineType),
+          followsFirstRentalType: inheritFromFirst,
+          followsFirstPickupDate: inheritFromFirst,
+          followsFirstPickupTime: inheritFromFirst,
         },
       ];
     });
@@ -866,10 +962,12 @@ const CreateRentalPage: React.FC = () => {
     setSelectedWorkResponsibleId("");
     resetCpfBypassState();
     setCustomerCpf(formatDocumentInput(customer.cpfCnpj || ""));
+    void queryClient.cancelQueries({ queryKey: ["customer", customer._id] });
     queryClient.setQueryData<CustomerByIdResult>(["customer", customer._id], {
       success: true,
       data: customer,
     });
+    void queryClient.invalidateQueries({ queryKey: ["customer", customer._id] });
   };
 
   const resolveResponsiblePayload = (
@@ -994,7 +1092,8 @@ const CreateRentalPage: React.FC = () => {
       name: "",
       phone: "",
       role: defaultRole,
-      workName: "",
+      workName:
+        defaultRole === "work" ? workAddress?.workName?.trim() || "" : "",
     });
     setShowAddResponsibleModal(true);
   };
@@ -1440,43 +1539,6 @@ const CreateRentalPage: React.FC = () => {
     servicesSubtotal: totals.servicesSubtotal,
   };
 
-  const calculateReturnDate = (pickup: string, type: RentalTypeUI) => {
-    if (!pickup) return "";
-
-    //corrigido (sem bug de fuso)
-    const [year, month, day] = pickup.split("-").map(Number);
-    const pickupDateObj = new Date(year, month - 1, day);
-
-    let daysToAdd = 1;
-
-    switch (type) {
-      case "diario":
-        daysToAdd = 1;
-        break;
-      case "semanal":
-        daysToAdd = 6;
-        break;
-      case "quinzenal":
-        daysToAdd = 14;
-        break;
-      case "mensal":
-        daysToAdd = 29;
-        break;
-      default:
-        daysToAdd = 1;
-    }
-
-    const returnDateObj = new Date(pickupDateObj);
-    returnDateObj.setDate(returnDateObj.getDate() + daysToAdd);
-
-    //evitar toISOString (timezone bug)
-    const y = returnDateObj.getFullYear();
-    const m = String(returnDateObj.getMonth() + 1).padStart(2, "0");
-    const d = String(returnDateObj.getDate()).padStart(2, "0");
-
-    return `${y}-${m}-${d}`;
-  };
-
   useEffect(() => {
     if (customerAddresses.length === 1) {
       applyCustomerAddressAtIndex(0);
@@ -1722,6 +1784,9 @@ const CreateRentalPage: React.FC = () => {
                             >
                               {resp.name}
                               {resp.phone ? ` - ${resp.phone}` : ""}
+                              {resp.role
+                                ? ` (${responsibleRoleLabel[resp.role]})`
+                                : ""}
                             </option>
                           ))}
                         </select>
@@ -1755,6 +1820,9 @@ const CreateRentalPage: React.FC = () => {
                               {resp.name}
                               {resp.workName ? ` - ${resp.workName}` : ""}
                               {resp.phone ? ` (${resp.phone})` : ""}
+                              {resp.role
+                                ? ` (${responsibleRoleLabel[resp.role]})`
+                                : ""}
                             </option>
                           ))}
                         </select>
@@ -2032,25 +2100,24 @@ const CreateRentalPage: React.FC = () => {
                                       onChange={(e) => {
                                         const newType = e.target
                                           .value as RentalTypeUI;
+                                        const isFirst = selectedIndex === 0;
                                         setSelectedItems(
-                                          selectedItems.map((si) => {
-                                            if (si.itemId !== selectedItem.itemId)
-                                              return si;
-                                            const nextReturn = si.pickupDate
-                                              ? calculateReturnDate(
-                                                  si.pickupDate,
-                                                  newType,
-                                                )
-                                              : si.returnDate;
-                                            return {
-                                              ...si,
-                                              rentalType: newType,
-                                              returnDate: nextReturn || si.returnDate,
-                                              periodRateInput: buildPeriodRateInput(
-                                                si.item,
-                                                newType,
-                                              ),
-                                            };
+                                          selectedItems.map((si, idx) => {
+                                            if (idx === selectedIndex) {
+                                              return {
+                                                ...withLineRentalType(si, newType),
+                                                followsFirstRentalType: isFirst
+                                                  ? si.followsFirstRentalType
+                                                  : false,
+                                              };
+                                            }
+                                            if (
+                                              isFirst &&
+                                              followsFirst(si.followsFirstRentalType)
+                                            ) {
+                                              return withLineRentalType(si, newType);
+                                            }
+                                            return si;
                                           }),
                                         );
                                       }}
@@ -2138,40 +2205,30 @@ const CreateRentalPage: React.FC = () => {
                                       value={selectedItem.pickupDate || ""}
                                       onChange={(e) => {
                                         const value = e.target.value;
-                                        if (selectedIndex === 0) {
+                                        const isFirst = selectedIndex === 0;
+                                        if (isFirst) {
                                           setPickupDate(value);
                                         }
 
-                                        const updated = selectedItems.map(
-                                          (si) => {
-                                            if (
-                                              selectedIndex !== 0 &&
-                                              si.itemId !== selectedItem.itemId
-                                            ) {
-                                              return si;
-                                            }
-                                            if (
-                                              selectedIndex === 0 ||
-                                              si.itemId === selectedItem.itemId
-                                            ) {
-                                              const newReturn = value
-                                                ? calculateReturnDate(
-                                                    value,
-                                                    si.rentalType ?? "diario",
-                                                  )
-                                                : si.returnDate;
-
+                                        setSelectedItems(
+                                          selectedItems.map((si, idx) => {
+                                            if (idx === selectedIndex) {
                                               return {
-                                                ...si,
-                                                pickupDate: value,
-                                                returnDate: newReturn,
+                                                ...withLinePickupDate(si, value),
+                                                followsFirstPickupDate: isFirst
+                                                  ? si.followsFirstPickupDate
+                                                  : false,
                                               };
                                             }
+                                            if (
+                                              isFirst &&
+                                              followsFirst(si.followsFirstPickupDate)
+                                            ) {
+                                              return withLinePickupDate(si, value);
+                                            }
                                             return si;
-                                          },
+                                          }),
                                         );
-
-                                        setSelectedItems(updated);
                                       }}
                                       required
                                       className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
@@ -2187,19 +2244,29 @@ const CreateRentalPage: React.FC = () => {
                                       value={selectedItem.pickupTime || ""}
                                       onChange={(e) => {
                                         const value = e.target.value;
-                                        if (selectedIndex === 0) {
+                                        const isFirst = selectedIndex === 0;
+                                        if (isFirst) {
                                           setPickupTime(value);
                                         }
 
                                         setSelectedItems(
-                                          selectedItems.map((si) => {
-                                            if (
-                                              selectedIndex !== 0 &&
-                                              si.itemId !== selectedItem.itemId
-                                            ) {
-                                              return si;
+                                          selectedItems.map((si, idx) => {
+                                            if (idx === selectedIndex) {
+                                              return {
+                                                ...si,
+                                                pickupTime: value,
+                                                followsFirstPickupTime: isFirst
+                                                  ? si.followsFirstPickupTime
+                                                  : false,
+                                              };
                                             }
-                                            return { ...si, pickupTime: value };
+                                            if (
+                                              isFirst &&
+                                              followsFirst(si.followsFirstPickupTime)
+                                            ) {
+                                              return { ...si, pickupTime: value };
+                                            }
+                                            return si;
                                           }),
                                         );
                                       }}

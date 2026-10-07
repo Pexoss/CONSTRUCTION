@@ -3,16 +3,35 @@ import { z } from "zod";
 const customerBaseSchema = z.object({
   name: z.string().min(1, "Name is required").optional(),
   cpfCnpj: z.string().optional().nullable().or(z.literal("")),
-  validateDocument: z.boolean().optional().default(false),
+  validateDocument: z.boolean().optional(),
   email: z.string().email("Invalid email").optional().or(z.literal("")),
   phone: z.string().optional(),
   responsibles: z
     .array(
       z.object({
-        _id: z.string().optional(),
+        _id: z.preprocess((value) => {
+          if (value == null || value === "") return undefined;
+          if (typeof value === "string") return value;
+          if (typeof value === "object" && value && "$oid" in value) {
+            return String((value as { $oid: unknown }).$oid);
+          }
+          return String(value);
+        }, z.string().optional()),
         name: z.string().min(1, "Nome do responsável é obrigatório"),
         phone: z.string().optional(),
-        role: z.enum(["financial", "work", "other"]).default("other"),
+        role: z
+          .enum(["financial", "work", "other"])
+          .or(z.string())
+          .optional()
+          .transform((value) => {
+            if (value === "financial" || value === "work" || value === "other") {
+              return value;
+            }
+            const normalized = String(value || "").trim().toLowerCase();
+            if (normalized === "obra") return "work" as const;
+            if (normalized === "financeiro") return "financial" as const;
+            return "other" as const;
+          }),
         workName: z.string().optional(),
         notes: z.string().optional(),
       }),
@@ -38,7 +57,7 @@ const customerBaseSchema = z.object({
     )
     .optional(),
   notes: z.string().optional(),
-  isBlocked: z.boolean().optional().default(false),
+  isBlocked: z.boolean().optional(),
 });
 
 export const createCustomerSchema = customerBaseSchema.superRefine(

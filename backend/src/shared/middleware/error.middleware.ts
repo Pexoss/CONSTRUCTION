@@ -88,6 +88,13 @@ export const errorMiddleware = (
     });
   }
 
+  if (err instanceof mongoose.Error.CastError) {
+    return res.status(400).json({
+      success: false,
+      message: "Não foi possível salvar: há um identificador ou campo inválido.",
+    });
+  }
+
   // mongoose validation errors
   if (err instanceof mongoose.Error.ValidationError) {
     const errors = Object.values(err.errors).map((e) => ({

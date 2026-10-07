@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Layout from "../../components/Layout";
-import { customerService } from "./customer.service";
+import { customerService, customerFromUpdateResponse } from "./customer.service";
 import {
   Customer,
   CustomerAddress,
@@ -88,7 +88,7 @@ const ViewCustomerPage: React.FC = () => {
       const response = await customerService.updateCustomer(customerId, {
         responsibles,
       });
-      return response.data;
+      return customerFromUpdateResponse(response);
     },
     onSuccess: (updatedCustomer) => {
       setCustomer(updatedCustomer);
@@ -96,6 +96,7 @@ const ViewCustomerPage: React.FC = () => {
         success: true,
         data: updatedCustomer,
       });
+      queryClient.invalidateQueries({ queryKey: ["customer", id] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       setShowAddResponsibleModal(false);
       setNewResponsibleForm({
