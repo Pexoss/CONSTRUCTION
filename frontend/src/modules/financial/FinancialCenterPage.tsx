@@ -132,6 +132,32 @@ const getBillingItemNamesLabel = (billing: any): string =>
 const getBillingWorkNameLabel = (billing: any): string =>
   String(billing?.rentalId?.workAddress?.workName || "").trim();
 
+const getChargeRentalLinks = (
+  charge: any,
+): Array<{ id: string; label: string }> => {
+  const links: Array<{ id: string; label: string }> = [];
+  const seen = new Set<string>();
+  for (const bill of charge?.billingIds || []) {
+    if (!bill || typeof bill !== "object") continue;
+    const rental = bill.rentalId;
+    const id =
+      typeof rental === "object" && rental !== null
+        ? String(rental._id || "")
+        : String(rental || "");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const number =
+      typeof rental === "object" && rental?.rentalNumber
+        ? String(rental.rentalNumber).trim()
+        : "";
+    links.push({
+      id,
+      label: number ? `Aluguel ${number}` : "Ver aluguel",
+    });
+  }
+  return links;
+};
+
 /** Obras distintas dos fechamentos vinculados à cobrança (board já popula rentalId.workAddress). */
 const getChargeWorkNamesLabel = (charge: any): string => {
   const names: string[] = [];
@@ -344,6 +370,9 @@ const FinancialCenterPage: React.FC = () => {
     }
     setSearchParams(next, { replace: true });
   };
+  const financeReturnTo = `/finance${
+    searchParams.toString() ? `?${searchParams.toString()}` : ""
+  }`;
   const [finBillSort, setFinBillSort] = useState<ColumnSort<FinBillSortKey> | null>({
     key: "period",
     dir: "asc",
@@ -1917,6 +1946,7 @@ const FinancialCenterPage: React.FC = () => {
                     const chargeDueOrPeriodLabel = getChargeDueOrPeriodLabel(charge);
                     const chargeFinancialResponsibleLabel =
                       getChargeFinancialResponsibleLabel(charge);
+                    const chargeRentalLinks = getChargeRentalLinks(charge);
                     return (
                     <div
                       key={charge._id}
@@ -2026,7 +2056,20 @@ const FinancialCenterPage: React.FC = () => {
                           ) : null}
                         </p>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
+                        {chargeRentalLinks.map((rentalLink) => (
+                          <Link
+                            key={rentalLink.id}
+                            to={`/rentals/${rentalLink.id}`}
+                            state={{ returnTo: financeReturnTo }}
+                            onClick={(e) => e.stopPropagation()}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            className="px-3 py-1.5 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 rounded-md text-sm hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
+                            title="Abrir o aluguel vinculado a esta cobrança"
+                          >
+                            {rentalLink.label}
+                          </Link>
+                        ))}
                         <button
                           type="button"
                           onClick={() => openChargeModal(charge)}
@@ -2196,6 +2239,17 @@ const FinancialCenterPage: React.FC = () => {
                     ) : null}
                   </div>
                 ) : null}
+                {getChargeRentalLinks(chargeModal).map((rentalLink) => (
+                  <Link
+                    key={rentalLink.id}
+                    to={`/rentals/${rentalLink.id}`}
+                    state={{ returnTo: financeReturnTo }}
+                    className="shrink-0 px-3 py-2 rounded-lg border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-sm font-medium hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
+                    title="Abrir o aluguel vinculado a esta cobrança"
+                  >
+                    {rentalLink.label}
+                  </Link>
+                ))}
                 <button
                   type="button"
                   className="shrink-0 px-4 py-2.5 rounded-lg border-2 border-gray-900 dark:border-gray-100 bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm font-bold shadow-md hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"

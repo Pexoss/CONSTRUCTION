@@ -1322,6 +1322,20 @@ const RentalDetailPage: React.FC = () => {
     setCloseItemModal(true);
   };
 
+  const rentalIsFullyReturnedAndOpen = (updated?: Rental | null) => {
+    if (!updated?.items?.length) return false;
+    if (updated.status === "completed" || updated.status === "cancelled") {
+      return false;
+    }
+    return updated.items.every((item) => Boolean(item.returnActual));
+  };
+
+  const offerFinalizeIfAllReturned = (updated?: Rental | null) => {
+    if (rentalIsFullyReturnedAndOpen(updated)) {
+      setShowConfirmFinalClosure(true);
+    }
+  };
+
   const confirmFinalClosure = async () => {
     if (!id) return;
 
@@ -1554,9 +1568,7 @@ const RentalDetailPage: React.FC = () => {
         ? "Retirado na locadora"
         : "Não informado";
 
-  const allReturned = rental.items.every(
-    (item: RentalItem) => item.returnActual,
-  );
+  const allReturned = rentalIsFullyReturnedAndOpen(rental);
 
   const getEntityId = (value: any) =>
     typeof value === "string"
@@ -3498,15 +3510,6 @@ const RentalDetailPage: React.FC = () => {
           description="Os administradores vão cuidar disso."
         />
       )}
-      {allReturned && rental.status !== "completed" && (
-        <button
-          onClick={confirmarFinalizacao}
-          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md"
-        >
-          Finalizar aluguel
-        </button>
-      )}
-
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8">
         <div className="app-container">
           {/* Cabeçalho */}
@@ -3704,6 +3707,15 @@ const RentalDetailPage: React.FC = () => {
                   </svg>
                   Editar informações
                 </button>
+                {allReturned && (
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmFinalClosure(true)}
+                    className="inline-flex items-center justify-center px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500"
+                  >
+                    Finalizar aluguel
+                  </button>
+                )}
                 {(rental.status === "reserved" ||
                   rental.status === "active" ||
                   rental.status === "overdue" ||
@@ -3751,6 +3763,26 @@ const RentalDetailPage: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {allReturned && (
+              <div
+                className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-800 dark:bg-emerald-950/40"
+                role="status"
+              >
+                <p className="text-sm font-medium text-emerald-900 dark:text-emerald-100">
+                  Todos os itens estão devolvidos. Deseja finalizar o aluguel?
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmFinalClosure(true)}
+                    className="inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    Sim, finalizar
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Cliente */}
@@ -6173,51 +6205,8 @@ const RentalDetailPage: React.FC = () => {
                         Boolean(closeItemBillingRentalType) ||
                         Boolean(additionalPayload.additionalAmount);
 
-                      if (useReturnsEndpoint) {
-                        await rentalService.returnRentalItems(id, {
-                          returnDate: returnDateIso,
-                          ...(informativeReturnDatePayload
-                            ? {
-                                informativeReturnDate:
-                                  informativeReturnDatePayload,
-                              }
-                            : {}),
-                          items: [
-                            {
-                              itemId: selectedCloseItem.itemId,
-                              unitId: selectedCloseItem.unitId,
-                              ...(selectedCloseItem.lineId
-                                ? { lineId: selectedCloseItem.lineId }
-                                : {}),
-                              returnedQuantity: isUnitLine
-                                ? 1
-                                : Math.min(
-                                    closeItemReturnedQuantity,
-                                    selectedCloseItem.quantity,
-                                  ),
-                              ...(closeItemBillingRentalType
-                                ? {
-                                    billingRentalType:
-                                      closeItemBillingRentalType,
-                                  }
-                                : {}),
-                              ...(partialFlowAllowed &&
-                              closeItemReturnedQuantity <
-                                selectedCloseItem.quantity &&
-                              closeItemNewRentalType
-                                ? {
-                                    remainderRentalType: closeItemNewRentalType,
-                                  }
-                                : {}),
-                              ...additionalPayload,
-                            },
-                          ],
-                        });
-                      } else {
-                        await rentalService.closeRentalItem(
-                          id,
-                          selectedCloseItem.itemId,
-                          {
+                      const returnResult = useReturnsEndpoint
+                        ? await rentalService.returnRentalItems(id, {
                             returnDate: returnDateIso,
                             ...(informativeReturnDatePayload
                               ? {
@@ -6225,14 +6214,56 @@ const RentalDetailPage: React.FC = () => {
                                     informativeReturnDatePayload,
                                 }
                               : {}),
-                            unitId: selectedCloseItem.unitId,
-                            ...(selectedCloseItem.lineId
-                              ? { lineId: selectedCloseItem.lineId }
-                              : {}),
-                            ...additionalPayload,
-                          },
-                        );
-                      }
+                            items: [
+                              {
+                                itemId: selectedCloseItem.itemId,
+                                unitId: selectedCloseItem.unitId,
+                                ...(selectedCloseItem.lineId
+                                  ? { lineId: selectedCloseItem.lineId }
+                                  : {}),
+                                returnedQuantity: isUnitLine
+                                  ? 1
+                                  : Math.min(
+                                      closeItemReturnedQuantity,
+                                      selectedCloseItem.quantity,
+                                    ),
+                                ...(closeItemBillingRentalType
+                                  ? {
+                                      billingRentalType:
+                                        closeItemBillingRentalType,
+                                    }
+                                  : {}),
+                                ...(partialFlowAllowed &&
+                                closeItemReturnedQuantity <
+                                  selectedCloseItem.quantity &&
+                                closeItemNewRentalType
+                                  ? {
+                                      remainderRentalType:
+                                        closeItemNewRentalType,
+                                    }
+                                  : {}),
+                                ...additionalPayload,
+                              },
+                            ],
+                          })
+                        : await rentalService.closeRentalItem(
+                            id,
+                            selectedCloseItem.itemId,
+                            {
+                              returnDate: returnDateIso,
+                              ...(informativeReturnDatePayload
+                                ? {
+                                    informativeReturnDate:
+                                      informativeReturnDatePayload,
+                                  }
+                                : {}),
+                              unitId: selectedCloseItem.unitId,
+                              ...(selectedCloseItem.lineId
+                                ? { lineId: selectedCloseItem.lineId }
+                                : {}),
+                              ...additionalPayload,
+                            },
+                          );
 
                       /** Remainder type passa junto na devolução parcial (/returns); evita segunda chamada com lineId antigo. */
                       setCloseItemModal(false);
@@ -6253,6 +6284,7 @@ const RentalDetailPage: React.FC = () => {
                       toast.success(
                         "Devolução processada. O fechamento foi gerado e já pode ser vinculado a uma cobrança no Financeiro.",
                       );
+                      offerFinalizeIfAllReturned(returnResult.data);
                     } catch (err: unknown) {
                       const message =
                         (err as { response?: { data?: { message?: string } } })
@@ -6334,23 +6366,13 @@ const RentalDetailPage: React.FC = () => {
                   </svg>
                 </div>
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Confirmar Fechamento do Aluguel
+                  Finalizar aluguel?
                 </h2>
               </div>
 
-              <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-                Todos os itens foram devolvidos e o aluguel está pronto para ser
-                finalizado. Esta ação é irreversível.
+              <p className="text-sm text-gray-600 dark:text-gray-300 mb-6">
+                Todos os itens estão devolvidos. Deseja finalizar o aluguel?
               </p>
-
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-6">
-                <p className="text-sm text-blue-800 dark:text-blue-200">
-                  <strong>Status atual:</strong> Pronto para fechar
-                </p>
-                <p className="text-sm text-blue-800 dark:text-blue-200 mt-2">
-                  <strong>Ação:</strong> Finalizar aluguel
-                </p>
-              </div>
 
               <div className="mt-6 flex justify-end gap-2">
                 <button
@@ -6358,7 +6380,7 @@ const RentalDetailPage: React.FC = () => {
                   disabled={loadingConfirmClosure}
                   className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50"
                 >
-                  Cancelar
+                  Agora não
                 </button>
                 <button
                   onClick={confirmFinalClosure}
@@ -6386,7 +6408,7 @@ const RentalDetailPage: React.FC = () => {
                       />
                     </svg>
                   )}
-                  {loadingConfirmClosure ? "Processando..." : "Confirmar Fechamento"}
+                  {loadingConfirmClosure ? "Finalizando..." : "Sim, finalizar"}
                 </button>
               </div>
             </div>
