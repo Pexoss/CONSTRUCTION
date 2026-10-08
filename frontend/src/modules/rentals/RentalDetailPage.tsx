@@ -393,20 +393,18 @@ const RentalDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const returnToFromFinance = (() => {
+  const returnToFromOrigin = (() => {
     const raw = (location.state as { returnTo?: string } | null)?.returnTo;
-    if (
-      typeof raw === "string" &&
-      raw.startsWith("/finance") &&
-      !raw.startsWith("//")
-    ) {
-      return raw;
+    if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//")) {
+      return null;
     }
+    if (raw.startsWith("/finance")) return raw;
+    if (raw === "/rentals" || raw.startsWith("/rentals?")) return raw;
     return null;
   })();
-  const rentalListBackTo = returnToFromFinance || "/rentals";
-  const rentalDetailBackTo = returnToFromFinance || "/dashboard";
-  const backLinkLabel = returnToFromFinance
+  const rentalListBackTo = returnToFromOrigin || "/rentals";
+  const rentalDetailBackTo = returnToFromOrigin || "/dashboard";
+  const backLinkLabel = returnToFromOrigin?.startsWith("/finance")
     ? "Voltar ao financeiro"
     : "Voltar para Aluguéis";
   const queryClient = useQueryClient();

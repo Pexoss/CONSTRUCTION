@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import {
   keepPreviousData,
@@ -64,14 +64,45 @@ function getRentalListItemMeta(item: RentalItem): string {
   return parts.join(" · ");
 }
 
+const RENTAL_LIST_STATUSES: RentalStatus[] = [
+  "reserved",
+  "active",
+  "overdue",
+  "completed",
+  "cancelled",
+  "ready_to_close",
+];
+
+function parseRentalStatusParam(value: string | null): RentalStatus | undefined {
+  if (!value) return undefined;
+  return RENTAL_LIST_STATUSES.includes(value as RentalStatus)
+    ? (value as RentalStatus)
+    : undefined;
+}
+
+function parseRentalPageParam(value: string | null): number {
+  const page = Number.parseInt(value || "1", 10);
+  return Number.isFinite(page) && page > 0 ? page : 1;
+}
+
 const RentalsPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [filters, setFilters] = useState<RentalFilters>({
-    page: 1,
-    limit: 20,
-  });
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statusFilter = parseRentalStatusParam(searchParams.get("status"));
+  const searchFilter = (searchParams.get("q") || "").trim();
+  const pageFilter = parseRentalPageParam(searchParams.get("page"));
+  const filters: RentalFilters = useMemo(
+    () => ({
+      page: pageFilter,
+      limit: 20,
+      status: statusFilter,
+      search: searchFilter || undefined,
+    }),
+    [pageFilter, statusFilter, searchFilter],
+  );
+  const [searchTerm, setSearchTerm] = useState(searchFilter);
+  const rentalsListReturnTo = `/rentals${location.search}`;
   const [itemsPopover, setItemsPopover] = useState<{
     rentalId: string;
     top: number;
@@ -90,12 +121,18 @@ const RentalsPage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (location.state?.showSuccessModal) {
+    const state = location.state as
+      | { showSuccessModal?: boolean; newRentalId?: string }
+      | null;
+    if (state?.showSuccessModal) {
       setShowModal(true);
-      setNewRentalId(location.state.newRentalId);
+      setNewRentalId(state.newRentalId ?? null);
+      navigate(`${location.pathname}${location.search}`, {
+        replace: true,
+        state: {},
+      });
     }
-  }, [location.state]);
-  window.history.replaceState({}, document.title);
+  }, [location.state, location.pathname, location.search, navigate]);
 
   const { data, isLoading, error } = useQuery<RentalsListResult>({
     queryKey: ["rentals", filters],
@@ -106,14 +143,21 @@ const RentalsPage: React.FC = () => {
   useEffect(() => {
     const trimmed = searchTerm.trim();
     const timeoutId = window.setTimeout(() => {
-      const nextSearch = trimmed || undefined;
-      setFilters((prev) => {
-        if (prev.search === nextSearch) return prev;
-        return { ...prev, search: nextSearch, page: 1 };
-      });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          const currentQ = next.get("q") || "";
+          if (currentQ === trimmed) return prev;
+          if (trimmed) next.set("q", trimmed);
+          else next.delete("q");
+          next.delete("page");
+          return next;
+        },
+        { replace: true },
+      );
     }, 350);
     return () => window.clearTimeout(timeoutId);
-  }, [searchTerm]);
+  }, [searchTerm, setSearchParams]);
 
   useEffect(() => {
     if (!itemsPopover) return;
@@ -148,7 +192,28 @@ const RentalsPage: React.FC = () => {
   }, [viewMode, filters.page, filters.status, filters.search]);
 
   const handleFilterChange = (key: keyof RentalFilters, value: any) => {
-    setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value) next.set(String(key), String(value));
+        else next.delete(String(key));
+        next.delete("page");
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  const goToPage = (page: number) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (page <= 1) next.delete("page");
+        else next.set("page", String(page));
+        return next;
+      },
+      { replace: true },
+    );
   };
 
   const toggleItemsPopover = (
@@ -397,7 +462,9 @@ const RentalsPage: React.FC = () => {
                       }}
                       onDoubleClick={(event) => {
                         event.stopPropagation();
-                        navigate(`/rentals/${rental._id}`);
+                        navigate(`/rentals/${rental._id}`, {
+                          state: { returnTo: rentalsListReturnTo },
+                        });
                       }}
                     >
                       {rental.rentalNumber}
@@ -585,7 +652,9 @@ const RentalsPage: React.FC = () => {
                             key={rental._id}
                             className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer"
                             onDoubleClick={() =>
-                              navigate(`/rentals/${rental._id}`)
+                              navigate(`/rentals/${rental._id}`, {
+                                state: { returnTo: rentalsListReturnTo },
+                              })
                             }
                           >
                             <td className="px-4 py-4 whitespace-nowrap">
@@ -716,6 +785,7 @@ const RentalsPage: React.FC = () => {
                                 {/* Ver detalhes */}
                                 <Link
                                   to={`/rentals/${rental._id}`}
+                                  state={{ returnTo: rentalsListReturnTo }}
                                   className="relative group p-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                                 >
                                   {/* Ícone olho */}
@@ -768,18 +838,14 @@ const RentalsPage: React.FC = () => {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() =>
-                    setFilters((prev) => ({ ...prev, page: prev.page! - 1 }))
-                  }
+                  onClick={() => goToPage(pagination.page - 1)}
                   disabled={pagination.page === 1}
                   className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:bg-gray-100 dark:active:bg-gray-500"
                 >
                   Anterior
                 </button>
                 <button
-                  onClick={() =>
-                    setFilters((prev) => ({ ...prev, page: prev.page! + 1 }))
-                  }
+                  onClick={() => goToPage(pagination.page + 1)}
                   disabled={pagination.page >= pagination.totalPages}
                   className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors active:bg-gray-100 dark:active:bg-gray-500"
                 >
@@ -862,6 +928,7 @@ const RentalsPage: React.FC = () => {
               <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700">
                 <Link
                   to={`/rentals/${itemsPopoverRental._id}`}
+                  state={{ returnTo: rentalsListReturnTo }}
                   className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
                   onClick={() => setItemsPopover(null)}
                 >
