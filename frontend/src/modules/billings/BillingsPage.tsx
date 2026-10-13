@@ -54,8 +54,9 @@ const BillingsPage: React.FC = () => {
 
   const { data: customersData, isLoading: customersCatalogLoading } =
     useQuery<CustomersListResult>({
-      queryKey: ["customers", "billing-list"],
-      queryFn: () => customerService.getCustomers({ limit: 500, page: 1 }),
+      queryKey: ["customers", "billing-list", { isBlocked: false }],
+      queryFn: () =>
+        customerService.getCustomers({ limit: 500, page: 1, isBlocked: false }),
     });
 
   const { data, isLoading } = useQuery({

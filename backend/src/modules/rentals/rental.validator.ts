@@ -235,7 +235,7 @@ export const correctRentalItemReturnSchema = z.object({
   lineId: z.string().optional(),
   returnDate: dateOnlyOrDateTime.optional(),
   informativeReturnDate: dateOnlyOrDateTime.optional(),
-  correctedQuantity: z.number().int().min(1).optional(),
+  correctedQuantity: z.number().int().min(0).optional(),
   billingRentalType: z
     .enum(["daily", "weekly", "biweekly", "monthly"])
     .optional(),

@@ -547,8 +547,9 @@ const FinancialCenterPage: React.FC = () => {
     data: boardCustomersCatalog,
     isLoading: boardCustomersCatalogLoading,
   } = useQuery({
-    queryKey: ["financial-board-customers-catalog"],
-    queryFn: () => customerService.getCustomers({ limit: 500, page: 1 }),
+    queryKey: ["financial-board-customers-catalog", { isBlocked: false }],
+    queryFn: () =>
+      customerService.getCustomers({ limit: 500, page: 1, isBlocked: false }),
     enabled: features.financialUnifiedModule,
   });
 

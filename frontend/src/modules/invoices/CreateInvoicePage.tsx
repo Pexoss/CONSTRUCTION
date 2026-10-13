@@ -86,7 +86,8 @@ const CreateInvoicePage: React.FC = () => {
   const { data: customersRes, isLoading: loadingCustomers } =
     useQuery<CustomersListResult>({
       queryKey: ["customers-invoice-create"],
-      queryFn: () => customerService.getCustomers({ limit: 500, page: 1 }),
+      queryFn: () =>
+        customerService.getCustomers({ limit: 500, page: 1, isBlocked: false }),
     });
 
   const { data: customerDetailRes, isLoading: loadingCustomerDetail } =

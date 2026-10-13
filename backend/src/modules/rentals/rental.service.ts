@@ -1890,6 +1890,11 @@ class RentalService {
 
     const customer = await Customer.findOne({ _id: data.customerId, companyId });
     if (!customer) throw notFound("Cliente não encontrado");
+    if (customer.isBlocked) {
+      throw badRequest(
+        "Este cliente está bloqueado e não pode ser usado em novos aluguéis.",
+      );
+    }
 
     const adminConfirmedNoCpf =
       data.confirmNoCpf === true &&
@@ -4062,6 +4067,102 @@ class RentalService {
   }
 
   /**
+   * Desfaz uma devolução já registrada: a quantidade volta ao saldo em aberto
+   * (ou reabre a própria linha) e o fechamento da devolução é removido se não estiver quitado.
+   */
+  private async undoReturnedRentalLine(
+    companyId: string,
+    rental: IRental,
+    rentalId: string,
+    userId: string,
+    returnedLine: IRentalItem,
+    remainder: IRentalItem | undefined,
+    lineSnapshot: IRentalItem,
+    oldReturnAt: Date,
+    notes?: string,
+  ): Promise<IRental> {
+    const reopenQty = Math.max(1, Math.floor(Number(returnedLine.quantity || 1)));
+    const customerIdStr = rental.customerId.toString();
+
+    await this.updateItemQuantityForRental(
+      companyId,
+      returnedLine.itemId as mongoose.Types.ObjectId,
+      reopenQty,
+      "reserve",
+      userId,
+      rental._id,
+      undefined,
+      customerIdStr,
+    );
+    await this.updateItemQuantityForRental(
+      companyId,
+      returnedLine.itemId as mongoose.Types.ObjectId,
+      reopenQty,
+      "activate",
+      userId,
+      rental._id,
+      undefined,
+      customerIdStr,
+    );
+
+    if (remainder) {
+      remainder.quantity = Number(remainder.quantity || 0) + reopenQty;
+      rental.items = (rental.items || []).filter((item) => item !== returnedLine);
+    } else {
+      const rentalType = (returnedLine.rentalType || "daily") as RentalType;
+      const pickupRaw = new Date(
+        returnedLine.pickupScheduled || rental.dates.pickupScheduled,
+      );
+      returnedLine.returnActual = undefined;
+      returnedLine.informativeReturnDate = undefined;
+      returnedLine.retroactiveOpenBilling = false;
+      if (!returnedLine.returnScheduled) {
+        returnedLine.returnScheduled = this.getPricingEndDate(
+          pickupRaw,
+          rentalType,
+        );
+      }
+      const lastBilled = returnedLine.lastBillingDate
+        ? this.normalizeDate(new Date(returnedLine.lastBillingDate))
+        : this.normalizeDate(pickupRaw);
+      returnedLine.nextBillingDate = this.getPeriodEnd(
+        this.addDays(lastBilled, 1),
+        rentalType,
+      );
+    }
+
+    await this.deleteReturnClosureBillingsForCorrection(
+      companyId,
+      rental._id,
+      rental,
+      lineSnapshot,
+      oldReturnAt,
+    );
+
+    this.refreshRentalStatusAfterReturnCorrection(rental);
+    this.recalcRentalPricingTotalsFromItems(rental);
+
+    await this.addChangeHistory(
+      rental,
+      "return_correction",
+      JSON.stringify({
+        itemId: asIdString(returnedLine.itemId),
+        lineId: returnedLine.lineId,
+        oldQuantity: reopenQty,
+        oldReturn: oldReturnAt,
+      }),
+      JSON.stringify({ cancelled: true, quantity: 0 }),
+      userId,
+      notes || "Devolução cancelada",
+    );
+
+    await rental.save();
+    await this.syncBillingsAfterRentalChange(companyId, rentalId, userId);
+    const updated = await Rental.findOne({ _id: rentalId, companyId });
+    return updated || rental;
+  }
+
+  /**
    * Admin: corrige data de cobrança, quantidade ou tipo de uma devolução já registrada.
    */
   async correctRentalItemReturn(
@@ -4120,11 +4221,27 @@ class RentalService {
     const oldQty = Number(returnedLine.quantity || 1);
     const newQty =
       payload.correctedQuantity !== undefined
-        ? Math.max(1, Math.floor(payload.correctedQuantity))
+        ? Math.max(0, Math.floor(payload.correctedQuantity))
         : oldQty;
 
-    if (isUnit && newQty !== 1) {
+    if (isUnit && newQty !== 1 && newQty !== 0) {
       throw badRequest("Itens por unidade só podem ter quantidade 1.");
+    }
+
+    const remainder = this.findOpenRemainderSibling(rental, returnedLine);
+
+    if (newQty === 0) {
+      return this.undoReturnedRentalLine(
+        companyId,
+        rental,
+        rentalId,
+        userId,
+        returnedLine,
+        remainder,
+        lineSnapshot,
+        oldReturnAt,
+        payload.notes,
+      );
     }
 
     const billingRt = (payload.billingRentalType ||
@@ -4162,7 +4279,6 @@ class RentalService {
       );
     }
 
-    const remainder = this.findOpenRemainderSibling(rental, returnedLine);
     const customerIdStr = rental.customerId.toString();
 
     if (newQty !== oldQty) {
@@ -5603,6 +5719,7 @@ class RentalService {
     const matchingCustomers = await Customer.find({
       companyId,
       name: search,
+      isBlocked: { $ne: true },
     })
       .select("_id")
       .limit(200)
@@ -7821,6 +7938,10 @@ class RentalService {
         if (keptLine) keptExisting.add(keptLine);
       }
 
+      for (const item of originalItems) {
+        if (item.returnActual) keptExisting.add(item);
+      }
+
       const itemsToRemove = originalItems.filter(
         (item) => !keptExisting.has(item),
       );
@@ -7905,6 +8026,9 @@ class RentalService {
         }
 
         if (existingItem) {
+          if (existingItem.returnActual) {
+            continue;
+          }
           const nextUnitId =
             itemUpdate.unitId != null && String(itemUpdate.unitId).trim() !== ""
               ? String(itemUpdate.unitId).trim()

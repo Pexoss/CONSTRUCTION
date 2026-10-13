@@ -14,7 +14,8 @@
     "db:init": "ts-node scripts/init-collections.ts",
     "migrate:financial:from-rentals": "ts-node scripts/migrate-rentals-to-financial.ts",
     "audit:financial:migration": "ts-node scripts/audit-financial-migration.ts",
-    "audit:system:consistency": "ts-node scripts/audit-system-consistency.ts"
+    "audit:system:consistency": "ts-node scripts/audit-system-consistency.ts",
+    "merge:duplicate-customers": "ts-node scripts/merge-duplicate-customers.ts"
   },
   "keywords": [],
   "author": "",

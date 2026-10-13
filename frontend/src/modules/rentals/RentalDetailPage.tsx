@@ -1222,6 +1222,37 @@ const RentalDetailPage: React.FC = () => {
     setCloseItemModal(true);
   };
 
+  const finishReturnCorrection = async (correctedQuantity: number) => {
+    if (!id || !selectedCloseItem) return;
+    const cancelReturn = correctedQuantity <= 0;
+    await rentalService.correctRentalItemReturn(id, {
+      itemId: selectedCloseItem.itemId,
+      unitId: selectedCloseItem.unitId,
+      ...(selectedCloseItem.lineId
+        ? { lineId: selectedCloseItem.lineId }
+        : {}),
+      ...(cancelReturn
+        ? { correctedQuantity: 0 }
+        : {
+            correctedQuantity: rentalLineHasUnitTracked(selectedCloseItem.unitId)
+              ? 1
+              : correctedQuantity,
+          }),
+    });
+    setCloseItemModal(false);
+    setCloseItemMode("close");
+    queryClient.invalidateQueries({ queryKey: ["rental", id] });
+    queryClient.invalidateQueries({ queryKey: ["rentals"] });
+    queryClient.invalidateQueries({ queryKey: ["rental-billings", id] });
+    queryClient.invalidateQueries({ queryKey: ["billings"] });
+    queryClient.invalidateQueries({ queryKey: ["financial-board"] });
+    toast.success(
+      cancelReturn
+        ? "Devolução cancelada. A quantidade voltou para o que ainda está alugado."
+        : "Devolução corrigida com sucesso.",
+    );
+  };
+
   const loadCloseItemPreview = useCallback(async () => {
     if (!id || !selectedCloseItem || !closeItemModal || closeItemMode !== "close") {
       return;
@@ -1818,18 +1849,24 @@ const RentalDetailPage: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const updated = editForm.items.filter(
-                                  (_, i) => i !== index,
-                                );
-                                setEditForm({ ...editForm, items: updated });
-                              }}
-                              className="text-xs text-red-600 hover:text-red-700"
-                            >
-                              Remover
-                            </button>
+                            {isReturned ? (
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                Devolvido — sem alteração
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = editForm.items.filter(
+                                    (_, i) => i !== index,
+                                  );
+                                  setEditForm({ ...editForm, items: updated });
+                                }}
+                                className="text-xs text-red-600 hover:text-red-700"
+                              >
+                                Remover
+                              </button>
+                            )}
                           </div>
                           <label className="mt-2 flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
                             <input
@@ -1935,6 +1972,7 @@ const RentalDetailPage: React.FC = () => {
                               </label>
                               <select
                                 value={item.rentalType}
+                                disabled={isReturned}
                                 onChange={(e) => {
                                   const newType = e.target.value as RentalTypeUI;
                                   const updated = [...editForm.items];
@@ -1962,7 +2000,7 @@ const RentalDetailPage: React.FC = () => {
                                     items: updated,
                                   });
                                 }}
-                                className="w-full px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                className="w-full px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-60"
                               >
                                 <option value="diario">Diário</option>
                                 <option value="semanal">Semanal</option>
@@ -4069,15 +4107,79 @@ const RentalDetailPage: React.FC = () => {
                               {isAdminUser &&
                                 rental.status !== "completed" &&
                                 rental.status !== "cancelled" && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleAbrirCorrecaoDevolucao(item)
-                                    }
-                                    className="mt-2 inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50"
-                                  >
-                                    Corrigir devolução
-                                  </button>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleAbrirCorrecaoDevolucao(item)
+                                      }
+                                      className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold border border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50"
+                                    >
+                                      Corrigir devolução
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        if (
+                                          !window.confirm(
+                                            "Cancelar esta devolução? A quantidade volta para o que ainda está alugado. Fechamentos quitados impedem o cancelamento.",
+                                          )
+                                        ) {
+                                          return;
+                                        }
+                                        try {
+                                          const itemId =
+                                            typeof item.itemId === "string"
+                                              ? item.itemId
+                                              : item.itemId._id;
+                                          await rentalService.correctRentalItemReturn(
+                                            id!,
+                                            {
+                                              itemId,
+                                              unitId: item.unitId,
+                                              ...(typeof item.lineId ===
+                                                "string" && item.lineId.trim()
+                                                ? { lineId: item.lineId.trim() }
+                                                : {}),
+                                              correctedQuantity: 0,
+                                            },
+                                          );
+                                          queryClient.invalidateQueries({
+                                            queryKey: ["rental", id],
+                                          });
+                                          queryClient.invalidateQueries({
+                                            queryKey: ["rentals"],
+                                          });
+                                          queryClient.invalidateQueries({
+                                            queryKey: ["rental-billings", id],
+                                          });
+                                          queryClient.invalidateQueries({
+                                            queryKey: ["billings"],
+                                          });
+                                          queryClient.invalidateQueries({
+                                            queryKey: ["financial-board"],
+                                          });
+                                          toast.success(
+                                            "Devolução cancelada. A quantidade voltou para o que ainda está alugado.",
+                                          );
+                                        } catch (err: unknown) {
+                                          const message =
+                                            (
+                                              err as {
+                                                response?: {
+                                                  data?: { message?: string };
+                                                };
+                                              }
+                                            )?.response?.data?.message ??
+                                            "Não foi possível cancelar a devolução.";
+                                          toast.error(message);
+                                        }
+                                      }}
+                                      className="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold border border-red-300 text-red-800 bg-red-50 hover:bg-red-100 dark:border-red-700 dark:text-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50"
+                                    >
+                                      Cancelar devolução
+                                    </button>
+                                  </div>
                                 )}
                             </div>
                           )}
@@ -5788,7 +5890,7 @@ const RentalDetailPage: React.FC = () => {
                     </label>
                     <input
                       type="number"
-                      min={1}
+                      min={closeItemMode === "correct" ? 0 : 1}
                       max={
                         closeItemMode === "correct"
                           ? maxCorrectedQty
@@ -5797,19 +5899,26 @@ const RentalDetailPage: React.FC = () => {
                       value={closeItemReturnedQuantity}
                       onFocus={selectInputText}
                       onClick={selectInputText}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const minQty = closeItemMode === "correct" ? 0 : 1;
+                        const maxQty =
+                          closeItemMode === "correct"
+                            ? maxCorrectedQty
+                            : selectedCloseItem.quantity;
+                        const raw = Number(e.target.value);
+                        const next = Number.isFinite(raw) ? raw : minQty;
                         setCloseItemReturnedQuantity(
-                          Math.max(
-                            1,
-                            Math.min(
-                              selectedCloseItem.quantity,
-                              Number(e.target.value || 1),
-                            ),
-                          ),
-                        )
-                      }
+                          Math.max(minQty, Math.min(maxQty, next)),
+                        );
+                      }}
                       className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                     />
+                    {closeItemMode === "correct" ? (
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Use 0 para cancelar esta devolução e devolver a
+                        quantidade ao que ainda está alugado.
+                      </p>
+                    ) : null}
                   </div>
                 )}
 
@@ -6120,8 +6229,34 @@ const RentalDetailPage: React.FC = () => {
                   }}
                   className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
                 >
-                  Cancelar
+                  Fechar
                 </button>
+                {closeItemMode === "correct" ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (
+                        !window.confirm(
+                          "Cancelar esta devolução? A quantidade volta para o que ainda está alugado. Fechamentos quitados impedem o cancelamento.",
+                        )
+                      ) {
+                        return;
+                      }
+                      try {
+                        await finishReturnCorrection(0);
+                      } catch (err: unknown) {
+                        const message =
+                          (err as { response?: { data?: { message?: string } } })
+                            ?.response?.data?.message ??
+                          "Não foi possível cancelar a devolução.";
+                        toast.error(message);
+                      }
+                    }}
+                    className="px-4 py-2.5 border border-red-300 dark:border-red-700 rounded-lg text-sm font-medium text-red-700 dark:text-red-300 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-950/40"
+                  >
+                    Cancelar devolução
+                  </button>
+                ) : null}
                 <button
                   onClick={async () => {
                     if (!selectedCloseItem || !id) return;
@@ -6155,6 +6290,10 @@ const RentalDetailPage: React.FC = () => {
                           : {};
 
                       if (closeItemMode === "correct") {
+                        if (closeItemReturnedQuantity <= 0) {
+                          await finishReturnCorrection(0);
+                          return;
+                        }
                         await rentalService.correctRentalItemReturn(id, {
                           itemId: selectedCloseItem.itemId,
                           unitId: selectedCloseItem.unitId,

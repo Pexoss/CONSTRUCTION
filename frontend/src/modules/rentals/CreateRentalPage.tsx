@@ -418,6 +418,7 @@ const CreateRentalPage: React.FC = () => {
       queryFn: () =>
         customerService.getCustomers({
           search: debouncedCustomerSearch,
+          isBlocked: false,
           limit: 100,
         }),
       enabled: !selectedCustomer && debouncedCustomerSearch.length > 0,
@@ -437,6 +438,7 @@ const CreateRentalPage: React.FC = () => {
     const list: Customer[] = customersData?.data ?? EMPTY_CUSTOMERS;
     const digits = term.replace(/\D/g, "");
     return list
+      .filter((customer: Customer) => !customer.isBlocked)
       .filter((customer: Customer) => {
         if (
           matchesAnyAccentInsensitive(
