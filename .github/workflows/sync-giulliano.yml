@@ -1,0 +1,70 @@
+name: Sync Giulliano -> main
+
+# Traz automaticamente as novidades de GiullianoDias/rentalConstruction (branch Controle-Aprovacao)
+# para a main deste repositório. O Railway já faz o deploy a cada push na main.
+# Usa MERGE (nunca reset/force push): preserva o histórico e o próprio workflow.
+# Se houver conflito, o merge é abortado e este workflow falha (você recebe e-mail do GitHub).
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # a cada 5 minutos
+  workflow_dispatch:         # botão "Run workflow" na aba Actions
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-giulliano
+  cancel-in-progress: false
+
+env:
+  SOURCE_REPO: GiullianoDias/rentalConstruction
+  SOURCE_BRANCH: Controle-Aprovacao
+  TARGET_BRANCH: main
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar segredo de acesso
+        id: guard
+        env:
+          GIULLIANO_TOKEN: ${{ secrets.GIULLIANO_TOKEN }}
+        run: |
+          if [ -z "$GIULLIANO_TOKEN" ]; then
+            echo "::notice::Segredo GIULLIANO_TOKEN ainda não configurado. Nada a fazer."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout da main
+        if: steps.guard.outputs.ready == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+
+      - name: Buscar a branch do Giulliano
+        if: steps.guard.outputs.ready == 'true'
+        env:
+          GIULLIANO_TOKEN: ${{ secrets.GIULLIANO_TOKEN }}
+        run: |
+          git remote add giulliano "https://x-access-token:${GIULLIANO_TOKEN}@github.com/${SOURCE_REPO}.git"
+          git fetch giulliano "${SOURCE_BRANCH}"
+
+      - name: Fazer merge se houver novidades
+        if: steps.guard.outputs.ready == 'true'
+        run: |
+          git config user.name "sync-giulliano[bot]"
+          git config user.email "sync-giulliano@users.noreply.github.com"
+          if git merge-base --is-ancestor "giulliano/${SOURCE_BRANCH}" HEAD; then
+            echo "Sem novidades: a main já contém ${SOURCE_BRANCH}."
+            exit 0
+          fi
+          if ! git merge --no-edit -m "chore: sync ${SOURCE_BRANCH} de ${SOURCE_REPO}" "giulliano/${SOURCE_BRANCH}"; then
+            git merge --abort || true
+            echo "::error::Conflito ao mesclar ${SOURCE_BRANCH} na ${TARGET_BRANCH}. Resolva manualmente."
+            exit 1
+          fi
+          git push origin "HEAD:${TARGET_BRANCH}"
